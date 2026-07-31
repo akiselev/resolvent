@@ -5,11 +5,21 @@ working notes it was.
 **Inputs.** `docs/research/consumer-sinbad.md` (E1), `consumer-cadabra2.md` (E2),
 `consumer-solverang.md` (E3); the two adversarial reviews `challenge-generality.md` (X1)
 and `challenge-evidence.md` (X2), **which are authoritative wherever they contradict the
-evaluations or the earlier API notes**; `plans/architecture.md` and
-`docs/decisions/ADR-001…018`, written in parallel from the algorithm/verification side.
-Where the architecture track and the consumer track disagreed, the resolution and its
-reason are recorded in `docs/decisions/RECONCILIATION.md`; this document states the
-outcome only.
+evaluations or the earlier API notes**; `DESIGN.md` and `docs/decisions/ADR-001…025`,
+written in parallel from the algorithm/verification side.
+
+**Precedence (ADR-021 §1).** ADRs are normative. This document is normative for
+consumer-facing *shape* — which capabilities are core, adapter, or out of scope; how the
+200-line test is reported; the consumer dossiers. Where this document states a
+**signature**, the authority is this document **plus the named ADR**, and where they differ
+the ADR governs the signature while this document governs whether the capability exists at
+all. `DESIGN.md` is normative for layering and internal structure.
+
+Where the architecture track and the consumer track disagreed, the resolution is recorded
+in **ADR-021's contradiction register**; the residue — divergences that survived both
+tracks and were found by a line-by-line audit on 2026-07-31 — is in
+`docs/decisions/RECONCILIATION.md`, which is a dated audit record and is normative for
+nothing. This document states outcomes only.
 
 Every claim about an existing repository is cited to a file and a line. Nothing here
 invents a benchmark. Numbers that were measured are labelled measured; numbers that were
@@ -66,7 +76,7 @@ Operationally that means three things, in priority order:
 1. **Nothing consumer-specific reaches the public API.** No type, trait, method, name, or
    feature flag that mentions or presumes a consumer's domain. Features are
    capability-named (`parallel`, `serde`, `number-fields`). Verified by grep gates L4 and
-   L5 (`plans/architecture.md` §1.3).
+   L5 (`DESIGN.md` §3.5).
 2. **A consumer plugs in by writing a thin adapter it owns.** resolvent ships no adapter
    crates and takes no optional dependency on any ecosystem crate. Integration is the
    consumer depending on resolvent, plus glue neither side owns.
@@ -146,8 +156,8 @@ here (§7), and the cadabra2 figure is restated at its **measured** range.
 
 ### 1.4 What this document does not do
 
-It does not decide the ordering of work; that is `plans/roadmap.md`, with the corrections
-in `docs/decisions/RECONCILIATION.md` §4. It does not decide algorithm choice; that is
+It does not decide the ordering of work; that is `ROADMAP.md`, with the corrections
+proposed in `docs/decisions/RECONCILIATION.md` §5. It does not decide algorithm choice; that is
 `docs/research/algorithms-and-representation.md`. Where it states a *signature*, the
 authority is this document plus the named ADR; where it states a *number*, the authority
 is the evaluation that measured it.
@@ -187,13 +197,13 @@ and "no global monomial interner". These are reconcilable and are now reconciled
 sentence: **the arena is owned by the `Ring` context value and is reached through it
 explicitly; there is no global or implicit interner.** Whether terms carry
 `(MonomialId, C)` into a shared arena or `(PackedMon, C)` inline remains open and is
-settled by the microbenchmark in `plans/roadmap.md` §2.5 contradiction 2 — that
-experiment decides the *term type*, not the ownership rule.
+settled by lane **E-MONO** — the recorded-S-pair-trace replay specified in ADR-008 and
+`DESIGN.md` §10.2 — before the multivariate trunk starts. That experiment decides the
+*term type*, not the ownership rule.
 
 Because `MPoly` must be `Send + Sync` and must not carry a lifetime (§2.1), it carries its
 ring by an **owned handle** (`Arc<Ring>` or an index into a caller-held ring table), never
-as `&'a Ring`. `plans/architecture.md` §5.2's phrase "borrows `&Ring` by handle" is read
-in that sense and should be restated in those words.
+as `&'a Ring` (ADR-007, ADR-020 §2, `DESIGN.md` §5.2).
 
 ### 2.3 Handle identity, and the hazard that is not closed
 
@@ -222,18 +232,18 @@ Three changes, all cheap now:
 
 ### 2.4 The crate layout
 
-The layout is `plans/architecture.md` §1.1 and `ADR-005`, unchanged, with one framing
+The layout is `DESIGN.md` §3.3 and `ADR-005`, unchanged, with one framing
 correction. The earlier notes proposed a zero-dependency `resolvent-seam` crate pitched as
 "the single highest-leverage hook" for the surrounding ecosystem. That crate does not
 exist. `resolvent-base` carries `Sign`, `Verdict`, the `Ring` trait tower and its
 orthogonal markers, `Error`, `Unsupported`, `Budget`, `Certified`, `Certainty`,
-`ProofKind`, and the canonical serializer, and it is **resolvent's own base, not an
-ecosystem standard**. §3.5 states why that framing change is load-bearing rather than
-cosmetic.
+`ProofKind`, `Certificate<C: Claim>`, and the canonical serializer, and it is
+**resolvent's own base, not an ecosystem standard**. §3.5 states why that framing change is
+load-bearing rather than cosmetic.
 
 `resolvent-base` has no third-party dependency except `thiserror`. A consumer that
 implements `Ring` for its own coefficient type depends on `resolvent-base` alone and never
-sees a version-pinned bignum in its tree (`plans/architecture.md` §1.2). Whether the crate
+sees a version-pinned bignum in its tree (`DESIGN.md` §3.4). Whether the crate
 can be `#![no_std]` is an open item in §10: nothing in its contents needs `alloc`, and if
 `Error` grows a `String` or a `Box` the claim fails — which is exactly why `Error` is
 `String`-free by invariant (§9, INV-5).
@@ -257,7 +267,7 @@ disagreed outright.
 
 The earlier notes answered (1) with a **sealed set** `{Rational, Integer, FpElem, NfElem}`
 and (2) with an **open six-method `Scalar` trait** in a zero-dependency crate.
-`plans/architecture.md` §2.3 and `ADR-006` answered (1) with an **open trait tower** and
+`DESIGN.md` §5.1 and `ADR-006` answered (1) with an **open trait tower** and
 (2) with nothing at all.
 
 ### 3.2 The decision
@@ -265,11 +275,27 @@ and (2) with an **open six-method `Scalar` trait** in a zero-dependency crate.
 > **One open trait tower, in `resolvent-base`, covering both questions. No second,
 > ops-surface scalar trait, and no `resolvent-seam` crate.** (ADR-019)
 
+**ADR-006 is the authority on the signature below and it was amended on 2026-07-31.** The
+block that stood here before that date was the pre-amendment one and it does not compile:
+`zero`/`one` were receiverless, which five of the seven rings in the instantiation set
+cannot implement; `Liftable: Ring` named `Self::Image`, an associated type of `Reducible`;
+and `Reducible::Image: Field` is false over an algebraic extension at a split prime. This
+is the corrected tower, reproduced verbatim from ADR-006 §Decision.
+
 ```rust
 pub trait Ring: Clone + PartialEq + Send + Sync + 'static {
     const LANES: usize;              // 1 for scalar rings; 4 for the batched tuple ring
     type Scalar: Ring;               // Self when LANES == 1
-    fn zero() -> Self;  fn one() -> Self;
+
+    /// Ring-identifying data an element cannot carry statically.
+    /// `()` for Integer and Rational (zero-sized); `FpParams` for Fp, which already
+    /// carries it by value, so `ctx()` is free.
+    type Ctx: Clone + PartialEq + Send + Sync + 'static;
+    fn zero(ctx: &Self::Ctx) -> Self;
+    fn one(ctx: &Self::Ctx) -> Self;
+    fn ctx(&self) -> &Self::Ctx;
+
+    // Element-to-element, by reference. No context ever enters an inner loop.
     fn add(&self, r: &Self) -> Self; fn sub(&self, r: &Self) -> Self;
     fn mul(&self, r: &Self) -> Self; fn neg(&self) -> Self;
     fn is_zero(&self) -> bool;
@@ -285,12 +311,32 @@ pub trait EuclideanDomain: CommutativeRing { fn div_rem(&self, d: &Self) -> Opti
 pub trait UniqueFactorizationDomain: CommutativeRing { /* content, primitive part */ }
 
 // Orthogonal capability markers. Absence is a capability statement, not a defect.
-pub trait Ordered:  Ring { fn sign(&self) -> Sign; }               // Integer, Rational. NOT Fp.
-pub trait Reducible: Ring { type Image: Field;
-    fn reduce(&self, m: &Modulus) -> Option<Self::Image>; }
-pub trait Liftable:  Ring { fn crt_lift(images: &[Self::Image], moduli: &[Modulus]) -> Result<Self>; }
-pub trait BulkOps:   Ring { fn axpy(dst: &mut [Self], a: &Self, src: &[Self]); /* … */ }
+pub trait Ordered: Ring { fn sign(&self) -> Sign; }                // Integer, Rational. NOT Fp.
+
+pub trait Reducible: Ring {
+    /// NOT `Field`: reduction of an algebraic-extension element mod p lands in a product
+    /// ring whenever p splits, and for ℚ(√2,√3) no prime is inert at all.
+    type Image: CommutativeRing;
+    fn reduce(&self, m: &Modulus) -> Result<Self::Image, BadPrime>;
+}
+pub trait Liftable: Reducible {                                    // NOT `Ring`
+    fn crt_lift(images: &[Self::Image], moduli: &[Modulus]) -> Result<Self>;
+}
+
+/// Only for `LANES > 1`. A batched lane must be able to report *which* lane failed, or the
+/// driver cannot split the batch.
+pub trait BatchField: Ring { fn inv_batch(&self) -> Result<Self, LaneMask>; }
+
+// There is NO `BulkOps`. Bulk GF(p) kernels are free functions over concrete types in
+// `resolvent-modular`, selected by one `match` on the ring tag per phase (ADR-006 §Tier M).
 ```
+
+`Ctx` is what makes the tower implementable without putting a ring object in the arithmetic
+path: only *construction* consults a context, and construction is per-call, which is
+ADR-006's own boundary rule. A consequence visible to consumers: `UPoly<C>` and `MPoly<C>`
+store one `C::Ctx` alongside their coefficients — which they need regardless, since a
+`UPoly<Fp>` that does not know its own `p` cannot be printed, serialized, or compared. For
+`C = Integer` that field is zero-sized.
 
 Three properties of this shape do the work:
 
@@ -299,9 +345,10 @@ previously used to *reject* an open coefficient trait — that it "pushes bignum
 obligations into a type whose entire purpose was to be word-sized" — is an argument
 against a *badly factored* trait, and X1 §2 caught it being used six paragraphs later to
 *justify* an open evaluation trait on the identical grounds. This tower is the well-
-factored version: `Ring` is seven methods plus three defaulted ones, and the bignum-shaped
-duties (`reduce`, `crt_lift`, content, primitive part) live in markers a word-sized type
-simply does not implement.
+factored version: `Ring` is eight methods plus three defaulted ones and one associated type
+that is `()` for every context-free ring, and the bignum-shaped duties (`reduce`,
+`crt_lift`, content, primitive part) live in markers a word-sized type simply does not
+implement.
 
 **(b) The fast path is bounded by capability, not by identity.** The modular pipeline is
 `where C: Reducible + Liftable`. A consumer's ring that cannot be reduced mod p **cannot
@@ -318,6 +365,15 @@ given generic text is written against.
 `Ord` is **not** required on `Ring`. The batched tuple ring (four residues at once) has no
 meaningful order, and requiring `Ord` would close that door permanently (ADR-006).
 Sign-dependent algorithms carry `C: Ordered` explicitly.
+
+**`reduce` is fallible and `Reducible::Image` is only a `CommutativeRing`, and that is not
+defensive coding.** For ℚ(α) with minimal polynomial `f`, reduction mod `p` lands in
+`GF(p)[x]/(f mod p)`, which is a field only when `p` is inert — and for the multiquadratic
+towers geometry actually produces (ℚ(√2, √3), Galois group `(ℤ/2)²`, no 4-cycle) **no prime
+is inert**, so the old bound had no valid implementation at all. The consumer-visible
+consequence is stated in §4.1 L3-8 and §8.2(b): the fast modular path over a number field
+is a *lane* (multi-modular over split factors), not an instantiation, and a `Reducible`
+impl that cannot honestly reduce returns `Err(BadPrime)` rather than a zero divisor.
 
 **The consequence that must be stated plainly:** `Ring: Send + Sync + 'static` is a real
 bound. A blanket impl from an ops-surface trait in a glue crate — `impl<T: SomeOpsTrait>
@@ -355,7 +411,7 @@ Three facts settle it:
    surface* and "not an algebraic claim" — `Interval` implements it too. resolvent's
    `Ring` is an algebraic claim: `Field::inv` means a multiplicative inverse, not a
    best-effort division. Two similarly-named traits with different contracts across an
-   adapter boundary is a bug generator (`plans/architecture.md` §5.6, ADR-018 §6.4).
+   adapter boundary is a bug generator (`DESIGN.md` §9.5, ADR-018 §6.4, ADR-019 §4).
 
 So: `Interval<f64>` is not a `Ring` and resolvent does not ship one (ADR-015). A consumer
 that wants one algorithm text at three tiers — cadabra2's de Boor, rendered at T0/T1/T2 —
@@ -381,12 +437,17 @@ requires.**
 
   ```rust
   impl<C: Ring> UPoly<C> {
-      pub fn map_coefficients<D: Ring, E>(&self, f: impl Fn(&C) -> Result<D, E>)
+      pub fn map_coefficients<D: Ring, E>(&self, ctx: D::Ctx, f: impl Fn(&C) -> Result<D, E>)
           -> Result<UPoly<D>, E>;
       pub fn eval_horner(&self, at: &C) -> C;      // same ring. No hom parameter.
   }
   impl MPoly<C> { /* the same two, plus `derivative(var)` */ }
   ```
+
+  The target `ctx` is a parameter and not inferred from the mapped elements: a polynomial
+  every one of whose coefficients maps to zero has no element to read a context from, and
+  `UPoly<Fp>` must know its `p` to exist at all (§3.2). ADR-019 §6's block predates the
+  `Ctx` correction and omits it.
 
   There is no `evaluate_with(hom, point)`. X1 §5.2 caught the earlier acceptance sketch
   folding a ℚ→GF(p) reduction into the innermost column loop — a bignum reduction on
@@ -445,7 +506,7 @@ Legend: **S** = sinbad, **C** = cadabra2, **V** = `/home/dev/projects/solverang`
 | L0-5 | A public float `Interval` type | C (already owns one) | **out of scope** | — | ADR-015. Two enclosure semantics at one adapter boundary produce a wrong *verdict*, not a wrong number. The incumbent is 431 lines and works. resolvent's internal dyadic filter is private. |
 | L0-6 | `Fp` — prime field, **runtime** modulus, `Copy` word-sized elements | V explicit; C explicitly does not want it user-facing | **core, public** | (b) | Every modular method needs it internally; making it public costs zero marginal implementation. E3 §5's ask is that it be callable with **no forced CRT/rational-reconstruction lift** — solverang never wants the ℚ answer. cadabra2 pays nothing by not importing the module. |
 | L0-7 | Seeded uniform random points over GF(p) | V explicit, S as a prohibition on the alternative | **core** | (a) | Schwartz–Zippel, sparse interpolation and modular gcd all need it. The seed is a parameter, never ambient. |
-| L0-8 | `GF(p^k)` | none of the three | **core, public** | (c) | §4.2. Already built by `plans/architecture.md:57` and scheduled at `roadmap.md:90`. Zero marginal implementation given the modular layer. Its absence was the single defect that made a cryptography consumer fail the 200-line test outright (X1 §1.3). |
+| L0-8 | `GF(p^k)` | none of the three | **core, public** | (c) | §4.2. Already in scope at `DESIGN.md` §1.2 (L0) and scheduled in `ROADMAP.md` M1 (lane Z3). Zero marginal implementation given the modular layer. Its absence was the single defect that made a cryptography consumer fail the 200-line test outright (X1 §1.3). |
 | L0-9 | `Zn` for composite n | none | **core** | (c) | Same lane, same argument, already scheduled. Cheap, and its absence is arbitrary once GF(p^k) is in. |
 | L0-10 | `SqrtExt` — `a + b√r` with a total order **across distinct radicands** | C | **core** | (b) | Not merely a degree-2 convenience: `arrangements/crates/arrangements/src/geoms/circle_segments.rs` is 931 lines that use `SqrtExt` exclusively and never import `RealRoot` or `QPoly`, and `cmp_cross` has 31 call sites (ADR-014 §4). Subsuming it into `AlgebraicReal` would be a large silent regression on the cheapest and most common case. |
 | L0-11 | `NumberField` — ℚ(α) with a known minimal polynomial, degenerate-tower detection | C (three fail-closed sites) | **core, `number-fields` feature** | (b)(c) | One consumer, but it is what unblocks *number-field linear algebra* with no new resolvent linear algebra (§4.4, L2-7) and it needs factorization to exist anyway. It closes cadabra2's largest fail-closed site (`cadabra2/crates/cadabra-algorithms/src/intersection/quadric/classification.rs:78-87`, `:441-445`). |
@@ -475,19 +536,19 @@ Legend: **S** = sinbad, **C** = cadabra2, **V** = `/home/dev/projects/solverang`
 
 | # | Capability | Wanted by | Placement | Rule | Rationale |
 |---|---|---|---|---|---|
-| L2-1 | Real root isolation over ℚ with **multiplicities**, over an optional window, under a budget | C (lift-now), S (1 shipping + 1 planned) | **core** | (a)(b) | Multiplicity comes back as a pair element `(AlgebraicReal, u32)` (ADR-014 §3): available without recomputation, which is cadabra2's actual requirement (a double radicand root *is* the sheet-junction signature, `cadabra2/crates/cadabra-core/src/exact/algebraic.rs:106-108`), while remaining impossible to tie-break a comparison on. The window matters: sinbad isolates only within `[t_n, t_n+h]`. |
+| L2-1 | Real root isolation over ℤ (ℚ cleared on ingress) with **multiplicities**, over an optional window, under a budget | C (lift-now), S (1 shipping + 1 planned) | **core** | (a)(b) | Multiplicity comes back in a named struct, `IsolatedRoot { value, multiplicity }` (ADR-014 §3, amended): available without recomputation, which is cadabra2's actual requirement (a double radicand root *is* the sheet-junction signature, `cadabra2/crates/cadabra-core/src/exact/algebraic.rs:106-108`), while remaining impossible to tie-break a comparison on, and storable as one value — which a bare tuple was not, and which the incumbent's `RealRoot::multiplicity()` (`roots.rs:438`) already is. The window matters: sinbad isolates only within `[t_n, t_n+h]`. **The input is `&UPoly<Integer>`, not a square-free newtype** — see §7.5. |
 | L2-2 | Yun square-free decomposition, `gcd`, `gcd_ext`, `div_rem`, `square_free_part` | C, plus every internal path | **core** | (a)(b) | |
 | L2-3 | `resultant` / subresultant PRS eliminating one variable | C (next milestone) | **core** | (b)(c) | resolvent needs it internally for degree bookkeeping and curve topology. E2 §3.5 is the largest net-new demand: the unbuilt torus lane is pure resultant work. `arrangements` currently reaches degree ≤ 8 by *double squaring* because no general resultant was available — that is the shape of the hole. |
 | L2-4 | Univariate factorization over ℚ (Zassenhaus, then van Hoeij) | C (degree-4 plane curve) | **core** | (b)(c) | A hard prerequisite for L0-11 (minimal polynomials) and for `canonicalize()`/`Hash` on algebraic numbers. E2 §3.4 is the cleanest single lift in the whole evaluation: one general capability replaces three hand-coded circle strata *and* covers the generic case they were carved out of. |
 | L2-5 | Factorization over GF(p) — distinct-degree / equal-degree, public | none of the three | **core, public** | (b)(c) | An internal step of L2-4, so the code exists; the same "zero marginal implementation" argument that made L0-6 public applies and was simply not applied. It is also the one factorization with a **complete** certificate (irreducibility over a finite field is decidable and cheap). |
-| L2-6 | Dense `row_echelon` over a field returning **rank, pivot rows, dependent rows, and the transform** | V explicit, C (ℚ linear algebra) | **core, public** | (a) | The transform is not a bonus: it is solverang's `implied_by` certificate, shipped unconditionally empty at two sites (`solverang/src/system.rs:803` and `solverang/src/pipeline/analyze.rs:98`), and it is the same object as a Gröbner cofactor representation. **No lane currently builds this** — see RECONCILIATION §4. |
+| L2-6 | Dense `row_echelon` over a field returning **rank, pivot rows, dependent rows, and the transform** | V explicit, C (ℚ linear algebra) | **core, public** | (a) | The transform is not a bonus: it is solverang's `implied_by` certificate, shipped unconditionally empty at two sites (`solverang/src/system.rs:803` and `solverang/src/pipeline/analyze.rs:98`), and it is the same object as a Gröbner cofactor representation. **No milestone lands it and no lane builds it** — `ROADMAP.md` §5 attributes it to M1 while M1's "Lands" list contains no linear algebra, and `T3` is a resultant route, not a public `linalg` module. See RECONCILIATION §5. |
 | L2-7 | Fraction-free (Bareiss) determinant over an integral domain, incl. ℚ[λ] | C (2.448 ms recursive Laplace today) | **core** | (b) | The same routine L2-6 needs over non-fields, and modular determinants are internal to L2-3. **Primes must not appear in the signature**: cadabra2 asks for a fast exact determinant, and modular is *how* you give it one, not *what* it asked for (E2 §4.3). |
 | L2-8 | Sylvester inertia / congruence diagonalization | C only | **adapter** | — | The rule working correctly. cadabra2 already has 49 lines of it (`classification.rs:292-338`). Once `Ring`/`Ordered` and `NumberField` exist, that *existing* routine becomes generic and instantiates at ℚ(α) **for free** — closing cadabra2's largest fail-closed site with **zero new resolvent API**. |
 | L2-9 | Rank of a polynomial matrix at an algebraic root, by minor vanishing | C only | **adapter** | — | ~20 lines over `is_root_of` and L2-6. cadabra2 already wrote it (`classification.rs:242-260`). |
 | L2-10 | Factorization of a quadratic form into linear factors over ℚ / ℚ(√d) | C only | **adapter** | — | Diagonalize (L2-8) + square-root detection (L0-11) + split. Two lines once L0-11 exists. Replaces cadabra2's guessed factor pair plus ten-coefficient identity check (`carrier_cylinder_cylinder.rs:216-222, 561-596`). |
 | L2-11 | Gröbner / F4, ideal membership, Nullstellensatz certificate | V (eventual, gated); C zero; S zero | **core, explicitly not in the first fan-out** | (c) | E3 §0.6 is unambiguous: solverang's algebra demand is gated behind a Laman/DR-planner decomposition it has not begun, and a whole-sketch cluster is ~250 quadratics — intractable for anyone's engine. **Do not build F4 for solverang.** Build it because a CAS has one, after L0–L3 close real consumer sites. **The Nullstellensatz certificate `1 ∈ ⟨f₁…f_k⟩` decides *complex* inconsistency only; real infeasibility is not decided by it and resolvent ships no Positivstellensatz.** See §4.3. |
 | L2-12 | Topology of a real bivariate curve `G(a,b)=0` | C (next milestone) | **core, later** | (b)(c) | E2 §13 flags it as genuinely unsettled whether the torus lane needs this or whether L2-3 suffices. Working one generic plane×torus case by hand settles it. Do not build it first. |
-| L2-13 | RUR / primitive element for 0-dimensional real solving | none of the three | **core** | (c) | §4.2 and §8.2. Already in `plans/architecture.md:68` and M8. It is the mechanism that keeps `AlgebraicReal` ℚ-only *and sufficient* for a multivariate sample point. |
+| L2-13 | RUR / primitive element for 0-dimensional real solving | none of the three | **core** | (c) | §4.2 and §8.2. Already in scope at `DESIGN.md` §1.2 (L3) and scheduled in `ROADMAP.md` M8. It is the mechanism that keeps `AlgebraicReal` ℚ-only *and sufficient* for a multivariate sample point. |
 | L2-14 | Multivariate factorization at scale | nobody — both C and V reject it | **core, post-v1** | (c) | E2 §6.2: the only factorizations wanted anywhere are degree ≤ 4 in ≤ 3 variables. Sequence it last. |
 | L2-15 | BKK / mixed volume root counting | V, rejected by V | **out of scope** | — | Convex geometry over Newton polytopes, not algebra. It belongs in a polytope crate. |
 | L2-16 | Numeric root polishing, Newton/corrector, homotopy | nobody — C calls it an "attractive nuisance" | **out of scope** | — | `cadabra2/.../quadric/roots.rs:11-12` exists precisely so "no numeric root polishing enters the decision path". E3 §4 #5: continuation is a Davidenko-ODE predictor-corrector needing only the residual and Jacobian solverang already has. |
@@ -608,13 +669,19 @@ consumer calls and would not close the site one day sooner.
 pub struct Certified<T> { pub value: T, pub certainty: Certainty }
 
 pub enum Certainty { Proved(ProofKind), Probable(ProbableReason) }
+
+/// The union of the three variant sets the founding documents each declared
+/// (ADR-021 register item 9). `#[non_exhaustive]`: adding a proof kind is additive.
+#[non_exhaustive]
 pub enum ProofKind {
+    Identity,                                           // a·b/b == a and friends
+    DivisibilityAndBezout,                              // the gcd certificate — see below
     BoundDriven { bound_bits: u64, primes_used: u32 },  // Landau–Mignotte / Hadamard
-    DivisibilityAndDegree,                              // the gcd certificate
     CofactorRepresentation,                             // Gröbner: f = Σ hᵢgᵢ
-    Identity,
-    Enclosure,
+    ProductAndModularIrreducibility { primes: SmallVec<[u32; 4]> },
     RootCount,                                          // see §5.3
+    Enclosure,                                          // Bernstein / de Casteljau
+    ExhaustiveSmallCase,
 }
 
 pub struct Certificate<C: Claim> {
@@ -641,6 +708,17 @@ them independently with a from-scratch `BigInt`
 (`cadabra2/crates/cadabra-testkit/src/oracle/exact.rs:27-38`). **Unforgeable** means no
 public mint; **checkable** means public read. Both, not either.
 
+**The gcd variant is named for the Bézout witness, not for the degree half, and the rename
+is load-bearing.** `DivisibilityAndDegree` named a certificate that was retired as
+*circular*: `H|A`, `H|B` plus `deg H == deg gcd(A mod p, B mod p)` is passed by
+`fn gcd(_,_) -> 1`, because the degree half is computed by the routine under test
+(C2 §3, ADR-023 §2, `VERIFICATION.md` §14 row 2). The shipped certificate is `H|A`, `H|B`,
+**and** `(u,v)` with `u·A + v·B == H`. Leaving the old variant name in the public enum
+would advertise the retired argument to every consumer that reads a `ProofKind` and would
+tempt a future implementor back into it. `DESIGN.md` §5.4 still carries the old name; this
+document is normative for the surface and ADR-023 is normative for what the certificate is,
+and they agree on the substance.
+
 **Tether.** Every certificate carries the claim it attests, and `certifies` is structural
 equality against it, so "a transplanted certificate fails the comparison instead of riding
 along" (`cadabra2/crates/cadabra-check/src/certificate.rs:41-42`). Claims hold `Arc`-shared
@@ -665,8 +743,9 @@ answer path; where it would, it lives behind a separate entry point.**
 The earlier notes listed "isolating intervals from `isolate_roots`" as tier-F free
 evidence. X1 §1.1 is right that this is wrong twice over. The claim "`f` has exactly one
 root in `[a,b]`" is established by a Descartes/VCA sign-variation count or a Sturm chain;
-**the interval is the conclusion, not the evidence.** A consumer handed `Vec<(AlgebraicReal, u32)>`
-and nothing else cannot check an isolation result at all — it must redo the isolation.
+**the interval is the conclusion, not the evidence.** A consumer handed a bare
+`Vec<IsolatedRoot>` and nothing else cannot check an isolation result at all — it must redo
+the isolation.
 
 Why the three local consumers did not surface it: all three consume isolating intervals as
 *data*. cadabra2 uses a certificate's *presence* as an admission ticket and never reads it;
@@ -675,6 +754,10 @@ sinbad grades on the certainty tag alone; solverang has no L3 demand.
 **Fix, adopted:** `isolate_roots` returns the sign-variation witness per interval,
 `ProofKind::RootCount` names it, and the item moves from tier F to **tier C** with the
 constant factor documented. Retaining the witness is not free.
+
+**This is why the return type is `Certified<Vec<IsolatedRoot>>` and not `Vec<IsolatedRoot>`.**
+ADR-014 §3's signature omits the `Certified` wrapper, which predates this correction; a bare
+`Vec` has nowhere to put the witness. See §7.5.
 
 ### 5.4 Composition with a consumer's grading lattice — illustrative, never normative
 
@@ -1017,7 +1100,7 @@ per-operation.**
 
 ```rust
 // crates/solverang/src/events/exact_roots.rs
-use resolvent::{Rational as Q, UPoly, Integer, Budget, isolate_roots_in, AlgebraicReal};
+use resolvent::{Rational as Q, UPoly, Integer, Budget, isolate_roots, AlgebraicReal};
 
 fn crossings_in_step(coeffs: &[f64], h: f64, budget: Budget)
     -> Result<Vec<(Q, Q)>, Decline>
@@ -1026,18 +1109,22 @@ fn crossings_in_step(coeffs: &[f64], h: f64, budget: Budget)
     for &a in coeffs {
         c.push(Q::try_from_f64(a).map_err(|_| Decline::CannotCertify)?);   // fails closed
     }
-    let (p, _den) = UPoly::<Q>::from_coeffs_low_to_high(c).clear_denominators(); // -> UPoly<Integer>
+    let (p, _den) = UPoly::<Q>::from_coeffs_low_to_high((), c).clear_denominators(); // UPoly<Integer>
     let hi = Q::try_from_f64(h).map_err(|_| Decline::CannotCertify)?;
-    let roots = isolate_roots_in(&p, &Q::ZERO, &hi, budget)
+    let roots = isolate_roots(&p, Some((&Q::ZERO, &hi)), budget)   // window, not a second fn
         .map_err(|e| if e.is_decline() { Decline::Budget } else { Decline::CannotCertify })?;
-    Ok(roots.value.into_iter().map(|(r, _mult)| r.bounds()).collect())
+    Ok(roots.value.into_iter().map(|r| r.value.bounds()).collect())   // IsolatedRoot.value
 }
 ```
 
 Uses L0-2, L1-1, L2-1, L3-2, X-1. **resolvent changes: none.** Note what changed against
-the earlier sketch: no `Interval<Q>` type appears (ADR-015), the square-free precondition
-is discharged inside `isolate_roots_in` rather than by a caller-visible `SqfrPoly`
-constructor, and multiplicity comes back as a pair element rather than a field.
+the earlier sketch: no `Interval<Q>` type appears (ADR-015); the window is an
+`Option<(&Rational, &Rational)>` parameter on `isolate_roots` rather than a second
+`isolate_roots_in` entry point; multiplicity comes back inside `IsolatedRoot` rather than as
+a pair element or a field (ADR-014 §3, amended); and `UPoly<C>::from_coeffs_low_to_high`
+takes a `C::Ctx` first argument, which is `()` for ℚ (§3.2). The **square-free precondition
+is discharged inside `isolate_roots`, which takes a `&UPoly<Integer>`** — see §7.5 for why
+that is the right side of a live divergence with `DESIGN.md`.
 
 **Verdict: all three pass, on both numbers, comfortably.** The seam *is* the adapter here.
 
@@ -1108,7 +1195,13 @@ impl ExactScalar {
     /* ~15 more constructors and predicates the shipped type has and resolvent does not owe */
 }
 // ONE seam, not three: no Scalar/ScalarOrd/TryDiv triple.
-impl Ring            for ExactScalar { /* 7 fns, one line each; in-place forms defaulted */ }
+impl Ring            for ExactScalar {
+    const LANES: usize = 1;
+    type Scalar = Self;
+    type Ctx    = ();                                  // context-free ring: `ctx()` is free
+    /* zero(&()), one(&()), ctx(), add, sub, mul, neg, is_zero — one line each;
+       the three in-place forms are defaulted and not overridden */
+}
 impl CommutativeRing for ExactScalar {}
 impl Field           for ExactScalar { fn inv(&self) -> Option<Self> { self.0.inv().map(Self) } }
 impl Ordered         for ExactScalar { fn sign(&self) -> Sign { self.0.sign() } }
@@ -1130,6 +1223,8 @@ pub struct AlgebraicNumber(AlgebraicReal);          // Ord is resolvent's; no Rc
 impl AlgebraicNumber {
     pub fn is_root_of(&self, h: &UPoly<Integer>) -> bool { self.0.is_root_of(h) }
     pub fn sign_of(&self, h: &UPoly<Integer>) -> Sign    { self.0.sign_of(h) }   // total
+    /// Total: the separation bound makes the loop bound-derived, so this is INV-6 regime 1.
+    /// The budgeted sibling `try_rational_between(.., Budget)` exists for latency callers.
     pub fn between(a: &Self, b: &Self) -> ExactScalar {
         ExactScalar(resolvent::rational_between(&a.0, std::slice::from_ref(&b.0)))
     }                                                // replaces TWO hand-rolled 256-step loops
@@ -1154,7 +1249,8 @@ is stated in those terms rather than as "all three adapters pass".
 
 ```rust
 // crates/solverang/src/exact/mod.rs
-use resolvent::{Fp, FpElem, MPoly, Rational as Q, Ring as PolyRing, Order, linalg};
+use resolvent::{FpParams, FpElem, MPoly, Rational as Q, Ring as PolyRing, Order, linalg};
+use resolvent::base::Ring;                             // for FpElem::zero(&ctx)
 use crate::{constraint::Constraint, id::ParamId, param::SolverMapping};
 
 /// Consumer-side trait. Lives in solverang. Resolvent knows nothing about it.
@@ -1168,7 +1264,7 @@ pub fn generic_rank(
     mapping: &SolverMapping,
     seed: u64,
 ) -> Option<GenericRank> {
-    let fp    = Fp::new(2_147_483_647).ok()?;                     // runtime modulus     L0-6
+    let fp    = FpParams::new(2_147_483_647).ok()?;               // runtime modulus     L0-6
     let n     = mapping.len();
     let point = fp.random_point(n, seed);                         // seeded, never ambient L0-7
 
@@ -1181,11 +1277,11 @@ pub fn generic_rank(
         let local: Vec<FpElem> = cols.iter().map(|&j| point[j]).collect();
         for f in &polys {
             // HOISTED, once per polynomial: the Q -> GF(p) reduction never enters a loop.
-            let f_p: MPoly<FpElem> = f.map_coefficients(|q| fp.reduce(q)).ok()?;   // L1-6
+            let f_p: MPoly<FpElem> = f.map_coefficients(fp, |q| q.reduce(&fp.modulus())).ok()?; // L1-6
             let dfs: Vec<_> = (0..cols.len())
                 .map(|k| f_p.derivative(k as u32))                // hoisted too         L1-5
                 .collect();
-            let mut row = vec![fp.zero(); n];
+            let mut row = vec![FpElem::zero(&fp); n];             // Ring::zero(ctx), §3.2
             for (k, &j) in cols.iter().enumerate() {
                 row[j] = dfs[k].eval(&local);                     // pure FpElem arithmetic L1-7
             }
@@ -1193,7 +1289,7 @@ pub fn generic_rank(
             owner.push(*idx);
         }
     }
-    let ech = linalg::row_echelon(&fp, rows).ok()?;               //                     L2-6
+    let ech = linalg::row_echelon::<FpElem>(&fp, rows).ok()?;     //                     L2-6
     Some(GenericRank {
         rank:       ech.rank(),
         dependent:  ech.dependent_rows().iter().map(|&r| owner[r]).collect(),
@@ -1207,6 +1303,14 @@ showed the earlier sketch performing a bignum numerator/denominator reduction pl
 inverse of the denominator *per coefficient per evaluation point*, and allocating a fresh
 `MPoly` per (constraint, polynomial, column) — up to 14 per residual for `assembly::Insert`.
 With `evaluate_with` removed from the API (§3.4) the slow idiom is no longer expressible.
+
+Three details in this sketch are consequences of ADR-006's `Ctx` correction and are stated
+because they are what a reader will trip over. `Fp` splits into `FpParams` (the ring context,
+which is `FpElem::Ctx`) and `FpElem` (the `Copy` word-sized element); `Ring::zero` takes that
+context rather than being receiverless; and `linalg::row_echelon` therefore needs the
+context as its first argument, since it must be able to name `C::zero` for a matrix whose
+pivot column is entirely zero. `DESIGN.md` §8.3's `row_echelon<C: Field>(rows: Vec<Vec<C>>)`
+omits it and cannot compile under the amended tower — see §7.5.
 
 The second half is transcription, `× 28` algebraic constraint types at 5–12 lines each ≈
 **250–450 lines estimated**, using nothing but `Ring::var`, `MPoly::constant`, and `+ − ×`.
@@ -1236,6 +1340,28 @@ one-way door settled before fan-out.
 | 11 | cadabra2 wants one algorithm text at three tiers; resolvent ships only an *algebraic* trait tower | The exact tier instantiates `resolvent::Ring`; the f64 and interval tiers stay on the consumer's own seam | **consumer** (it already has both); **resolvent** gives up being the ecosystem's scalar vocabulary (§3.5) |
 | 12 | cadabra2's TCB admission budget is roughly `dashu + smallvec + thiserror` plus a zero-dep base crate; resolvent wants `rayon` and `serde` too | `rayon` and `serde` are default-off features. Core runtime dependencies stay inside the measured budget | **resolvent** |
 | 13 | cadabra2 wants certificates unforgeable; its TCB also wants to re-verify them with its own from-scratch arithmetic | Private fields, no public mint, **public read accessors** on the evidence | **resolvent** |
+
+### 7.5 Five signatures on which this document, `DESIGN.md` and an ADR still disagree
+
+Recorded here rather than only in the reconciliation note, because these are the signatures
+the adapter sketches above are written against and a reader must know which side is load
+bearing. Full argument, evidence and the proposed ADR amendments: `RECONCILIATION.md` §2.
+Each is a live divergence in the **committed** document set as of 2026-07-31, and each is
+exactly the class ADR-021 §4's grep gate exists to catch — three of the five involve a type
+name (`SqfrPoly`, `Echelon`) that is not yet in that gate's list.
+
+| # | Signature | The three readings | This document's position, and why |
+|---|---|---|---|
+| 1 | `isolate_roots` | ADR-014 §3: `(p: &UPoly<Integer>, b: Budget) -> Result<Vec<IsolatedRoot>>`. `DESIGN.md` §8.4: `(p: &SqfrPoly, window: Option<(&Rational,&Rational)>, b: Budget) -> Result<Certified<Vec<IsolatedRoot>>>`. §7.1(c) previously: a separate `isolate_roots_in` | **`(p: &UPoly<Integer>, window: Option<(&Rational,&Rational)>, b: Budget) -> Result<Certified<Vec<IsolatedRoot>>>`.** `&SqfrPoly` is self-defeating: a square-free polynomial has every multiplicity equal to 1, so `IsolatedRoot::multiplicity` — the field ADR-014 was amended to preserve — would be a constant. The window is required by L2-1 (sinbad isolates only within `[t_n, t_n+h]`) and is a parameter, not a second function. `Certified` is required by §5.3, which has nowhere else to put the `RootCount` witness |
+| 2 | `SqfrPoly` visibility | `DESIGN.md` §8.4 puts it in `AlgebraicReal::new`, `defining_poly` and `square_free`; this document previously said it is not caller-visible | **Public, and on those three, but not on `isolate_roots`.** `DESIGN.md` §5.3's fail-closed-by-type argument is right for construction — a `Result` the caller always pre-checks is a signature smell — and wrong for isolation, per row 1. `square_free -> Certified<Vec<(SqfrPoly, u32)>>` is where a caller obtains one |
+| 3 | `rational_between` | ADR-014 §2: `(a, uppers) -> Rational`. `DESIGN.md` §8.4: `(a, uppers, b: Budget) -> Result<Rational, Decline>` | **Both, as a pair.** INV-6 regime 1: two distinct algebraic reals are separated by a computable bound, so the loop is bound-derived and the query is total. INV-6's own last clause then requires the budgeted sibling, so `try_rational_between(a, uppers, Budget) -> Result<Rational, Decline>` ships alongside — the same shape as `cmp`/`try_cmp` (conflict 5) |
+| 4 | `linalg::row_echelon` / `bareiss_det` | `DESIGN.md` §8.3: `row_echelon<C: Field>(rows: Vec<Vec<C>>)`. §7.3 here: `row_echelon(&fp, rows)` | **The context is the first parameter.** Under ADR-006's amended tower there is no `C::zero()`; a routine that must produce a zero — which row reduction must, for an all-zero pivot column — needs `&C::Ctx`. `DESIGN.md` §8.3 predates the amendment and does not compile. This is a knock-on of the `Ctx` fix that the architecture track applied to `UPoly` and `MPoly` and missed in `linalg` |
+| 5 | `Ring::new` (the multivariate context) | `DESIGN.md` §8.2: `new(vars: &[&str], order: Order)`, with `var(&self, name: &str)`. §7.3 here: `new(arity: u32, order)` | **Arity is primary; names are a convenience constructor.** The adapter that forces this is solverang's: it holds `ParamId`s, builds a ring per constraint at runtime arity 2..14 (L1-2), and has no names to supply. Canonical bytes serialize exponent vectors, not names (ADR-012 §9), so names are a `Display` affordance. `Ring::with_names(&[&str], order)` is additive and keeps `var(name)` for the consumers that want it |
+
+Rows 1, 3 and 4 are signature questions, so ADR-021 §1 gives the ADR the last word and this
+document is stating a **proposed amendment** to ADR-014 (rows 1 and 3) and to ADR-005/ADR-006
+(row 4). Rows 2 and 5 are shape questions on which no ADR speaks, so this document governs;
+`DESIGN.md` should be corrected to match.
 
 ---
 
@@ -1305,7 +1431,7 @@ a crypto consumer that is usually terminal, because the whole point is *their* t
 Three changes fix it, none of which is a redesign:
 
 1. **GF(p^k) and ℤ/n are core and public** (L0-8, L0-9). They were already in
-   `plans/architecture.md:57` and scheduled at `roadmap.md:90, 256, 539`; the API notes had
+   `DESIGN.md` §1.2 and scheduled in `ROADMAP.md` M1 (Z3) and M5 (K1); the API notes had
    simply read the spec's "algebraic extensions" as extensions of ℚ — the direction cadabra2
    needs — rather than of GF(p), which is the same words pointing the other way.
 2. **Factorization over GF(p) is a public capability** (L2-5), on the same
@@ -1461,11 +1587,15 @@ self-contained `Send + Sync` value carrying its ring by an **owned handle**, nev
 
 **INV-14 — The coefficient seam is an open, capability-factored trait tower, and it imposes
 no obligation a word-sized type cannot discharge.** This replaces the previous method-count
-invariant, which was the wrong property: what matters is that `Ring` carries seven methods
-plus three defaulted in-place forms and no bignum-shaped duty, while `Reducible`,
-`Liftable`, `Ordered` and `BulkOps` carry the duties a given type may or may not have. The
-modular fast path is bounded by `Reducible + Liftable`. There is **no second, ops-surface
-scalar trait** and no `resolvent-seam` crate (ADR-019).
+invariant, which was the wrong property: what matters is that `Ring` carries element-to-
+element arithmetic, three defaulted in-place forms, and one associated `Ctx` that is `()`
+for every context-free ring — and no bignum-shaped duty — while `Ordered`, `Reducible`,
+`Liftable` and `BatchField` carry the duties a given type may or may not have. The modular
+fast path is bounded by `Reducible + Liftable`, so a foreign ring that cannot honestly
+reduce mod `p` cannot compile into it. There is **no second, ops-surface scalar trait**, no
+`resolvent-seam` crate, and **no `BulkOps`** — bulk GF(p) kernels are free functions over
+concrete types in `resolvent-modular`, because a trait method there either duplicates the
+kernel across the instantiation set or forwards to it for nothing (ADR-006, ADR-019).
 
 **INV-15 — `AlgebraicReal` is `Send + Sync`, `Arc`-backed, with `&self` monotone
 refinement and a total `Ord`.** Refinement only narrows, always contains the root, and can
@@ -1506,8 +1636,8 @@ Stated so it is not mistaken for settled.
    or a `Box`, which INV-5 forbids anyway.
 3. **Whether terms are `(MonomialId, C)` into a ring-owned arena or `(PackedMon, C)`
    inline.** The ownership rule is settled (§2.2); the term type is not, and it is decided by
-   `plans/roadmap.md` §2.5 contradiction 2's microbenchmark before the multivariate trunk
-   starts.
+   lane **E-MONO**'s recorded-S-pair-trace replay (ADR-008, `DESIGN.md` §10.2) before the
+   multivariate trunk starts.
 4. **Whether L1-9b (bivariate Bernstein over a rational box) earns core.** One consumer, no
    internal-need argument, and the univariate half's justification does not reach it.
 5. **The `Ord` allocation bound.** Comparison is decidable and the separation bound makes it
@@ -1522,3 +1652,14 @@ Stated so it is not mistaken for settled.
 8. **Whether a checkpoint API is ever added to `Store`.** §2.3 states the monotone-growth
    position; `store-tags` is the mechanism that would make a checkpoint safe. No consumer
    asks for one today.
+9. **The five signatures in §7.5**, until the ADR amendments proposed there land. Rows 1, 3
+   and 4 are ADR-governed and this document is a proposed amendment; rows 2 and 5 are
+   shape questions this document governs and `DESIGN.md` must be corrected to match.
+10. **Whether `L0-7` (seeded uniform random points over GF(p)) has an owner.** It is core
+    on two consumers and appears in the §7.3 sketch as `FpParams::random_point(n, seed)`,
+    but `DESIGN.md` §8 states no signature for it and no `ROADMAP.md` lane names it. Z6
+    covers deterministic *prime* selection and H3 covers the harness seed schedule; neither
+    is this. See RECONCILIATION §4.
+11. **The L4 symbol type's name.** This document's sketches use `Sym` and
+    `Store::sym`/`var`; `DESIGN.md` §8.5 uses `SymbolId`. One of the two is a rename and
+    neither track noticed. `SymbolId` is the better name and costs nothing to adopt here.

@@ -44,15 +44,24 @@ ratify one.
 | [023](ADR-023-certificates-are-adversarially-validated.md) | Every certificate ships a mutant set and is observed rejecting a wrong answer; no certificate may invoke what it certifies; randomized certificates are graded over the fleet seed schedule | cheap now | Ratified |
 | [024](ADR-024-corpus-tiering-and-gate-budgets.md) | `fast`/`full`/`slow` corpus tiers with a printed census and a hard `fast` budget; the sharpness-ceiling ratchet; declines classified before they are scored; five exit criteria rewritten as gates | cheap now | Ratified |
 | [025](ADR-025-resultant-conventions.md) | Resultant value, degenerate-input table, the explicit `(−1)^{mn}` swap rule, Ducos's subresultant scalar convention; `ResultantOutcome` distinguishes a common component from a zero value | costly | Ratified |
+| [026](ADR-026-layer-3-entry-point-signatures.md) | `isolate_roots` takes `&UPoly<Integer>` + an optional window and returns `Certified<Vec<IsolatedRoot>>`; `SqfrPoly` is public on construction, not on isolation; `rational_between` ships total plus a budgeted sibling | one-way | **Proposed** |
+| [027](ADR-027-dense-linear-algebra.md) | `linalg::row_echelon`/`bareiss_det` are public, take `&C::Ctx`, return the transform unconditionally, and get lane `LA` in Wave 2 landing at M2 — no lane built them | costly | **Proposed** |
+| [028](ADR-028-proofkind-names-the-certificate-run.md) | A `ProofKind` variant names the argument actually run: `DivisibilityAndDegree` → `DivisibilityAndBezout`, and the enum is `#[non_exhaustive]` | one-way | **Proposed** |
+
+`RECONCILIATION.md` sits in this directory and is **not** an ADR: it is a dated audit record
+of the consumer track against the founding document set, normative for nothing, whose
+actionable output is 026–028, five amendments, and five register rows. `ADR-021`
+§Alternatives explains why a reconciliation record must not be normative, and
+`RECONCILIATION.md` §0 states how to retire it.
 
 ## Reading order
 
 - **Before writing any code:** 021 (how these documents relate), 001, 005, 016.
-- **Before Layer 0:** 002, 003, 006, 011, 012, 019, 023, 024.
-- **Before the univariate trunk:** 004, 007, 013, 014, 015, 025.
+- **Before Layer 0:** 002, 003, 006, 011, 012, 019, 023, 024, 028.
+- **Before the univariate trunk:** 004, 007, 013, 014, 015, 025, 026, 027.
 - **Before the multivariate trunk:** 008, 009, 010, 020, 022.
 - **Before Layer 4:** 017, 020.
-- **Whenever a consumer question arises:** 018, then `API.md`.
+- **Whenever a consumer question arises:** 018, then `API.md`, then `RECONCILIATION.md` §2.
 
 ## Open experiments the ADRs gate on
 
