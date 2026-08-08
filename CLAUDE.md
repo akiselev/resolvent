@@ -25,9 +25,21 @@ Several documents claim authority over overlapping ground. The order is:
 4. **`docs/decisions/ADR-NNN`** for internal architecture and every one-way door.
 5. **`plans/architecture.md`**, then `plans/verification.md`, then `plans/roadmap.md`.
 
-`plans/api-shape.md` is historical. `docs/decisions/RECONCILIATION.md` is referenced by
-`API.md` and by ADR-019 and **does not exist** at the time of writing; if you resolve a
-conflict between the architecture track and the consumer track, record it there.
+`plans/api-shape.md` is historical. `docs/decisions/RECONCILIATION.md` now **exists** and is
+not an ADR: it is a dated audit record, normative for nothing, and `docs/decisions/README.md`
+states how it retires. If you resolve a conflict between the architecture track and the
+consumer track, record it there.
+
+**For scope — what resolvent is allowed to contain at all — the authority is ADR-029, and it
+overrides every document listed above including this one where they disagree.** It was
+written 2026-08-08 against an owner decision and the propagation into `README.md`, `API.md`
+§4.1/§4.2, `DESIGN.md`, `ROADMAP.md` and this file landed in the same commit. Anything you
+find asserting that resolvent is "not a general-purpose CAS", that symbolic calculus is "a
+thin layer on top, not the point", that symbolic integration is "out of scope permanently",
+or that there is "no `simplify`" is text that propagation missed — treat it as a defect and
+fix it, do not build against it. ADR-029's companions settle the three specific rules that
+scope claim used to bundle: **ADR-030** (the `conformance` lane grade), **ADR-031** (the L4
+exactness lattice), **ADR-032** (zero-testing), **ADR-033** (rewriting).
 
 The ADR set is being amended in flight. **Re-read the header of any ADR you are about to
 build against**, and prefer citing an ADR by its header fields (`Status`, `Reversibility`,
@@ -66,6 +78,11 @@ is the per-lane checklist a reviewer runs. What "its certificate" means, per ope
 | FGLM | Two-way reduction, **plus** the lex output satisfies Buchberger's criterion in the lex order, **plus** the lex staircase has exactly `dim_ℚ ℚ[x]/I` standard monomials |
 | `AlgebraicReal` | The eleven properties in `plans/verification.md` §2.6, under an explicit step budget, with "did not finish" graded as **wrong** |
 | L4 hash-consing / `diff` | Injectivity; on the polynomial subset `diff` equals `UPoly::derivative` exactly; canonical bytes byte-identical across insertion orders, thread counts, processes, and feature combinations |
+| L4 exactness lattice | `exactness(n) ≤ meet(exactness(children))` over generated DAGs with inexact leaves planted at every depth — **exactness is never gained by combining, including where that is over-conservative**: `diff` of an inexact constant is `Approximate(0)`, never `Exact(0)`. Constant folding fires only when every operand is `Exact`, so resolvent never computes with an inexact value; no `Exact` node has an `Approximate` descendant, tested directly; `is_polynomial_in` returns `None` **with a witness naming the offending node** for every planted non-`Exact` subtree (the signature stays `Option`, per `API.md` L4-5); and sign queries over `Enclosed`/`Approximate` return `Unknown` **even where the leaf enclosure excludes zero** — the case a filter would have decided, and the one ADR-015 forbids resolvent to decide. Mutants: the **promotion** mutant (fold an `Approximate` child to a `Rational` and label it `Exact` — the natural bug, and the one that matters), the **join** mutant, and a bridge that checks only the root |
+| Rewrite rules, class R | Both sides agree by evaluation at random points over GF(p) with each `Apply` node replaced by a fresh variable, **across the fleet seed schedule**. This is the only rule class with an automatic verdict |
+| Rewrite rules, classes S and D *(the one row here that is **not** a certificate. Admissible under ADR-030 §2(b) only because S and D rules are **not default-reachable**: there is no default rule set, and firing one makes `simplify` return `Probable`, never `Proved`)* | **Conformance-graded.** Each carries a committed `justification`; each class-D rule carries a machine-checkable side condition, and firing it undischarged is a bug, not a heuristic. Rate-ceilinged in `sharpness-ceilings.toml` |
+| Never-implicit rewriting | A corpus of terms whose canonical form differs from their constructed form round-trips through construction, `diff`, `walk_topological` and `canonical_bytes` with structural identity preserved. **This is a promise consumers build certificate tethers on** — breaking it invalidates their proofs, not just their expectations |
+| Zero-test tiers (ADR-032) | Every Tier-1(b) reduction ships the algebraic relation its value satisfies and the produced `AlgebraicReal` satisfies it — **the table saying so is not evidence**. A compile-fail test that a Tier-2 path cannot return `Proved`, and one that `is_zero` returns `Result<Certified<bool>, Error>` rather than any `Verdict` (INV-18). Tier-3 **refusal** rate under its committed ceiling. Mutants: the **numeric** mutant (evaluate to 50 digits and compare — the corpus needs an instance where it answers wrongly), the **table** mutant (`sin(π/6) → √3/2`, the real mistake), and refuse-always |
 
 Four rules govern certificates themselves. They are not optional and they are what separate
 a self-certifying library from one that says it is:
@@ -132,6 +149,14 @@ them, and reversing one is a rewrite, not a refactor. They are settled in
 | 014 | No `Hash` without an explicit factorization-backed canonical form; no general arithmetic; multiplicity is not a field of the number; **`SqrtExt` stays first-class and is never subsumed** |
 | 019 | One open trait tower in `resolvent-base`. No second ops-surface scalar trait, no seam crate |
 | 020 | Every arena is a caller-owned value; handles are arena-relative and never reach a result |
+| 031 | **The L4 exactness lattice is a field in the hash-consed node.** `Exact`/`Enclosed`/`Approximate`, monotone under composition. `Enclosed` carries two `Rational`s, never an interval type, **on leaves only — resolvent never propagates a bound and never decides anything from an inexact node**. Exactness is out of `canonical_bytes` and in `provenance_bytes`. Retrofitting it under a working `Store` is a rewrite, not a refactor — it lands with X1 or not at all |
+| 032 | **The tier a zero-test lands in is visible in its return type.** Consumers branch on `Proved` vs `Probable(ConditionalOn(..))` vs `Unknown`. Tier 0 — numeric zero-testing — is banned at every layer, permanently |
+| 033 | **Rewriting is never implicit.** A consumer that calls neither `canonicalize` nor `simplify` never has its terms rewritten. Cheap to extend the rule set; one-way to break the promise, because consumers build certificate tethers on it |
+
+Two rows above are *newly* frozen (031, 032) and one is newly one-way in its second half
+(033). ADR-029 and ADR-030 are **not** one-way — scope can widen and a lane grade can be
+added — but ADR-005's amended nine-crate graph is `costly` for the usual reason: crate names
+on crates.io are sticky.
 
 **If you want to change one of these, write a new ADR that supersedes the old one.** Copy
 the file's structure: Context, Decision, Consequences, Alternatives considered and why

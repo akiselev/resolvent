@@ -108,6 +108,21 @@ was "≥2 consumers ∪ 1 consumer ∪ spec-named".
 >
 > One consumer plus none of (b) or (c) is evidence for an **adapter**, not for core.
 
+*Amended 2026-08-08 (ADR-029).* **Clause (c) is promoted from tiebreaker to primary.** The
+scope is a general-purpose CAS, so "what every general-purpose CAS ships" is no longer a
+check on consumer-driven drift — it is the admission rule, and clauses (a) and (b) are the
+sequencing signal that says which admitted capability is built first. Two things follow and
+neither is a relaxation:
+
+- **A clause-(c) admission is not a schedule.** An admitted capability with no ADR specifying
+  it is *in scope and unspecified*, and its lane cannot open (ADR-021 §3). The `Placement`
+  column says whether it belongs in resolvent; the roadmap says when.
+- **Rejections still bind, and their reasons are still load-bearing.** A rejection whose
+  stated reason was "no consumer" or "symbolic calculus is not the point" is void, because
+  those premises are retired. A rejection resting on its own argument — "that is a different
+  library", "the consumer writes it in three lines" — survives untouched and is re-decided
+  only by an ADR, never by inference from the scope change.
+
 Clause (b) is now falsifiable: "the Descartes/VCA test *is* a Bernstein coefficient sign
 count" is a claim about resolvent's own code, and it either holds for a given item or it
 does not. Where it holds for only part of an item, the item is split (§4.2, Bernstein).
@@ -582,7 +597,11 @@ Legend: **S** = sinbad, **C** = cadabra2, **V** = `/home/dev/projects/solverang`
 | L4-7 | `Store::rebuild_from(&Store, Expr)` | no local consumer; ≥2 hypothetical | **core** | (b) | §2.3. Otherwise every parallel, multi-process or distributed-cache consumer writes the same walk-and-rebuild. ~30 lines, written once. |
 | L4-8 | A code emitter (Rust/C/WASM printer) | S wants one and says resolvent must **not** ship it | **out of scope** | — | sinbad needs Rust closures; the next consumer needs its own opcode tape. resolvent exposes L4-4 and stops. |
 | L4-9 | e-graph / equality-saturation simplifier | nobody — C actively hostile, S says "anvil should call `egg` directly" | **out of scope for core; external glue** | — | cadabra2 keeps `Cos2` as a first-class atom *deliberately* rather than rewriting it to `2cos²t−1` (`cadabra2/crates/cadabra-check/src/carrier.rs:162-165`); a canonicalizing e-graph rewrites exactly the thing that must be left alone. anvil's want is Herbie-style FP-accuracy rewriting whose rewrites **change the computed value** — resolvent's must not (ADR-017). |
-| L4-10 | A general `simplify()` | nobody | **out of scope** | — | `canonicalize()` exists, is explicit, opt-in, and is defined as *value-preserving normalization*, not cleverness. |
+| L4-10 | ~~A general `simplify()`~~ **`simplify(expr, &RuleSet, budget)`** | *Amended 2026-08-08* — clause (c) | **core** | (c) | ~~out of scope~~ **Admitted by ADR-033.** The old rejection rested on L4 being "not the point" (ADR-029 retired it) and on unpredictability (answered by the rule set being a required argument). There is **no argument-free `simplify` and no `RuleSet::default()`**, because a default rule set is an implicit one with an extra step. `canonicalize()` is unchanged: still explicit, still opt-in, still value-preserving. |
+| L4-11 | `RuleSet` with per-rule soundness classification **R / S / D** | (c) | **core** | (c) | R = ring identity, true with `Apply` nodes treated as free symbols, certified automatically by GF(p) evaluation across the fleet seed schedule. S = semantic, depends on `FuncTable` meaning, conformance-graded with a committed justification. D = semantic *and false somewhere* (`√(x²)→x`, `log(ab)→log a+log b`), carrying a machine-checkable side condition that **must be discharged before the rule fires**. `RuleSet::ring_identities()` is R-only and fully certificate-graded (ADR-033 §3). |
+| L4-12 | `Exactness` on every node — `Exact` / `Enclosed` / `Approximate`, monotone under composition | S (D5 grade lattice), C (§4.5 residual bounds) | **core** | (a) | Exactness is never gained by combining. **Bounds live on leaves only and resolvent does not propagate them** — propagation is interval arithmetic, which ADR-015 §Context says resolvent "does not want"; a consumer computes propagated bounds with its own interval type. **No resolvent API decides anything from an `Enclosed` or `Approximate` node**, at any width. `Enclosed` carries two `Rational`s, **not** an interval type, so ADR-015 stands unamended. L4-5's bridge returns `None` for anything not `Exact`, which is what makes "no floating point in a decision path" structural rather than disciplinary (ADR-031). |
+| L4-13 | `provenance_bytes(expr)` alongside L4-6's `canonical_bytes` | S (content addressing must not conflate exact and approximate derivations) | **core** | (b) | Exactness is **excluded** from `canonical_bytes` — a refinement budget is a tuning knob and moving it would break ADR-012 §8's tuning-matrix value-equality gate. `provenance_bytes` adds the exactness state and witness identities, both structural (ADR-031 §5). |
+| L4-14 | Assumptions attached to symbols, as the discharge mechanism for L4-11's class D | (c) | **core** | (c) | Without them, every class-D rule is permanently unfireable and resolvent simplifies strictly less than it could for no gain. With them, the side condition has something to be discharged *against*. Specified by no ADR yet — in scope, unspecified, lane blocked. |
 
 #### Cross-cutting
 
@@ -618,11 +637,25 @@ rejected here; a future addition on clause (c) extends this table.
 | p-adic numbers as a public ring | **reject** | Hensel lifting is an internal step of factorization and stays internal. A public p-adic ring is a different library. |
 | Cyclotomic fields as a distinct type | **reject** | A constructor over `NumberField`, not a capability. `NumberField::cyclotomic(n)` is a helper a consumer writes in three lines. |
 | General polynomial decomposition (`f = g ∘ h`) | **reject** | `compose_affine` is admitted (it is the Taylor-shift/scaling primitive root isolation needs). General functional decomposition has no consumer and no internal need. |
-| Partial fraction decomposition | **reject** | Derivable by the caller from `gcd_ext` and `div_rem`, both core. Shipping it would be a convenience, not a capability. |
-| Symbolic integration, limits, series | **reject** | The source spec calls symbolic calculus "a thin layer on top, not the point". Out of scope permanently, not merely deferred. |
+| Partial fraction decomposition | ~~reject~~ **admit** *(2026-08-08)* | The rejection said "derivable by the caller … a convenience, not a capability", which turned on it having no internal need. Symbolic integration has one — Hermite reduction and Rothstein–Trager are built on it — so the stated reason is now false. Flipped as a **consequence** of the integration admission, not as a fresh decision. |
+| Symbolic integration, limits, series | ~~reject~~ **admit** *(2026-08-08)* | The rejection cited "the source spec calls symbolic calculus a thin layer on top, not the point". ADR-029 retired that premise, so the reason is void and the row is re-decided on its merits: all three are on the standing-CAS list, and integration has an unusually strong self-certificate — differentiate the result and compare (`CLAUDE.md` §1). Lands in `resolvent-calculus` (ADR-005, amended). |
+| ODE solving (symbolic, closed-form families) | **admit** *(2026-08-08)* | Named by ADR-029 §1. Certificate: substitute the solution back. `resolvent-calculus`. |
+| Integral transforms (Laplace, Fourier, Z) | **admit** *(2026-08-08)* | Named by ADR-029 §1. Certificate: invert the transform and compare. `resolvent-calculus`. |
+| Special functions (Γ, ζ, Bessel, hypergeometric) as symbolic objects with known relations | **admit** *(2026-08-08)* | Named by ADR-029 §1. Certificate: the functional equations and recurrences — `Γ(z+1) = zΓ(z)` and the Bessel recurrences are genuine self-certificates, not oracle comparisons. **Numeric evaluation to arbitrary precision is *not* admitted by this row** and needs its own ADR; it is the one place the analytic surface touches ADR-012 §6 and it must not be waved through. |
+| Assumptions system (symbol domains, positivity, integrality) | **admit** *(2026-08-08)* | The discharge mechanism for ADR-033's class-D side conditions. Without it every domain-restricted rule is unfireable. |
 
-Rejections are as load-bearing as admissions. Six of fourteen were rejected, which is the
-evidence that clause (c) is now doing work rather than ratifying whatever was asked for.
+Rejections are as load-bearing as admissions. **Of the original fourteen rows, six
+rejections stand on their own arguments and are untouched** — full CAD, Positivstellensatz,
+Hermite/Smith normal forms, p-adics as a public ring, cyclotomic fields as a distinct type,
+and general polynomial decomposition. None of those cited the retired premise; each rests on
+"that is a different library", "no admitted algorithm needs it", or "the consumer writes it in
+three lines", and each is re-decided only by an ADR, never by inference from ADR-029.
+
+*Amended 2026-08-08.* Two rows flipped and five were added, all under clause (c) as promoted
+in §4.1. **An admission here is a placement, not a schedule**: every added row is *in scope and
+unspecified*, so no lane may open for it until an ADR specifies it (ADR-021 §3). The
+capabilities-admitted count is no longer the evidence that clause (c) does work — the surviving
+rejections are, and they are listed above by name for exactly that reason.
 
 ### 4.3 One correction that prevents a milestone being justified on a capability that does not answer the question
 
@@ -824,9 +857,18 @@ the minimum that makes `verify` possible alone.*
 members.
 
 **Verdict.** Real, evidenced demands exist; none blocks a shipped code path today; and
-every one of them lands in **L4**, the layer `IDEAS-crates.md:114-115` itself calls "a thin
-layer on top, not the point". sinbad does not use L1 multivariate polynomials, L2
+every one of them lands in **L4**, ~~the layer `IDEAS-crates.md:114-115` itself calls "a thin
+layer on top, not the point"~~. sinbad does not use L1 multivariate polynomials, L2
 Gröbner/factorization, or L3 algebraic numbers **at all**.
+
+*Amended 2026-08-08 (ADR-029).* The struck clause was doing rhetorical work — it read
+"sinbad's demands are all in the layer that does not matter", and that inference is now
+backwards. The *measurement* is unchanged and still correct: sinbad touches L4 plus one
+unbuilt L2 path, which is a statement about **demand**, not about scope. Note also
+`consumer-sinbad.md` §3 D5's grade lattice, which this evaluation recorded as a
+determinism/fail-closed constraint and which ADR-031 has since promoted into an L4 capability
+(L4-12) — sinbad turns out to be the evidence for one of L4's headline features rather than a
+consumer of its periphery.
 
 **What it needs.**
 - **L4 with non-polynomial function symbols.** Every shipped manufactured solution is

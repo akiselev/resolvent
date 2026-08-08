@@ -108,6 +108,29 @@ grade  = "score"
 oracle = ["G1", "G2"]       # must be green and frozen before this lane's CI job exists
 ```
 
+*Amended 2026-08-08 (ADR-030).* The `conformance` grade adds three fields, and **`oracle` is
+not one of them** — that field holds **lane ids** and CI rule 2 resolves each entry against
+`[lane.*]`, so putting an external system name in it would make the rule fail to resolve.
+External oracle systems get their own key:
+
+```toml
+[lane.X5q]
+crate           = "resolvent-expr"
+gates           = ["ADR-029", "ADR-030", "ADR-033"]
+grade           = "conformance"
+oracle          = ["X5"]        # lane ids, as everywhere else: X5 must be green and frozen
+self_certifying = false         # REQUIRED, and REQUIRED to be false for this grade
+oracle_systems  = ["sympy"]     # external systems; non-empty; a missing one FAILS, never skips
+divergence_ceiling = "rewrite.quality.divergence"   # key into sharpness-ceilings.toml
+```
+
+CI gains three checks off those fields, each as small as the existing three: `grade =
+"conformance"` ⟹ `self_certifying = false` and `oracle_systems` non-empty and
+`divergence_ceiling` present and not `TBD`; **no lane may name a `conformance` lane in its own
+`oracle` list** (ADR-030 §3 — a conformance lane gates nothing and is an oracle for nothing);
+and a declared `oracle_systems` entry that is absent at run time fails the job rather than
+skipping it (`CLAUDE.md` §7).
+
 CI enforces three things off that file, all of them ten lines:
 
 1. **A lane's test target is `#[ignore]`d — and its crate is absent from the workspace
@@ -152,7 +175,11 @@ the reason §4's grep gate exists: it is what the gate is protecting.
 | 9 | Three `Certificate` shapes with disjoint `ProofKind` sets | **`API.md`'s shape** — claim tether, no public mint, public read — with `ProofKind` unified by union | ADR-010 §2 |
 | 10 | Budgets: only where no bound exists vs on every entry point | **On every looping entry point.** The two regimes govern what *exhaustion means*, not whether the parameter exists | ADR-011 §4 |
 | 11 | `Zn` in the instantiation set vs ℤ/n out of scope | **In.** Hensel lifting to `p^k` is arithmetic modulo a composite; it is lane K2 and M1's exit gate requires it | ADR-006 |
-| 12 | L4: `Simplifier` + `RuleSet` + two backends + integrator vs "no `simplify()`, out of scope" | **Out.** v1 is what M7's exit gate tests; the rest is a named post-v1 list | ADR-017 §5, §6 |
+| 12 | L4: `Simplifier` + `RuleSet` + two backends + integrator vs "no `simplify()`, out of scope" | ~~**Out.** v1 is what M7's exit gate tests; the rest is a named post-v1 list~~ **Reopened and closed the other way 2026-08-08.** The resolution rested on L4 being "not the point"; ADR-029 retired that premise. `simplify(expr, &RuleSet)` ships, never implicitly, with every rule classified R/S/D by its soundness argument. e-graph adapters stay deferred for their own unchanged reasons | ADR-033; formerly ADR-017 §5, §6 |
+| 13 | Scope: "not a general-purpose CAS" (`README.md`) vs the standing-CAS admission test (`API.md` §4.2) vs "symbolic integration, limits, series — out of scope **permanently**" (`API.md`:622) | **General-purpose.** The standing-CAS test is promoted from tiebreaker to primary admission rule; the analytic surface is *in scope and unspecified*, which is a distinct state from out of scope and blocks a lane until its own ADR ratifies | ADR-029 §1 |
+| 14 | Numerics: "Not numeric — the only `f64` is an outward enclosure returned to callers" vs two consumers each reimplementing an exactness lattice resolvent does not offer | **`f64` enters L4 as an inexact leaf** under a monotone `Exact`/`Enclosed`/`Approximate` lattice. L0–L3 stay exact-only; ADR-012 §6 and ADR-015 are unamended, and the lattice is what *enforces* them | ADR-031 |
+| 15 | Zero-testing: "no transcendental zero-test, at any layer, **ever**" vs `sin(π/6)` denoting an algebraic number L3 can decide exactly | **No *unsound* zero-test ever.** Sound tests over named decidable subclasses, assumption in the return type. The old rule classified expressions by the symbols they are written with rather than the values they denote | ADR-032 |
+| 16 | Verification: the prime directive requires a green certificate per operation, and part of ADR-029's surface has no self-certificate | **A fourth lane grade, `conformance`** — external differential agreement at a committed rate. Soundness is never conformance-graded and a conformance lane gates nothing | ADR-030 |
 
 Two further items were reported as live contradictions and are **stale**, recorded so they
 are not re-opened: `plans/roadmap.md` §2.5's contradiction 1 (`AlgebraicReal` mutability) was

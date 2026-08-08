@@ -335,12 +335,25 @@ The property suite **is** the verdict function for this layer (§7.4). Additiona
 
 ### 3.7 Layer 4 — expression DAG
 
-Scope note: M7's exit gate tests hash-consing, `diff`/`diff_with`, constant folding,
-`walk_topological`, `is_polynomial_in`, and canonical bytes. `Simplifier`, `RuleSet`, the
-built-in rewriter, simplex integration, and rational-function normalization are **post-v1,
-on consumer demand**, and have no rows here (C1 §15). The source spec's named risk is
-refusing a clever `simplify()`; three documents currently give three answers, and this one
-holds M7's line.
+Scope note, ~~as of 2026-07-31~~ **rewritten 2026-08-08 (ADR-029, ADR-031, ADR-033).** The
+previous note held M7's line at hash-consing, `diff`/`diff_with`, constant folding,
+`walk_topological`, `is_polynomial_in` and canonical bytes, and put `RuleSet`, the rewriter
+and rational-function normalization post-v1 on the strength of C1 §15. C1 §15's *finding* —
+that three documents gave three answers — was right and is what this section now closes; its
+*premise*, that L4 is "not the point", was retired by ADR-029. Rows still owed here, and their
+kinds, so their absence is visible:
+
+| Owed row | Kind |
+|---|---|
+| Exactness monotonicity — `exactness(n) ≤ meet(children)`, plus the promotion/join/root-only mutants (ADR-031) | CERT |
+| `provenance_bytes` vs `canonical_bytes` — exactness excluded from the first, structural in the second | CERT |
+| Class-R rule soundness — GF(p) evaluation with `Apply` nodes as free variables, across the fleet seed schedule | CERT |
+| Class-S and class-D rule soundness — committed justification, discharged side condition | **DIFF, conformance-graded (ADR-030). Never CERT** |
+| Never-implicit rewriting — construction/`diff`/`walk`/serialization preserve structural identity | CERT |
+| Rewrite *quality* | conformance; gates nothing |
+
+The zero-test tiers get rows in a Layer-5 section that does not exist yet, because
+`resolvent-calculus` does not exist yet (ADR-005, amended; ADR-032).
 
 | Operation | Certificate | Proves | Does **not** prove | Cost | Kind |
 |---|---|---|---|---|---|

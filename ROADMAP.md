@@ -23,7 +23,14 @@ condition a CI job evaluates.
 | **`certificate-graded`** | The primary verdict is CERT / INV / PROP: a green gate means done, and a red gate means a bug with certainty. | Days. Monotone. | **Fan out aggressively.** |
 | **`score-graded`** | The success criterion is *a number to optimize*, not a certificate to check — wall time, memory, instance ceiling, Unknown rate, `Proved` rate, primes needed. | **Months. Non-monotone. No completion condition.** | **Do not fan out.** Two agents on one score lane each optimize against a baseline the other is moving. One agent, one frozen baseline, a change-point-tracked series. |
 | **`measurement`** | A score lane whose deliverable is a *committed number*, not an improvement. It terminates. | Days. | Safe, one agent. |
+| **`conformance`** *(added 2026-08-08, ADR-030)* | The primary verdict is **external differential agreement** against a declared oracle tier, at a committed divergence rate, on a committed corpus. **There is no self-certificate and the lane brief says so in those words.** Its `lanes.toml` entry carries `self_certifying = false`, a non-empty **`oracle_systems`** list (external systems — *not* `oracle`, which holds lane ids), and a `divergence_ceiling`. | Weeks. Monotone in the rate, not in the capability. | One or two agents; the corpus is shared state. |
 | **`decision`** | The deliverable is a ratified ADR. **Not an agent lane** — an agent may draft and may run the experiment; ratification is a human merge (ADR-021 §2). | — | — |
+
+Two rules bound the conformance grade and are what keep it from becoming an escape hatch
+(ADR-030 §2, §3): **soundness is never conformance-graded** — it is certificate-graded
+separately, in the same crate, so a rewriting lane splits into rule-soundness (certificate)
+and rewrite-quality (conformance) — and **a conformance lane gates nothing**, may be an oracle
+for nothing, and fails rather than passing when its oracle is absent.
 
 Two rules follow and are enforced mechanically, not culturally:
 
@@ -385,12 +392,30 @@ node set `{ Const, Symbol(interned), ring ops, Apply(FuncId, args) }` with a cal
 `diff_with(expr, sym, &LeafRules)`**; constant folding; `walk_topological` with stable ids;
 `is_polynomial_in(&syms) -> Option<MPoly>`; `rebuild_from` for cross-store movement;
 `canonicalize` as an explicit value-preserving function; canonical bytes with a schema
-version. **No code emitter. No transcendental zero-test, at any layer, ever. No `simplify`,
-no `RuleSet`, no rewriter, no e-graph dependency** (ADR-017 §5, §6).
+version. **No code emitter, and no e-graph dependency** (ADR-017 §1, §4 — both still stand).
+
+*Amended 2026-08-08 (ADR-029).* Three items move **into** M7 that the previous version
+excluded by name, and one qualifier is narrowed:
+
+- **The exactness lattice** — `Exact` / `Enclosed` / `Approximate` on every node, monotone
+  under composition, plus `provenance_bytes` alongside `canonical_bytes` (ADR-031). This is in
+  the node identity, so it is **not** an additive follow-on: it lands with X1 or it is a
+  rewrite of the `Store`.
+- **`simplify(expr, &RuleSet, budget)` and `RuleSet` with R/S/D rule classification**
+  (ADR-033). Never implicit, no default rule set. Rule *soundness* is certificate-graded; rule
+  *quality* is a separate conformance lane.
+- **Assumptions on symbols**, as the discharge mechanism for class-D side conditions. In
+  scope, unspecified — its lane is blocked until an ADR specifies it.
+- ~~No transcendental zero-test, at any layer, ever~~ → **no *unsound* zero-test, ever**
+  (ADR-032). The tier machinery itself is **not** in M7: it lands in `resolvent-calculus` at
+  M9, because a Tier-1(b) reduction produces an `AlgebraicReal` and placing it here would give
+  L4 a dependency on L3 (ADR-005, amended).
 
 **Unlocks.** Build-time symbolic differentiation for a multiphysics forcing-term generator
 and for a Pantelides index-reduction pass that is currently an identity stub waiting on
-symbolic `d/dt`. FEM form compilation.
+symbolic `d/dt`. FEM form compilation. **And, after ADR-029, M9** — M7 is now the foundation
+of a stratum rather than a leaf, which is the sequencing change that matters most in this
+document.
 
 **Exit gate.**
 
@@ -401,7 +426,31 @@ symbolic `d/dt`. FEM form compilation.
   golden change without a version bump fails.
 - `is_polynomial_in` sound in both directions: `Some(p)` ⇒ `p` and the expression agree at
   random points over the fleet seed schedule; `None` ⇒ a witness node that is not a ring op
-  over the given symbols.
+  over the given symbols **or is not `Exact`**. The signature stays `Option<MPoly>`
+  (`API.md` L4-5); the witness is what carries the diagnosis.
+- **Exactness is monotone under composition** on generated DAGs with inexact leaves planted at
+  every depth, and no `Exact` node has an `Approximate` descendant — **including `diff` of an
+  inexact constant, which is `Approximate(0)`, not `Exact(0)`**. The **promotion mutant** —
+  constant-folding an `Approximate` child into a `Rational` and labelling the result `Exact` —
+  is rejected. (ADR-031 §3.)
+- **Constant folding fires only when every operand is `Exact`.** resolvent performs no
+  arithmetic on an inexact value; a planted folder that computes through one is rejected
+  (ADR-031 §6).
+- **No decision is made from an inexact node.** Sign queries over every `Enclosed` and
+  `Approximate` node return `Unknown`, *including where the leaf enclosure excludes zero*.
+  That case is the one a filter would have decided and the one ADR-015 forbids resolvent to
+  own.
+- **`provenance_bytes` is byte-identical across insertion orders, thread counts, processes and
+  feature combinations** — the same matrix as `canonical_bytes` — which is what proves no
+  arena-relative `ExprId` leaked into it.
+- **Construction is not rewriting.** A corpus of terms whose canonical form differs from their
+  constructed form round-trips through construction, `diff`, `walk_topological` and
+  `canonical_bytes` with structural identity preserved. This is the promise cadabra2's `Cos2`
+  tether rests on (ADR-033 §2).
+- **Every class-R rule in the shipped rule sets is verified by GF(p) evaluation** with each
+  `Apply` node replaced by a fresh variable, across the fleet seed schedule; **no class-D rule
+  fires without its side condition discharged**, with a planted undischarged case asserted to
+  refuse.
 - `rebuild_from` round-trips: rebuilding an expression into a fresh `Store` yields identical
   canonical bytes.
 - `diff_with` with `LeafDefault::Refuse` returns `Unsupported::NoLeafRule` rather than a
@@ -416,13 +465,21 @@ the other trunks, and the previous plan said it was:**
 
 | Sub-lane | Actually depends on |
 |---|---|
-| X1 `Store`, node set, `FuncTable` | nothing beyond M1 — **genuinely independent** |
-| X3 `walk_topological`, canonical bytes, `rebuild_from` | nothing beyond M1 — **genuinely independent** |
+| X1 `Store`, node set, `FuncTable`, **the exactness lattice** | nothing beyond M1 — **genuinely independent** |
+| X3 `walk_topological`, canonical + **provenance** bytes, `rebuild_from` | nothing beyond M1 — **genuinely independent** |
 | X2 `diff` / `diff_with`, constant folding | **U2**, because its exit gate is agreement with `UPoly::derivative` |
 | X4 `is_polynomial_in` | **P3**, because its return type is `MPoly` |
+| **X5** `RuleSet` + `simplify`, rule soundness | *added 2026-08-08.* **X1 + Z3**, because class-R soundness is evaluation over GF(p) and `Fp` is Z3. **Not** a gcd lane: rational-function normal form is a *separate* unspecified capability (ADR-033 §5) and is not in X5 |
+| **X5q** rewrite *quality* — **conformance-graded** | *added 2026-08-08.* X5, plus a live Tier-0 oracle. Gates nothing (ADR-030 §3) |
+| **X6** assumptions on symbols | *added 2026-08-08.* X1. **Blocked: no ADR specifies it** (ADR-021 §3) |
 
 X1 + X3 are the cleanest parallel work in the plan and should be staffed from the beginning.
 X2 and X4 are not free of the other trunks and must not be scheduled as though they were.
+
+**The X1 amendment is the scheduling item that bites.** The exactness lattice is a field in
+the hash-consed node, so it is not additive: staffing X1 against the pre-2026-08-08 node set
+and adding exactness afterwards is a rewrite of the `Store` and of every golden file X3
+committed. If X1 has already started when ADR-031 ratifies, stop it and re-brief it.
 
 ---
 
@@ -456,6 +513,47 @@ and Gröbner as a *public* output.
 
 ---
 
+### M9 — the analytic stratum — *declared 2026-08-08, specified almost nowhere*
+
+**This milestone is deliberately not plannable yet, and saying so is the point.** ADR-029
+declares the analytic surface in scope. `API.md` §4.2 admits it capability by capability. But
+"in scope and unspecified" blocks a lane rather than licensing it (ADR-021 §3), and every
+capability below is unspecified. **No M9 lane may open until its own ADR ratifies.** Listing
+them here is what makes their absence visible instead of turning M9 into an invitation.
+
+**Lands.** `resolvent-calculus` (ADR-005, amended) and `resolvent-display`.
+
+| Capability | Verdict function it will be graded by | Grade | ADR |
+|---|---|---|---|
+| **C1 — ADR-032's zero-test tiers**: the reduction table, its witness relations, the Tier-2 opt-in. `is_zero` is a **free function** over `&Store`, never a `Store` method | `witness_relation_holds`; the numeric mutant and the `sin(π/6) → √3/2` table mutant must both be rejected; a compile-fail test that `is_zero` returns no `Verdict` (INV-18) | certificate | **ADR-032 — the one M9 capability that is specified, and the only M9 lane that may open** |
+| Series and limits | Truncation bound plus agreement with direct evaluation | certificate | none yet |
+| Symbolic integration | **Differentiate the result and compare to the integrand.** An unusually strong self-certificate — this is why ADR-017 §6 always called it cheap to add later | certificate | none yet |
+| Partial fractions | Recombine and compare (admitted at `API.md` §4.2 as a consequence of integration's internal need) | certificate | none yet |
+| ODE solving | Substitute the solution back | certificate | none yet |
+| Integral transforms | Invert and compare | certificate | none yet |
+| Special functions as symbolic objects | Functional equations and recurrences — `Γ(z+1) = zΓ(z)`, the Bessel recurrences | certificate | none yet |
+| Arbitrary-precision numeric evaluation of the above | **unsettled, and it is the hazard** | — | none yet, **and it needs one first** |
+| Pretty-printing / LaTeX | Round-trip for correctness; readability has no verdict function | conformance | none yet |
+
+**The one item that must not be waved through.** Arbitrary-precision *numeric* evaluation of
+special functions is the single place the analytic surface touches ADR-012 §6's "no floating
+point in any decision path". It is admitted nowhere: `API.md` §4.2's special-functions row
+admits the symbolic objects and explicitly excludes their numeric evaluation. Whoever writes
+that ADR must answer how a certified enclosure is produced and why it cannot become a decision
+input — and ADR-031's `Enclosed` state, which carries rational endpoints rather than an
+interval type, is the shape the answer probably takes.
+
+**Unlocks.** The capability list of an established CAS. Nothing internal depends on M9.
+
+**Exit gate.** Not writable yet, and it would be dishonest to write one: an exit gate over
+capabilities whose ADRs do not exist would be a gate over a guess. Each capability's ADR
+carries its own, and M9 closes when they all do.
+
+**Depends on.** M7 for all of it; M3 additionally for the zero-test tiers (they produce an
+`AlgebraicReal`); M2 for series over `UPoly`.
+
+---
+
 ### Milestone dependency graph
 
 ```
@@ -470,11 +568,22 @@ M0 harness
      ├─ (multivariate trunk, after E-MONO)     │                       │
      │   M6 monomials → Buchberger → F4 → modular Gröbner              │
      │                                         │                       │
-     ├─ (expression trunk: X1+X3 free, X2←U2, X4←P3)                   │
-     │   M7 Layer 4 DAG ───────────────────────────────────────────────┘
-     │
-     └─ M8 towers / CAD / RUR / M8-N   ← needs M4 + M5 + M6
+     ├─ (expression trunk: X1+X3 free, X2←U2, X4←P3, X5←X1+Z3)         │
+     │   M7 Layer 4 DAG ───────────────────────────────────────────────┤
+     │    └─ M9 analytic stratum (resolvent-calculus, -display)        │
+     │         ← needs M7; zero-test tiers additionally need M3        │
+     │         ← EVERY LANE BLOCKED: no ADR specifies them (bar 032)   │
+     │                                                                 │
+     └─ M8 towers / CAD / RUR / M8-N   ← needs M4 + M5 + M6 ───────────┘
 ```
+
+**What changed on 2026-08-08 (ADR-029 §5).** M7 was previously a leaf — "L4 blocks nothing and
+is blocked by nothing; sequence it last and do not let it block anything" (ADR-017
+§Consequences). It is now the foundation of M9, so that deferral no longer holds and M7's own
+one-way door (the exactness lattice in the node) has to be decided before X1 is staffed. Two
+things survive the change and still govern: **no analytic lane may start before M1's
+representation freeze**, and **M4 remains the release that unlocks the strongest evidenced
+consumer** — scope growth is not a reason to reorder it.
 
 ---
 
@@ -489,7 +598,7 @@ a state, and writing one would be dishonest.
 
 | Lane | What | Grade | Par | Size | Verdict function |
 |---|---|---|---|---|---|
-| **H1** | Workspace, two-category rule, gates L1–L10 + L6a, `cargo-deny` + `cargo-about`, `lanes.toml` and the ratification gate | certificate | 1 | S | Gate fails on all three planted license cases; the ratification gate is observed blocking |
+| **H1** | Workspace, two-category rule, gates L1–L10 + L6a **+ L13–L15 (embedding, ADR-029 §2)**, `cargo-deny` + `cargo-about`, `lanes.toml` (**including the conformance keys, ADR-021 §3 as amended**) and the ratification gate | certificate | 1 | S | Gate fails on all three planted license cases; the ratification gate is observed blocking; **each of L13–L15 is observed rejecting a planted violation** |
 | **H2a** | **The canonical serializer and its schema version** (`resolvent-base`, ADR-012 §9) | certificate | 1 | S | Round-trip; golden files; a golden change without a schema bump fails. **Blocking for H2b, H3, H4** |
 | **H2b** | Determinism harness, thread/process/feature matrix, golden-file machinery | certificate | 1 | S | Byte-identical across runs/processes/threads/features |
 | **H3** | Corpus format with provenance, generator interface, seed schedule, minimizer, score reporter, tier census | certificate | 1 | M | Falsifies a planted stub within `⟨B⟩`; 1-minimalizes three planted cases; `fast` budget enforced |
@@ -560,10 +669,13 @@ certifiable, and it decomposes cleanly into `Fp` / `Zn` / `GF(p^k)`.
 
 | Lane | What | Grade | Par | Size | Blocked on |
 |---|---|---|---|---|---|
-| **X1** | Hash-consed `Store`, node set, `FuncTable` | certificate | 1 | M | M1 only |
-| **X3** | `walk_topological`, canonical bytes, schema version, `rebuild_from` | certificate | 1 | S | M1 only |
+| **X1** | Hash-consed `Store`, node set, `FuncTable`, **the exactness lattice** (ADR-031) | certificate | 1 | M | M1 only. **Re-sized and re-briefed 2026-08-08** — the lattice is in the node, not additive |
+| **X3** | `walk_topological`, canonical **and provenance** bytes, schema version, `rebuild_from` | certificate | 1 | S | M1 only |
 | **X2** | `diff` / `diff_with`, constant folding, `canonicalize` | certificate | 1 | M | **U2** |
-| **X4** | `is_polynomial_in` bridge to Layer 1 | certificate | 1 | S | **P3** |
+| **X4** | `is_polynomial_in` bridge to Layer 1, refusing any non-`Exact` subtree | certificate | 1 | S | **P3** |
+| **X5** | `RuleSet` with R/S/D classification, `simplify`, rule **soundness** (ADR-033) | certificate | 1 | M | **X1 + Z3**. Added 2026-08-08 |
+| **X5q** | Rewrite **quality** against a Tier-0 oracle | **conformance** | 1 | — | X5 + a live oracle. Gates nothing. Added 2026-08-08 |
+| **X6** | Assumptions on symbols — the class-D discharge mechanism | certificate | 1 | M | X1. **Blocked: no ADR** |
 
 ### Wave 3 — Layer 3 and elimination
 
@@ -603,15 +715,30 @@ certifiable, and it decomposes cleanly into `Fp` / `Zn` / `GF(p^k)`.
 | **G6** | Batched multi-modular **and the split driver** | **score** | 1 | — | Up to ~2.7× amortized at `N=4`; 8/16/32 gave no further gain. Blocked on Z5 |
 | **G7** | **Dual-key pair ring + FGLM** | certificate | 1 | XL | Re-sized from L: FGLM needs two orders live on the same monomials in the same loop (ADR-009 §Consequences) |
 
+### Wave 5 — the analytic stratum, almost entirely closed
+
+| Lane | What | Grade | Par | Size | Blocked on |
+|---|---|---|---|---|---|
+| **C1** | ADR-032's zero-test tiers in `resolvent-calculus`: the Tier-1(b) reduction table with a witness relation per entry, Tier-1(c) one-sided non-vanishing, the Tier-2 Schanuel opt-in, `is_zero` as a **free function** over `&Store` | certificate | 1 | M | **X1 + M3.** Needs the `Store` and `AlgebraicReal`. The only Wave-5 lane that may open |
+
+**Every other capability in M9 has no lane here, and that is the mechanism working.** Series,
+limits, integration, ODE, transforms, special functions, assumptions and presentation are all
+admitted at `API.md` §4.2 and specified by no ADR, so under ADR-021 §3 their crates are absent
+from the workspace and their lanes cannot start. Writing speculative lane rows for them would
+convert "blocked" into "available", which is exactly the failure the ratification gate exists
+to prevent. **Each needs a `decision`-graded lane first** — an agent may draft the ADR and run
+its experiments; only the repository owner may ratify it.
+
 ### Fan-out summary
 
 | Wave | Certificate lanes | Score/measurement lanes | Max useful concurrent agents |
 |---|---|---|---|
 | 0 | 5 | 3 | **5, then 7** — H2a blocks H2b/H3/H4 |
 | 1 | 6 | 2 | **1, then 7** — Z0 blocks everything; Z3 takes 2–3 agents |
-| 2 | 14 across three trunks | 6 | **10–12** — E-MONO blocks the multivariate trunk; X2 waits on U2, X4 on P3 |
+| 2 | 16 across three trunks | 6 + 1 conformance | **10–12** — E-MONO blocks the multivariate trunk; X2 waits on U2, X4 on P3, X5 on X1+Z3; X6 is blocked on an unwritten ADR |
 | 3 | 12 | 2 | **8–10** — T5 before T6a/T6b; T8 after T1+T2 frozen |
 | 4 | 10 | 4 | **5–6** — G1 → G2 → G2r → G3; K1 → K2 → K3 → K5 |
+| 5 | **C1** only | — | **1** — C1, the ADR-032 zero-test tier lane in `resolvent-calculus`, and **nothing else**. Every other M9 capability is blocked on an ADR that does not exist, which is the mechanism working, not a gap to route around (ADR-021 §3) |
 
 **The critical serialization, stated plainly.** Before the freeze, everything is harness
 work. The barrier is not "Layer 0 and Layer 1 must be *built* first" — it is "**Layer 0 and
@@ -800,7 +927,11 @@ win available and it is why the geometry trunk is short and the SMT trunk is lon
 
 | Risk | Mitigation |
 |---|---|
-| **Scope creep into a general-purpose CAS.** The spec names this itself | Refuse a clever `simplify()` — ADR-017 §5 removes it outright, and §6 names what would bring each piece back. Build what the geometry consumer needs, then what FEM needs. M4 is the release that matters |
+| ~~**Scope creep into a general-purpose CAS**~~ **Scope declared but not delivered** *(rewritten 2026-08-08, ADR-029)* | The old mitigation — refuse `simplify`, build what geometry needs then what FEM needs — was a scope bound, and ADR-029 removed it. The risk inverts: a README claiming a general-purpose CAS over an empty workspace is worse than the narrow claim it replaced. Mitigation: **"in scope" and "specified" are different states**, an unspecified capability's lane cannot open (ADR-021 §3), M9's table lists every unwritten ADR by name, and `README.md` §Status still says plainly that no implementation exists. M4 is still the release that matters |
+| **The conformance grade becomes an escape hatch** *(added 2026-08-08)* | A capability with an available self-certificate graded by oracle comparison instead. Mitigation is mechanical and in ADR-030 §2–§3: soundness is **never** conformance-graded, a conformance lane gates nothing and is an oracle for nothing, `self_certifying = false` is a required field, and a lane proposing the grade where an inverse operation exists is a review defect — the reviewer's question is "what is the inverse operation?" |
+| **A domain-restricted rewrite rule fires on an undischarged side condition** *(added 2026-08-08)* | This is where essentially all real CAS unsoundness lives — `√(x²) → x`, `log(ab) → log a + log b` on the negative reals. Mitigation: ADR-033 §3's class D carries a machine-checkable side condition and **firing without discharging it is a bug, not a heuristic**; `RuleSet::ring_identities()` is class-R only; and `simplify` returns `Proved` only when every rule that actually fired was class R |
+| **The exactness lattice is retrofitted rather than built in** *(added 2026-08-08)* | It is a field in the hash-consed node (ADR-031), so adding it after X1 ships is a rewrite of the `Store` and invalidates every golden file X3 committed. Mitigation: it is in M7's *Lands* list and in X1's brief, and if X1 has started when ADR-031 ratifies, X1 stops and is re-briefed |
+| **Arbitrary-precision numeric evaluation enters through the analytic surface** *(added 2026-08-08)* | The single place M9 touches ADR-012 §6. `API.md` §4.2 admits special functions as *symbolic objects* and explicitly excludes their numeric evaluation; that capability has no ADR and its lane cannot open until one answers how a certified enclosure is produced and why it can never be a decision input |
 | **Lanes start against unratified decisions** | Their crates are absent from the workspace (ADR-021 §3). Mechanical, not cultural |
 | **Score lanes start before their oracle** | A score lane's CI job does not exist until its `oracle` list is green and frozen. Same mechanism |
 | **Two documents specify two libraries** | ADRs are normative; the contradiction register is a table with twelve closed rows; a CI grep gate fails on divergent definitions of a headline type (ADR-021) |

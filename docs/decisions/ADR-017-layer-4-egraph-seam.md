@@ -1,6 +1,17 @@
 # ADR-017 — Layer 4 is a resolvent-owned seam; no `egg` or `egglog` dependency now
 
 **Status:** Ratified 2026-07-31
+**Superseded in part by ADR-032 and ADR-033** (2026-08-08). **§1, §3 and §4 stand; §2's
+third bullet and §5–§6 do not.** Read this before the body:
+
+| This ADR says | Current position |
+|---|---|
+| §1, §3, §4 — resolvent-owned DAG, caller-owned `FuncTable`, `diff_with` with a `LeafRules` table, no e-graph dependency, one explicit value-preserving `canonicalize` | **Unchanged and normative.** ADR-033 §6 keeps the e-graph deferral verbatim |
+| §2 bullets 1–2 — transcendentals live in L4 only; L0–L3 never see them | **Unchanged and normative** |
+| §2 bullet 3 — "resolvent offers no transcendental zero-test at any layer" | **Superseded by ADR-032.** No *unsound* zero-test ever; sound tests over named decidable subclasses, assumption visible in the return type |
+| §3 — `resolvent-expr` does **not** depend on `resolvent-algebra` | **Superseded by ADR-033 §5.** Rational functions are back in scope, so the edge returns |
+| §5, §6 rows 1–3 — no `simplify`, no `RuleSet`, no rewriter in v1 | **Superseded by ADR-033.** The deferral's premise — that L4 is "not the point" — was retired by ADR-029 |
+
 **Reversibility:** cheap
 **Amended:** 2026-07-31 — `Simplifier`, `RuleSet`, the built-in rewriter, simplex
 integration and rational-function normalization are moved to an explicit **post-v1** section;

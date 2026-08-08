@@ -5,6 +5,10 @@
 **Amended:** 2026-07-31 — gate L6a (published crates have zero dev-dependencies) added;
 the crate graph is declared normative against the alternative sketched in
 `plans/api-shape.md` §1.4 (ADR-021 §3, item 1).
+**Amended:** 2026-08-08 — **nine** published crates, not seven: `resolvent-calculus` (L5) and
+`resolvent-display` are added, and `resolvent-expr` regains its `resolvent-algebra` edge.
+ADR-032's zero-test tiers are placed in `-calculus` specifically so `resolvent-expr` does not
+acquire a `resolvent-real` edge (ADR-029 §4, ADR-033 §5).
 **Gates lanes:** H1, and every lane thereafter.
 **Evidence:** `plans/architecture.md` §1; `docs/research/consumer-requirements.md` §0.1;
 `docs/research/algorithms-and-representation.md` §2.5;
@@ -48,9 +52,54 @@ strict linear dependency order, versioned in lockstep.**
 ```
 resolvent-base    → resolvent-int → resolvent-modular → resolvent-poly
                   → resolvent-algebra → resolvent-real → resolvent (facade)
-resolvent-expr    depends on base, int, poly.  NOT on algebra (ADR-017 §3), NOT on real.
+resolvent-expr    depends on base, int, poly, algebra.  NOT on real.
+resolvent-calculus  depends on expr, algebra, real.     L5.
+resolvent-display   depends on expr.  Nothing depends on it but the facade.
 publish = false:  resolvent-oracles, resolvent-bench, resolvent-fuzz, xtask
 ```
+
+*Amended 2026-08-08 (ADR-029 §4):* **two further published crates** — `resolvent-calculus`
+and `resolvent-display`. ADR-029 declares a general-purpose scope, and the analytic surface
+does not belong in `resolvent-expr`: putting series, integration and transforms in the DAG
+crate would make the one crate every L4 consumer depends on the largest in the workspace.
+(This ADR's title says "seven" and the graph above lists eight including the facade; the
+discrepancy predates this amendment and the graph is what gate L1 diffs against.)
+
+| Crate | Holds | Depends on |
+|---|---|---|
+| `resolvent-expr` (L4) | Hash-consed DAG, `diff`/`diff_with`, `FuncTable`, CSE, `walk_topological`, `is_polynomial_in`, canonical + provenance bytes, the exactness lattice (ADR-031), assumptions, `canonicalize`, `simplify` + `RuleSet` (ADR-033) | base, int, poly, **algebra** |
+| `resolvent-calculus` (L5) | Series and limits, symbolic integration, ODE, integral transforms, special functions, **and ADR-032's zero-test tier machinery** | expr, algebra, real |
+| `resolvent-display` | Pretty-printing, LaTeX. Conformance-graded (ADR-030); nothing in the core graph depends on it | expr |
+
+Three consequences of the split, each load-bearing:
+
+- **The `resolvent-algebra` edge on `resolvent-expr` returns**, dropped by ADR-017 §3 and
+  reinstated by ADR-033 §5 — rational-function normalization is back in scope, which was the
+  edge's original justification.
+- **`resolvent-expr` still does not depend on `resolvent-real`, and ADR-017 §3's reason
+  survives intact.** This is the non-obvious part. ADR-032's Tier-1(b) reduction — `sin(π/6)`
+  into an `AlgebraicReal` — is an L4→L3 movement and would force the edge. It is therefore
+  placed in `resolvent-calculus`, **not** in `resolvent-expr`. L4 stays buildable without L3,
+  the two-trunk fan-out is preserved, and the zero-test tiers become an L5 capability. A
+  zero-test entry point appearing in `resolvent-expr` is a layering defect, and gate L1 catches
+  it as a new dependency edge.
+- **`resolvent-display` is a leaf, deliberately.** A code emitter for a consumer's target
+  language remains out of scope (ADR-017 §1, `API.md` L4-8) for its unchanged reason: sinbad
+  wants Rust closures, the next consumer wants its own opcode tape, and `walk_topological` is
+  where resolvent stops. Presentation of the mathematical object *itself* is a different thing,
+  every CAS has one, and no consumer wants to write it — but it is graded by conformance, so it
+  must not sit under anything that is certificate-graded.
+
+Two gate interactions, checked rather than assumed:
+
+- **Gate L7 is unchanged, and that is a decision.** It reads "`rayon` appears only in
+  `-algebra` and `-rea`l". Neither new crate is added to it, so **`resolvent-calculus` is
+  single-threaded** until an ADR says otherwise. No surveyed consumer asks for parallel
+  calculus, and widening a determinism-adjacent gate for a crate that does not exist yet is
+  how the `parallel` feature stops meaning anything.
+- **Gates L13–L15 (ADR-029 §2) apply to both new crates from their first commit**, like every
+  other published crate. `resolvent-display` is the likeliest place someone reaches for a
+  `thread_local!` formatting buffer.
 
 *Amended 2026-07-31:* `xtask` (CI helper commands — the layering, grep, ratification and
 census checks) is a fourth `publish = false` crate. ADR-016 §2's rule is "exactly two crate

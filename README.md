@@ -31,25 +31,59 @@ Three commitments define it:
   does, and the proof is checked in the same test that exercises the operation. This is
   the development model, not a testing appendix (see [Verification](#verification)).
 
-Symbolic calculus is a thin optional layer at the top and is not the point.
+Two further commitments, decided 2026-08-08 and governed by
+[ADR-029](docs/decisions/ADR-029-general-purpose-cas-and-embedding.md):
+
+- **A general-purpose CAS.** The exact algebraic core is the foundation, not the ceiling.
+  Rewriting with explicit rule sets, rational functions, series, symbolic integration, ODEs,
+  integral transforms, special functions and an assumptions system are all in scope. Most of
+  them are in scope and *unspecified*, which is a different state from out of scope: a lane
+  may open for one once the ADR specifying it is ratified. The bet is that a system can have
+  the capability list of an established CAS while refusing the failure modes — heuristic
+  simplification, numeric zero-testing, silent branch-cut choices — that the capability list
+  usually comes with.
+- **Embeddable, as a declared constraint rather than an accident.** resolvent is built to run
+  inside a host it does not control: another Rust workspace, a numerical application across
+  an `extern "C"` boundary, a WASM sandbox. No ambient state, no `thread_local!`, no global
+  cache, no panic across any published entry point, every arena and store a caller-owned
+  value, every budget counted in steps rather than wall-clock. Grep gates L13–L15 enforce the
+  first three. This is not a `no_std` commitment; that question is open (ADR-029 §2).
 
 ## What resolvent is not
 
-- **Not a general-purpose CAS.** No pretty-printer ecosystem, no interactive session, no
-  notebook.
-- **No `simplify()` that tries to be clever.** The source specification names this as its
-  own risk. Rewriting, if it ever ships, takes an explicit rule set as an argument; there
-  is no global "make this nicer" function with hidden heuristics (ADR-017 §5, and see the
-  scope correction in `docs/research/critique-engineering.md` §15).
-- **No transcendental zero-test, at any layer, ever.** Undecidable in general
-  (Richardson/Schanuel). Layer 4 may carry `sin`/`exp` as opaque symbols with derivative
-  rules; Layers 0–3 never see them, and an attempt to evaluate one into an exact algebraic
-  context returns `Unsupported::TranscendentalSymbol` (ADR-017 §2).
-- **Not numeric.** No floating-point in any decision path. The only `f64` in the library is
-  an outward-correct enclosure returned *to* callers, and it is never a decision input
-  (ADR-012 §6, ADR-015).
+Every entry here is a **soundness rule**, not a scope boundary. Scope is ADR-029; these hold
+regardless of how far it grows, and they are what the scope is worth having.
+
+- **Never silently approximate.** A routine that cannot decide returns a structured refusal
+  or `Verdict::Unknown` and the caller climbs to an exact rung. A heuristic result is
+  `Certified<T>` carrying `Certainty::Probable(reason)` with its evidence; the default path
+  returns `Proved`. A caller who wants speed or a conjecture asks for it by name (ADR-010,
+  ADR-011).
+- **No tolerance, epsilon, `atol`, `rtol`, or "close enough" parameter, at any layer, under
+  any name.** A grep gate enforces it. Equality by tolerance is intransitive, a sort over it
+  produces garbage, and a geometry consumer produces a topologically inconsistent
+  arrangement. `refine_to(width)` is not a tolerance: it never affects a verdict, and that is
+  property-tested as idempotence under refinement.
+- **No floating point in a decision path.** `f64` may enter Layer 4 as an inexact *leaf*
+  carrying a monotone exactness lattice — `Exact` / `Enclosed` / `Approximate`, never gained
+  by combining — because tracking inexactness is a stronger enforcement of this rule than
+  banning it. Layers 0–3 are exact-only and the L4→L1 bridge refuses anything not `Exact`
+  (ADR-031, ADR-012 §6, ADR-015).
+- **No implicit rewriting.** A consumer that never calls `canonicalize` or `simplify` never
+  has its terms rewritten — a promise consumers build certificate tethers on. `simplify`
+  takes an explicit rule set every time; there is no argument-free form and no default rule
+  set. Every rule declares its soundness argument, and a rule that is false somewhere carries
+  a machine-checkable side condition that must be discharged before it fires (ADR-033).
+- **No unsound zero-test, at any layer, ever.** Numeric zero-testing — evaluate to `n` digits
+  and compare — is banned permanently. A *sound* test over a named decidable subclass is
+  permitted with its assumption visible in the return type: algebraic constants are `Proved`,
+  a Schanuel-conditional exp-log test is opt-in and never returns `Proved`, and everything else
+  is a structured refusal — `is_zero` returns `Result<Certified<bool>, Error>`, never a
+  `Verdict` (ADR-032, INV-18).
 - **Not an ecosystem numeric vocabulary.** resolvent ships algebraic traits and algorithms.
   It does not try to be the scalar seam every Rust numerics crate depends on (ADR-019).
+- **Not an application.** No REPL, no notebook, no session state. resolvent is the engine an
+  application embeds, which is what ADR-029 §2's invariants exist to make possible.
 - **Not coupled to any consumer.** resolvent depends on no local project, imports no
   consumer trait, exposes no geometric type, and names no consumer anywhere in a published
   crate. Grep gates enforce this (`plans/architecture.md` §1.3, gates L4/L5).
@@ -84,12 +118,22 @@ computation needs for trivariate elimination.
 
 ## Architecture
 
-Seven published crates in a strict linear order, plus three unpublished ones. `resolvent`
-is the only crate a consumer is expected to name (ADR-005).
+Published crates in a strict linear order, plus four unpublished ones. `resolvent` is the
+only crate a consumer is expected to name (ADR-005, amended 2026-08-08).
 
 ```
+L5  resolvent-calculus  series · limits · integration · ODE · transforms
+                        special functions · ADR-032's zero-test tiers
+                        depends on expr, algebra, real
+                        EVERY LANE BLOCKED but the zero-test tiers: no ADR specifies them
+
+    resolvent-display   pretty-printing · LaTeX.  Conformance-graded; a leaf.
+                        Still NO code emitter — walk_topological is where resolvent stops
+
 L4  resolvent-expr      hash-consed expression DAG · diff / diff_with · CSE
                         caller-owned Store · no implicit rewriting
+                        exactness lattice (Exact/Enclosed/Approximate) in the node
+                        canonicalize · simplify(expr, &RuleSet) · assumptions
                         depends on base, int, poly, algebra — NOT on real
 
 L3  resolvent-real      AlgebraicReal { squarefree UPoly<Integer>, isolating (lo,hi) }
@@ -118,8 +162,16 @@ L0  resolvent-modular   Fp (word primes) · Zn · GF(p^k) · CRT · rational rec
     resolvent           facade: re-exports, feature plumbing, docs.  No algorithms.
 
     publish = false     resolvent-oracles (subprocess drivers, rug dev-oracle)
-                        resolvent-bench · resolvent-fuzz
+                        resolvent-bench · resolvent-fuzz · xtask
 ```
+
+**Why `resolvent-calculus` is its own crate rather than more of `resolvent-expr`.** A
+Tier-1(b) zero-test reduction — `sin(π/6)` into an `AlgebraicReal` — is an L4→L3 movement.
+Putting it in `resolvent-expr` would give L4 a dependency on L3 and reinstate exactly the
+coupling ADR-017 §3 removed so that the expression trunk could never hold the algebraic-number
+lane hostage. Placing the tiers one layer up keeps L4 buildable without L3, keeps the
+two-trunk fan-out, and keeps the largest new surface out of the one crate every L4 consumer
+depends on.
 
 Two structural facts that shape everything:
 

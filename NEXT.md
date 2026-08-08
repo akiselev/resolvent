@@ -59,6 +59,8 @@ crates/
   resolvent-algebra/          # publish = true.  Empty.
   resolvent-real/             # publish = true.  Empty.
   resolvent-expr/             # publish = true.  Empty.
+  resolvent-calculus/         # publish = true.  Empty.  (ADR-005 am. 2026-08-08)
+  resolvent-display/          # publish = true.  Empty.
   resolvent/                  # publish = true.  Facade. Empty.
   resolvent-oracles/          # publish = false. Property tests, differential oracles, rug.
   resolvent-bench/            # publish = false.
@@ -99,6 +101,14 @@ is superseded — there is no `resolvent-seam` and no `resolvent-lazy`).
   oracle = []
   ```
 
+  *Amended 2026-08-08.* The schema also carries the three `conformance` keys —
+  `self_certifying`, `oracle_systems`, `divergence_ceiling` — and CI enforces them
+  (ADR-021 §3 as amended, ADR-030 §1). **`oracle` holds lane ids; `oracle_systems` holds
+  external system names.** Wave 0 has no conformance lane, so no entry uses them yet; write
+  the three checks anyway, because the first conformance lane arrives in Wave 2 and a schema
+  check added after the first user is a schema check that was never observed rejecting
+  anything.
+
 - **The three planted license cases**, each a tiny crate in `tests/license-gate/` that the
   gate must reject: one depending on `malachite` (LGPL-3.0-only, hiding behind a
   permissive-looking pure-Rust crate), one on `polynomen` (GPL-3.0-only with an innocuous
@@ -113,6 +123,10 @@ is superseded — there is no `resolvent-seam` and no `resolvent-lazy`).
 | `xtask::layering::l1_graph_matches` | `cargo tree --edges normal` equals the checked-in expected graph |
 | `xtask::grep_gates::l4_no_geometry_vocabulary` | No `Point`, `Curve`, `Segment`, `Vertex`, `Face`, `tolerance`, `epsilon`, `snap` in any published crate |
 | `xtask::grep_gates::l5_no_consumer_names` | No consumer repository name in source, `Cargo.toml`, feature name or doc example |
+| `xtask::grep_gates::l13_no_ambient_state` | *Added 2026-08-08 (ADR-029 §2).* No `static mut`, no `thread_local!`, no lazily-initialized global cache in any published crate — **and a planted violation in a scratch crate is observed being rejected** |
+| `xtask::grep_gates::l14_no_env_or_allocator_config` | No environment-variable read in a decision path, no process-global allocator assumption. Planted case observed rejected |
+| `xtask::grep_gates::l15_no_process_identity` | No `std::process::id`, working directory, or filesystem dependency in any published crate. Planted case observed rejected |
+| `xtask::lanes::conformance_schema` | `grade = "conformance"` ⟹ `self_certifying = false`, `oracle_systems` non-empty, `divergence_ceiling` present and not `TBD`; and no lane names a conformance lane in its `oracle` list. Asserted against a planted bad entry, since Wave 0 has no real conformance lane yet |
 | `xtask::ratification::blocks_unratified_lane` | A scratch commit setting one gating ADR to `Proposed` removes that lane's crate from the workspace members list and skips its tests; setting it back to `Ratified` restores both |
 
 The last one matters more than it looks. It is the freeze, and the freeze has never been

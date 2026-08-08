@@ -102,8 +102,17 @@ arbitrary degree, with the coefficient-growth control that makes arbitrary degre
 The measurement behind that number: the entire algebraic surface a shipping 17k-LOC exact
 geometry engine consumes is re-exported under six names
 (`arrangements/crates/lazy-exact/src/lib.rs:82` — `QPoly, RealRoot, RootError, isolate_roots,
-sign_radical1, sign_radical2`, plus `SqrtExt` on the next line). Symbolic calculus is a thin
-optional layer at the top and is not the point.
+sign_radical1, sign_radical2`, plus `SqrtExt` on the next line). ~~Symbolic calculus is a thin
+optional layer at the top and is not the point.~~
+
+*Amended 2026-08-08 (ADR-029).* **The scope is a general-purpose CAS**, and symbolic calculus
+is a stratum of it rather than an optional layer. What survives unchanged is the sentence
+above it: the *first useful release* is still roughly twenty-five functions, and the
+twenty-five are still the algebraic ones. The distinction ADR-029 §1 draws is between what is
+**in scope** and what is **specified** — most of the analytic surface is in scope and
+unspecified, which blocks its lane rather than licensing it. Nothing in this document's
+sequencing changes because of the scope declaration; what changes is that the ceiling was
+removed, not that the floor moved.
 
 Two framings correct the source specification and this architecture is built around both:
 
@@ -139,7 +148,12 @@ Layer by layer, the capability set, stated as a boundary rather than a wish list
   `rational_between`, curve analysis, RUR.
 - **L4** — a hash-consed expression DAG with an open caller-owned function table,
   differentiation with a caller-supplied leaf rule, constant folding, topological walk,
-  canonical bytes, and the `is_polynomial_in` bridge down to L1.
+  canonical bytes, the `is_polynomial_in` bridge down to L1, the **exactness lattice**
+  (ADR-031), and **explicit, never-implicit rewriting** — `canonicalize` plus
+  `simplify(expr, &RuleSet)` (ADR-033).
+- **L5** — series, limits, symbolic integration, ODE, integral transforms, special functions,
+  and ADR-032's zero-test tiers. *In scope, and almost entirely unspecified: every capability
+  here but the zero-test tiers is blocked on an ADR that does not exist* (ADR-029 §1).
 
 ### 1.3 Non-goals, and why each is excluded
 
@@ -148,17 +162,17 @@ one exists, the consumer that would be damaged by including it.
 
 | Excluded | Why |
 |---|---|
-| **A general `simplify()`** | The source specification names refusing it as its own risk. Both L4 consumers independently confirm: cadabra2 keeps `Cos2` as a first-class atom *deliberately* rather than rewriting it, and a canonicalizing rewriter destroys the certificate tether that admits resolvent to its trusted computing base. `canonicalize()` exists, is explicit, is opt-in, and is defined as value-preserving normalization — not cleverness. |
-| **Transcendental zero-testing, at any layer, ever** | Richardson/Schanuel territory; undecidable in general. No consumer needs it: FEM needs differentiation and emission; geometry rationalizes (Weierstrass `t = tan(u/2)`) before it asks anything. An attempt to evaluate a transcendental symbol into an exact algebraic context returns `Unsupported::TranscendentalSymbol`. |
+| **Implicit rewriting of any kind** *(replaces "a general `simplify()`", 2026-08-08)* | The consumer evidence is unchanged and is what this row is really about: cadabra2 keeps `Cos2` as a first-class atom *deliberately*, and a canonicalizing rewriter destroys the certificate tether that admits resolvent to its trusted computing base. So the line held is **never implicit**, not **never at all** — a consumer that calls neither `canonicalize` nor `simplify` never has its terms rewritten, and that promise is what the tether rests on. `simplify(expr, &RuleSet, budget)` ships under ADR-033 with the rule set a required argument, no default rule set, and every rule classified by its soundness argument. What stays excluded: an argument-free `simplify`, a `RuleSet::default()`, rewriting as a side effect of construction/`diff`/serialization, and firing a domain-restricted rule on an undischarged side condition. |
+| **Unsound zero-testing, at any layer, ever** *(narrowed from "transcendental zero-testing", 2026-08-08)* | Numeric zero-testing — evaluate to `n` digits, compare against a threshold — is banned permanently at every layer; it is the F2 failure in a new costume and produces an intransitive equality. What the old formulation got wrong is that it classified expressions by the *symbols they are written with* rather than the *values they denote*, so it refused `sin(π/6) == 1/2` — algebraic, decidable, and exactly what L3 exists for. ADR-032 permits a **sound** test over a named decidable subclass with its assumption visible in the return type: algebraic constants are `Proved`, a Schanuel-conditional exp-log test is opt-in and never returns `Proved`, everything else is `Unknown`. Richardson/Schanuel still rules out any *general* zero-test, which is why Tier 3 is the default. |
 | **Any API taking a tolerance, epsilon, or "close enough" parameter** | Equality-by-tolerance is *intransitive*: with `α < β < γ` and `|α−γ| > ε > |α−β|,|β−γ|` you get `α = β`, `β = γ`, `α ≠ γ`; a sort then produces garbage and a geometry consumer produces a topologically inconsistent arrangement. The first consumer's exact families declare `type Error = Infallible` and its design permanently excludes snap rounding, so a tolerance argument would make resolvent unusable by the consumer it exists for. Grep-gated (L4 in §3.5). |
 | **A float interval type in the public API** | Two interval implementations with two enclosure semantics at an adapter boundary produce a wrong *verdict*, not a wrong *number* — much harder to detect. The consumer already owns a careful one (`lazy-exact/src/interval.rs`, 431 lines, no global FPU mode). ADR-015. |
 | **A filtered / lazy-exact real number type on the default path** | Filtering *arithmetic* is an orthogonal axis to filtering *algebra*. One consumer wants it and already has a working implementation. Root isolation's internal dyadic filter is a private module, never a published tier. |
 | **Numeric root polishing, Newton correctors, homotopy continuation, interval-Newton solvers** | cadabra2 calls this an "attractive nuisance" and has a module that exists specifically so that no numeric polishing enters a decision path. An f64 root-finder in resolvent's API actively damages one consumer and helps none. |
 | **BKK / mixed-volume root counting** | Convex geometry over Newton polytopes, not algebra. It belongs in a polytope crate. |
 | **A code emitter (Rust/C/WASM printer)** | The consumer that wants one says resolvent must not ship it: it needs Rust closures, the next consumer needs its own opcode tape. resolvent exposes `walk_topological` and stops. |
-| **An `egg`/`egglog` dependency, a rule language, a built-in rewriter, symbolic integration over simplices, a rational-function type** | `ADR-017` had accumulated all five. Held at what M7's exit gate actually tests: hash-consing, `diff`/`diff_with`, constant folding, `walk_topological`, `is_polynomial_in`, canonical bytes. Everything else is **post-v1, on consumer demand** (§3.3, and the required ADR-017 amendment in §4.3). |
+| **An `egg`/`egglog` dependency** | *Narrowed 2026-08-08.* This row previously excluded five things — an e-graph dependency, a rule language, a built-in rewriter, symbolic integration, and a rational-function type — on the ground that L4 was "not the point". ADR-029 retired that ground and **four of the five are now in scope** (ADR-033 for rewriting and rational functions; `API.md` §4.2 for integration). What survives is the e-graph *dependency* alone, and for its own unchanged reasons: `egg`'s `Language` trait wants to own the term representation, its maintainers point at the successor, and `egglog` churns. Adapters stay external and post-v1 (ADR-033 §6). |
 | **Adapter crates, and any optional dependency on an ecosystem crate** | Features are capability-named (`parallel`, `serde`, `simd`, `number-fields`). No feature flag is named after a consumer; a `lazy-exact` feature would be the deferred integration decision smuggled into the one place it must not live. |
-| **`no_std`** | `AlgebraicReal` needs `Arc` and an atomic. None of the five prospective consumers is embedded. `resolvent-base` holds no arena and no allocation, so the `no_std` question stays live *for that crate only* (§10.7). |
+| **`no_std`** | `AlgebraicReal` needs `Arc` and an atomic; `dashu` allocates. ~~None of the five prospective consumers is embedded.~~ *That reason is void as of 2026-08-08 — ADR-029 §2 declares embedding a first-class constraint.* The **conclusion** survives on the other reasons, and ADR-029 §2 says so explicitly: `no_std` is "neither promised nor foreclosed". `resolvent-base` holds no arena and no allocation, so the question stays live *for that crate only* (§10.7). |
 | **Signature-based Gröbner (F5 and successors)** | The two fastest open implementations both chose non-signature F4. A serious signature implementation could not be shown beating F4-based systems, and F5's *termination* took years and multiple papers to settle — the wrong shape for an agent-built codebase graded by oracles. Recorded as a future lane if a consumer demands syzygies. |
 
 ---
@@ -305,7 +319,7 @@ the newtype wall makes sufficient by design.
 | **L1 — polynomials** | `UPoly<C>`; the `Ring` context value with the monomial arena, arity, order and field width; `MPoly<C>`; `RecursiveView<'a>`; Kronecker substitution | L0 | Any algorithm with a termination argument (gcd, isolation, Gröbner). L1 is representation and arithmetic only |
 | **L2 — the engine** | gcd, square-free, resultants and subresultant chains, factorization, Gröbner (Buchberger, F4, FGLM), ideal operations, dense linear algebra | L0, L1 | Any algebraic-number type. Any geometric vocabulary. Any float |
 | **L3 — algebraic numbers** | `AlgebraicReal`, `SqrtExt`, radical towers, separation bounds, root isolation, Bernstein enclosure, `rational_between`, curve analysis, RUR | L0, L1, L2 | Any geometric type in any signature. Any tolerance parameter |
-| **L4 — expressions** | The hash-consed `Store`, the node set, the caller-owned `FuncTable`, `diff`/`diff_with`, constant folding, `walk_topological`, canonical bytes, `is_polynomial_in` | L0, L1 | **L2 and L3.** No gcd, no rational-function normalization, no algebraic-number zero test |
+| **L4 — expressions** | The hash-consed `Store`, the node set, the caller-owned `FuncTable`, `diff`/`diff_with`, constant folding, `walk_topological`, canonical + provenance bytes, `is_polynomial_in`, the exactness lattice, `canonicalize`, `simplify` + `RuleSet`, assumptions | L0, L1, **L2** *(the `-algebra` edge returns — ADR-033 §5)* | **L3.** No algebraic-number zero test at this layer: the zero-test tiers are L5, precisely so L4 never acquires an L3 edge (ADR-005, amended) |
 
 Two of these deserve their reason spelled out.
 
@@ -336,8 +350,16 @@ The layer numbering is a dependency order, not a difficulty order, and two thing
 
 ### 3.3 The crate split
 
-**Seven published crates and three unpublished ones, versioned in lockstep, with `resolvent`
-the only crate a consumer is expected to name.**
+**Published crates in a strict linear order and four unpublished ones, versioned in lockstep,
+with `resolvent` the only crate a consumer is expected to name.**
+
+*Amended 2026-08-08 (ADR-005, ADR-029 §4):* two further published crates —
+**`resolvent-calculus`** (L5: series, limits, integration, ODE, transforms, special functions,
+and ADR-032's zero-test tiers; depends on `expr`, `algebra`, `real`) and
+**`resolvent-display`** (pretty-printing and LaTeX; a leaf, conformance-graded, and still no
+code emitter). `resolvent-expr` regains its `resolvent-algebra` edge and deliberately keeps
+**no** `resolvent-real` edge — which is why the zero-test tiers sit in `-calculus` rather than
+in `-expr`, so L4 stays buildable without L3.
 
 ```
 resolvent-base      No algebra, no bignum, no allocation of consequence.
@@ -445,7 +467,7 @@ it *after* fan-out, not before.
 | [002](docs/decisions/ADR-002-bignum-backend.md) | `dashu` behind the `resolvent-int` newtype wall; no re-export; conversions over primitives and slices | costly |
 | [003](docs/decisions/ADR-003-modular-arithmetic-in-house.md) | Hand-roll `resolvent-modular`; reject `ark-ff` (compile-time modulus), `crypto-bigint` (constant-time tax, wrong sizing), `num-modular`/`num-prime` (Apache-only, which voids the MIT arm) | cheap |
 | [004](docs/decisions/ADR-004-z-primitive-coefficients.md) | ℤ-primitive coefficients; ℚ is a boundary façade; root isolation on dyadic intervals | one-way |
-| [005](docs/decisions/ADR-005-workspace-crate-split.md) | Seven published crates + three unpublished, lockstep versioned | costly |
+| [005](docs/decisions/ADR-005-workspace-crate-split.md) | Published crates in a strict linear order + four unpublished, lockstep versioned. Amended 2026-08-08: `-calculus` and `-display` added | costly |
 | [006](docs/decisions/ADR-006-generics-boundary.md) | Generics cross crate boundaries, never inner loops; three tiers; closed *instantiation* set; `LANES` kept open | one-way |
 | [007](docs/decisions/ADR-007-polynomial-representations.md) | Three representations; `UPoly<C>` defined first and standalone | one-way |
 | [008](docs/decisions/ADR-008-monomial-representation-and-overflow.md) | Packed key + raw exponents + divmask; guard-bit overflow detection; widen-and-restart | one-way (id structure), cheap (field width) |
@@ -457,10 +479,17 @@ it *after* fan-out, not before.
 | [014](docs/decisions/ADR-014-algebraic-real-no-hash-no-arithmetic.md) | No `Hash`, no general arithmetic; `canonicalize()` opt-in; multiplicity is not part of identity; **`SqrtExt` stays first-class** | one-way |
 | [015](docs/decisions/ADR-015-no-float-interval-type.md) | No float interval in the public API; rational bounds + outward `(f64, f64)` | cheap |
 | [016](docs/decisions/ADR-016-oracles-are-subprocesses.md) | Subprocess-only oracles; two crate categories; no exception process | cheap |
-| [017](docs/decisions/ADR-017-layer-4-egraph-seam.md) | Resolvent-owned L4 seam; no `egg`/`egglog` dependency; **scope held at M7's exit gate** | cheap |
+| [017](docs/decisions/ADR-017-layer-4-egraph-seam.md) | Resolvent-owned L4 seam; no `egg`/`egglog` dependency. ~~**scope held at M7's exit gate**~~ **§2 bullet 3 and §5–§6 superseded 2026-08-08 by ADR-032/033** | cheap |
 | [018](docs/decisions/ADR-018-deferred-consumer-integration.md) | Defer the `arrangements` question; adapter-by-consumer is the default; keep A and C open | cheap by design |
 | [019](docs/decisions/ADR-019-numeric-type-seam.md) | One open trait tower; no ops-surface scalar trait; no seam crate; defaulted in-place forms | one-way |
 | [020](docs/decisions/ADR-020-arena-and-handle-ownership.md) | Arenas are caller-owned values; handles are arena-relative; no global or implicit interner at any layer | one-way |
+
+**This index stops at 020 and the ADR set does not.** 021–028 and 029–033 exist and are not
+listed here; `docs/decisions/README.md` is the complete index and the one to read. Two from the
+later set change what is written above rather than adding to it, so they are named here:
+**ADR-029** (scope is a general-purpose CAS; embedding is a declared constraint) overrides
+§3's framing wherever they disagree, and **ADR-031** (the L4 exactness lattice) is a new
+one-way door that did not exist when §3 was written.
 
 ### 4.2 Three decisions that are usually got wrong, restated because they will be re-proposed
 
