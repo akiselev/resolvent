@@ -56,8 +56,13 @@ pub struct MassAssembly {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EvolutionClass {
+    /// The mass matrix is proven nonsingular under the reference backend's current assumptions.
     Ode,
+    /// A downstream structural compiler has established a DAE index.
     Dae { index: u8 },
+    /// Resolvent cannot currently prove the mass block nonsingular and does not guess a DAE
+    /// index. Structural classification belongs to the model/operator compiler, not heuristics.
+    Unclassified,
 }
 
 /// Semi-discrete linear evolution `M*u_dot + K*u = f`. Time-step selection,
