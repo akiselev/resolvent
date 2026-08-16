@@ -1,0 +1,60 @@
+name: agent-r12-clippy
+
+on:
+  push:
+    branches: ["agent/resolvent-stack-r10-r12"]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/resolvent-stack-r10-r12
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.93.0"
+          components: rustfmt
+      - name: Apply iterator and type-alias repairs
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("src/multiphysics_reference.rs")
+          text = p.read_text()
+
+          marker = '''use thiserror::Error;\n'''
+          alias = '''use thiserror::Error;\n\ntype TriangleGeometry = ([usize; 3], f64, [[f64; 2]; 3]);\n'''
+          if marker in text and "type TriangleGeometry" not in text:
+              text = text.replace(marker, alias, 1)
+
+          old = '''            for component in 0..2 {\n                b_entries.push(SparseEntry {\n                    row: cell_index,\n                    col: 2 * vertices[i] + component,\n                    value: area * gradients[i][component],\n                });\n            }'''
+          new = '''            for (component, derivative) in gradients[i].iter().copied().enumerate() {\n                b_entries.push(SparseEntry {\n                    row: cell_index,\n                    col: 2 * vertices[i] + component,\n                    value: area * derivative,\n                });\n            }'''
+          if old not in text and new not in text:
+              raise SystemExit("Stokes divergence loop target not found")
+          text = text.replace(old, new, 1)
+
+          old = ''') -> Result<([usize; 3], f64, [[f64; 2]; 3]), MultiphysicsReferenceError> {'''
+          new = ''') -> Result<TriangleGeometry, MultiphysicsReferenceError> {'''
+          if old not in text and new not in text:
+              raise SystemExit("triangle geometry return target not found")
+          text = text.replace(old, new, 1)
+
+          old = '''    let mut points = [[0.0; 2]; 3];\n    for i in 0..3 {\n        points[i] = *mesh\n            .vertices\n            .get(cell.vertices[i])\n            .ok_or(MultiphysicsReferenceError::BadVertex(cell.vertices[i]))?;\n    }'''
+          new = '''    let mut points = [[0.0; 2]; 3];\n    for (point, &vertex) in points.iter_mut().zip(cell.vertices.iter()) {\n        *point = *mesh\n            .vertices\n            .get(vertex)\n            .ok_or(MultiphysicsReferenceError::BadVertex(vertex))?;\n    }'''
+          if old not in text and new not in text:
+              raise SystemExit("triangle point loop target not found")
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+      - run: cargo fmt --all
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/multiphysics_reference.rs
+          git diff --cached --quiet && exit 0
+          git commit -m "satisfy strict clippy in R12 reference kernels"
+          git push origin HEAD:agent/resolvent-stack-r10-r12
