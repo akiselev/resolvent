@@ -190,9 +190,13 @@ fn triangle_geometry(
             return Err(ReferenceError::BadVertex { cell, vertex: v });
         }
     }
-    let p = [mesh.vertices[tri[0]], mesh.vertices[tri[1]], mesh.vertices[tri[2]]];
-    let signed = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
-        - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
+    let p = [
+        mesh.vertices[tri[0]],
+        mesh.vertices[tri[1]],
+        mesh.vertices[tri[2]],
+    ];
+    let signed =
+        (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
     if signed.abs() < 1e-300 {
         return Err(ReferenceError::Degenerate {
             cell,
@@ -244,7 +248,10 @@ mod tests {
     fn elasticity_has_rigid_translation_null_modes() {
         let op = compile_elasticity_p1_2d(
             &one_triangle([0, 1, 2]),
-            IsotropicElasticity2 { lambda: 2.0, mu: 3.0 },
+            IsotropicElasticity2 {
+                lambda: 2.0,
+                mu: 3.0,
+            },
         )
         .unwrap();
         let tx = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0];
@@ -258,7 +265,10 @@ mod tests {
         let op = compile_stokes_p1p1_2d(&one_triangle([0, 1, 2]), 1.0).unwrap();
         for p in 0..op.pressure_dofs {
             for q in 0..op.pressure_dofs {
-                assert_eq!(op.saddle.get(op.velocity_dofs + p, op.velocity_dofs + q), 0.0);
+                assert_eq!(
+                    op.saddle.get(op.velocity_dofs + p, op.velocity_dofs + q),
+                    0.0
+                );
             }
         }
         for r in 0..op.saddle.rows {

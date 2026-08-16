@@ -11,13 +11,7 @@ fn system(n_vars: usize, rows: &[&[usize]]) -> IncidenceSystem {
 }
 
 fn brute_max(rows: &[Vec<usize>], n_vars: usize) -> usize {
-    fn visit(
-        row: usize,
-        rows: &[Vec<usize>],
-        used: &mut [bool],
-        matched: usize,
-        best: &mut usize,
-    ) {
+    fn visit(row: usize, rows: &[Vec<usize>], used: &mut [bool], matched: usize, best: &mut usize) {
         if row == rows.len() {
             *best = (*best).max(matched);
             return;
@@ -53,7 +47,10 @@ fn matching_agrees_with_exhaustive_reference_on_all_three_by_three_graphs() {
             variables: (0..3).map(SymbolId).collect(),
             rows,
         };
-        assert_eq!(maximum_matching(&sys).cardinality(), brute_max(&sys.rows, 3));
+        assert_eq!(
+            maximum_matching(&sys).cardinality(),
+            brute_max(&sys.rows, 3)
+        );
     }
 }
 
@@ -62,7 +59,12 @@ fn lower_triangular_chain_is_all_explicit() {
     let sys = system(3, &[&[0], &[0, 1], &[1, 2]]);
     let schedule = compile_schedule(&sys).unwrap();
     assert_eq!(schedule.blocks.len(), 3);
-    assert!(schedule.blocks.iter().all(|b| b.kind == BlockKind::Explicit));
+    assert!(
+        schedule
+            .blocks
+            .iter()
+            .all(|b| b.kind == BlockKind::Explicit)
+    );
 }
 
 #[test]

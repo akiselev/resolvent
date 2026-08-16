@@ -233,12 +233,15 @@ fn split_statements(
 }
 
 fn parse_field(text: &str, span: SourceSpan) -> Result<RslFieldDecl, SourceDiagnostic> {
-    // Compact form: field T: state H1(1) [K] on Omega
+    // Compact forms:
+    //   field T: state H1(1) [K] on Omega
+    //   field u: state vector(2) H1(1) [m] on Omega
+    //   field E: state vector(2) HCurl(0) [V / m] on Omega
     let rest = text.strip_prefix("field ").unwrap().trim();
     let Some((name, attrs)) = rest.split_once(':') else {
         return Err(SourceDiagnostic::error(
             "RSL-F001",
-            "field requires `field <name>: <role> <space> [unit] on <domain>`",
+            "field requires `field <name>: <role> [shape] <space> [unit] on <domain>`",
             span,
         )
         .phase("elaborate"));
@@ -262,17 +265,49 @@ fn parse_field(text: &str, span: SourceSpan) -> Result<RslFieldDecl, SourceDiagn
             .phase("elaborate"));
         }
     };
-    let order = attrs
-        .find("H1(")
-        .and_then(|p| attrs[p + 3..].split(')').next())
-        .and_then(|x| x.parse().ok())
-        .unwrap_or(1);
     let domain = attrs.split(" on ").nth(1).unwrap_or("Omega").trim();
+    let vector_dim = attrs
+        .find("vector(")
+        .and_then(|p| attrs[p + 7..].split(')').next())
+        .and_then(|x| x.parse::<u8>().ok());
+    let parse_order = |tag: &str, default: u8| {
+        attrs
+            .find(tag)
+            .and_then(|p| attrs[p + tag.len()..].split(')').next())
+            .and_then(|x| x.parse::<u8>().ok())
+            .unwrap_or(default)
+    };
+    let space = if attrs.contains("HCurl(") {
+        FunctionSpace::hcurl_nedelec(parse_order("HCurl(", 0), vector_dim.unwrap_or(2), domain)
+    } else if attrs.contains("HDiv(") {
+        FunctionSpace::hdiv_raviart_thomas(parse_order("HDiv(", 0), vector_dim.unwrap_or(2), domain)
+    } else if attrs.contains("L2(") {
+        FunctionSpace::l2_discontinuous(
+            parse_order("L2(", 0),
+            vector_dim.map_or(crate::field::ValueShape::Scalar, |dim| {
+                crate::field::ValueShape::Vector { dim }
+            }),
+            domain,
+        )
+    } else if attrs.contains("H1(") {
+        let order = parse_order("H1(", 1);
+        match vector_dim {
+            Some(dim) => FunctionSpace::h1_lagrange_vector(order, dim, domain),
+            None => FunctionSpace::h1_lagrange(order, domain),
+        }
+    } else {
+        return Err(SourceDiagnostic::error(
+            "RSL-F003",
+            "unsupported function space; expected H1(n), HCurl(n), HDiv(n), or L2(n)",
+            span,
+        )
+        .phase("elaborate"));
+    };
     let dimension = parse_bracket_unit(attrs, span)?;
     Ok(RslFieldDecl {
         name: name.trim().to_string(),
         role,
-        space: FunctionSpace::h1_lagrange(order, domain),
+        space,
         dimension,
         span,
     })
