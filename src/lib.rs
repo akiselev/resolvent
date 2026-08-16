@@ -66,11 +66,11 @@ pub use refinement::{
     ArtifactKind, ArtifactRef, RefinementError, RefinementProvenance, RefinementRecord,
     RefinementRelation, ScopeTransition,
 };
-pub use structural::{
-    Block, BlockKind, IncidenceSystem, Matching, Schedule, StructuralCompileError,
-    StructuralError, compile_schedule, compile_schedule_without_tearing, maximum_matching,
-};
 pub use structural::scc::{Digraph, GraphError, Sccs, tarjan_scc};
+pub use structural::{
+    Block, BlockKind, IncidenceSystem, Matching, Schedule, StructuralCompileError, StructuralError,
+    compile_schedule, compile_schedule_without_tearing, maximum_matching,
+};
 pub use verify::{CheckResult, CheckStatus, ValidationBundle, ValidationCheck, ValidationKind};
 
 /// Wire-level schema family for the unified scientific compiler surface.
