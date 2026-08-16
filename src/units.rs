@@ -4,7 +4,9 @@ use thiserror::Error;
 
 /// SI base-dimension exponents in the order length, mass, time, current,
 /// temperature, amount of substance, luminous intensity.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Dimension(pub [i8; 7]);
 
 impl Dimension {
@@ -121,12 +123,18 @@ enum Tok {
 
 pub fn parse_unit(source: &str) -> Result<UnitExpr, UnitError> {
     let tokens = lex(source)?;
-    let mut parser = UnitParser { tokens: &tokens, pos: 0 };
+    let mut parser = UnitParser {
+        tokens: &tokens,
+        pos: 0,
+    };
     let dimension = parser.expr()?;
     if parser.pos != tokens.len() {
         return Err(UnitError::UnexpectedToken);
     }
-    Ok(UnitExpr { source: source.trim().to_string(), dimension })
+    Ok(UnitExpr {
+        source: source.trim().to_string(),
+        dimension,
+    })
 }
 
 fn lex(source: &str) -> Result<Vec<Tok>, UnitError> {
@@ -136,15 +144,32 @@ fn lex(source: &str) -> Result<Vec<Tok>, UnitError> {
     while i < chars.len() {
         match chars[i] {
             c if c.is_whitespace() => i += 1,
-            '*' | '·' => { out.push(Tok::Mul); i += 1; }
-            '/' => { out.push(Tok::Div); i += 1; }
-            '^' => { out.push(Tok::Pow); i += 1; }
-            '(' => { out.push(Tok::LParen); i += 1; }
-            ')' => { out.push(Tok::RParen); i += 1; }
+            '*' | '·' => {
+                out.push(Tok::Mul);
+                i += 1;
+            }
+            '/' => {
+                out.push(Tok::Div);
+                i += 1;
+            }
+            '^' => {
+                out.push(Tok::Pow);
+                i += 1;
+            }
+            '(' => {
+                out.push(Tok::LParen);
+                i += 1;
+            }
+            ')' => {
+                out.push(Tok::RParen);
+                i += 1;
+            }
             c if c.is_ascii_digit() || c == '-' || c == '+' => {
                 let start = i;
                 i += 1;
-                while i < chars.len() && chars[i].is_ascii_digit() { i += 1; }
+                while i < chars.len() && chars[i].is_ascii_digit() {
+                    i += 1;
+                }
                 let text: String = chars[start..i].iter().collect();
                 let value = text.parse().map_err(|_| UnitError::ExpectedExponent)?;
                 out.push(Tok::Int(value));
@@ -152,7 +177,9 @@ fn lex(source: &str) -> Result<Vec<Tok>, UnitError> {
             c if c.is_alphabetic() || c == 'Ω' => {
                 let start = i;
                 i += 1;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') { i += 1; }
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
                 out.push(Tok::Name(chars[start..i].iter().collect()));
             }
             _ => return Err(UnitError::UnexpectedToken),
@@ -161,15 +188,24 @@ fn lex(source: &str) -> Result<Vec<Tok>, UnitError> {
     Ok(out)
 }
 
-struct UnitParser<'a> { tokens: &'a [Tok], pos: usize }
+struct UnitParser<'a> {
+    tokens: &'a [Tok],
+    pos: usize,
+}
 
 impl UnitParser<'_> {
     fn expr(&mut self) -> Result<Dimension, UnitError> {
         let mut value = self.factor()?;
         loop {
             match self.tokens.get(self.pos) {
-                Some(Tok::Mul) => { self.pos += 1; value = value.mul(self.factor()?); }
-                Some(Tok::Div) => { self.pos += 1; value = value.div(self.factor()?); }
+                Some(Tok::Mul) => {
+                    self.pos += 1;
+                    value = value.mul(self.factor()?);
+                }
+                Some(Tok::Div) => {
+                    self.pos += 1;
+                    value = value.div(self.factor()?);
+                }
                 Some(Tok::Name(_)) | Some(Tok::LParen) => value = value.mul(self.factor()?),
                 _ => break,
             }
@@ -179,12 +215,20 @@ impl UnitParser<'_> {
 
     fn factor(&mut self) -> Result<Dimension, UnitError> {
         let mut value = match self.tokens.get(self.pos) {
-            Some(Tok::Name(name)) => { self.pos += 1; Dimension::named(name).ok_or_else(|| UnitError::UnknownUnit(name.clone()))? }
-            Some(Tok::Int(1)) => { self.pos += 1; Dimension::DIMENSIONLESS }
+            Some(Tok::Name(name)) => {
+                self.pos += 1;
+                Dimension::named(name).ok_or_else(|| UnitError::UnknownUnit(name.clone()))?
+            }
+            Some(Tok::Int(1)) => {
+                self.pos += 1;
+                Dimension::DIMENSIONLESS
+            }
             Some(Tok::LParen) => {
                 self.pos += 1;
                 let inner = self.expr()?;
-                if !matches!(self.tokens.get(self.pos), Some(Tok::RParen)) { return Err(UnitError::UnclosedParenthesis); }
+                if !matches!(self.tokens.get(self.pos), Some(Tok::RParen)) {
+                    return Err(UnitError::UnclosedParenthesis);
+                }
                 self.pos += 1;
                 inner
             }
@@ -192,7 +236,9 @@ impl UnitParser<'_> {
         };
         if matches!(self.tokens.get(self.pos), Some(Tok::Pow)) {
             self.pos += 1;
-            let Some(Tok::Int(exp)) = self.tokens.get(self.pos) else { return Err(UnitError::ExpectedExponent); };
+            let Some(Tok::Int(exp)) = self.tokens.get(self.pos) else {
+                return Err(UnitError::ExpectedExponent);
+            };
             value = value.powi(*exp);
             self.pos += 1;
         }
@@ -207,13 +253,22 @@ mod tests {
     #[test]
     fn parses_thermal_conductivity() {
         let got = parse_unit("W / (m K)").unwrap().dimension;
-        let want = Dimension::named("W").unwrap().div(Dimension::LENGTH).div(Dimension::TEMPERATURE);
+        let want = Dimension::named("W")
+            .unwrap()
+            .div(Dimension::LENGTH)
+            .div(Dimension::TEMPERATURE);
         assert_eq!(got, want);
     }
 
     #[test]
     fn parses_heat_capacity_density() {
         let got = parse_unit("J / (m^3 K)").unwrap().dimension;
-        assert_eq!(got, Dimension::named("J").unwrap().div(Dimension::LENGTH.powi(3)).div(Dimension::TEMPERATURE));
+        assert_eq!(
+            got,
+            Dimension::named("J")
+                .unwrap()
+                .div(Dimension::LENGTH.powi(3))
+                .div(Dimension::TEMPERATURE)
+        );
     }
 }

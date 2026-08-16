@@ -15,7 +15,9 @@ impl SourceSpan {
         let line = prefix.bytes().filter(|b| *b == b'\n').count() + 1;
         let column = prefix
             .rsplit_once('\n')
-            .map_or(prefix.chars().count() + 1, |(_, tail)| tail.chars().count() + 1);
+            .map_or(prefix.chars().count() + 1, |(_, tail)| {
+                tail.chars().count() + 1
+            });
         Self {
             start: bounded,
             end: end.min(source.len()).max(bounded),
@@ -63,7 +65,11 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn error(code: impl Into<String>, phase: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn error(
+        code: impl Into<String>,
+        phase: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             code: code.into(),
             severity: DiagnosticSeverity::Error,
