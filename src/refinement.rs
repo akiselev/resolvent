@@ -178,7 +178,9 @@ impl Refinement {
     pub fn validate(&self) -> Vec<RefinementIssue> {
         let mut issues = Vec::new();
         if self.changes_scope()
-            && !self.obligations.has_discharged(ObligationKind::ScopeTransport)
+            && !self
+                .obligations
+                .has_discharged(ObligationKind::ScopeTransport)
         {
             issues.push(RefinementIssue::ScopeChangedWithoutTransport);
         }
@@ -220,8 +222,10 @@ mod tests {
                 ..Provenance::default()
             },
         };
-        assert!(refinement
-            .validate()
-            .contains(&RefinementIssue::ScopeChangedWithoutTransport));
+        assert!(
+            refinement
+                .validate()
+                .contains(&RefinementIssue::ScopeChangedWithoutTransport)
+        );
     }
 }
