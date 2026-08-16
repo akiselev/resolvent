@@ -26,6 +26,7 @@ pub mod migration;
 pub mod model;
 pub mod operator;
 pub mod physics;
+pub mod property_tensor;
 pub mod reference;
 pub mod reference_hdiv;
 pub mod reference_mixed;
@@ -90,6 +91,7 @@ pub use operator::{
 pub use physics::{
     PhysicsError, PhysicsLock, freeze as freeze_physics, parse_and_elaborate, validate_lock,
 };
+pub use property_tensor::SymmetricTensor2;
 pub use reference::{
     BoundaryEdge, DofLayout, PiecewiseConstant, ReferenceError, ReferenceMesh2, ReferenceOperator,
     RobinData, ScalarH1Problem, SparseMatrix, compile_scalar_h1_p1,
