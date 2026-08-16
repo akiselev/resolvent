@@ -25,23 +25,11 @@ pub fn check_model(model: &ParsedModel) -> Vec<Diagnostic> {
     dims.insert("z".into(), Dimension::LENGTH);
     let mut out = Vec::new();
     for equation in &model.equations {
-        check_equation(
-            &equation.parsed,
-            equation.span,
-            &dims,
-            &functions,
-            &mut out,
-        );
+        check_equation(&equation.parsed, equation.span, &dims, &functions, &mut out);
     }
     for boundary in &model.boundaries {
         for equation in &boundary.equations {
-            check_equation(
-                &equation.parsed,
-                equation.span,
-                &dims,
-                &functions,
-                &mut out,
-            );
+            check_equation(&equation.parsed, equation.span, &dims, &functions, &mut out);
         }
     }
     out
