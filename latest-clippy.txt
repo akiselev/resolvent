@@ -1,0 +1,70 @@
+[1m[92m    Updating[0m crates.io index
+[1m[92m     Locking[0m 23 packages to latest Rust 1.93 compatible versions
+[1m[92m Downloading[0m crates ...
+[1m[92m  Downloaded[0m cfg-if v1.0.4
+[1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m arrayref v0.3.9
+[1m[92m  Downloaded[0m cpufeatures v0.3.0
+[1m[92m  Downloaded[0m arrayvec v0.7.8
+[1m[92m  Downloaded[0m constant_time_eq v0.4.2
+[1m[92m  Downloaded[0m find-msvc-tools v0.1.11
+[1m[92m  Downloaded[0m thiserror v2.0.20
+[1m[92m  Downloaded[0m zmij v1.0.23
+[1m[92m  Downloaded[0m thiserror-impl v2.0.20
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m shlex v2.0.1
+[1m[92m  Downloaded[0m serde_core v1.0.229
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
+[1m[92m  Downloaded[0m serde_derive v1.0.229
+[1m[92m  Downloaded[0m proc-macro2 v1.0.107
+[1m[92m  Downloaded[0m serde v1.0.229
+[1m[92m  Downloaded[0m cc v1.4.3
+[1m[92m  Downloaded[0m memchr v2.8.3
+[1m[92m  Downloaded[0m serde_json v1.0.151
+[1m[92m  Downloaded[0m blake3 v1.8.6
+[1m[92m  Downloaded[0m syn v3.0.3
+[1m[92m   Compiling[0m proc-macro2 v1.0.107
+[1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m unicode-ident v1.0.24
+[1m[92m   Compiling[0m find-msvc-tools v0.1.11
+[1m[92m   Compiling[0m serde_core v1.0.229
+[1m[92m   Compiling[0m shlex v2.0.1
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m cc v1.4.3
+[1m[92m   Compiling[0m thiserror v2.0.20
+[1m[92m   Compiling[0m serde v1.0.229
+[1m[92m   Compiling[0m syn v3.0.3
+[1m[92m   Compiling[0m serde_json v1.0.151
+[1m[92m    Checking[0m memchr v2.8.3
+[1m[92m   Compiling[0m blake3 v1.8.6
+[1m[92m    Checking[0m arrayvec v0.7.8
+[1m[92m    Checking[0m cpufeatures v0.3.0
+[1m[92m    Checking[0m constant_time_eq v0.4.2
+[1m[92m    Checking[0m itoa v1.0.18
+[1m[92m    Checking[0m arrayref v0.3.9
+[1m[92m    Checking[0m cfg-if v1.0.4
+[1m[92m   Compiling[0m thiserror-impl v2.0.20
+[1m[92m   Compiling[0m serde_derive v1.0.229
+[1m[92m    Checking[0m resolvent v0.1.0 (/home/runner/work/resolvent/resolvent)
+[1m[91merror[0m[1m: suspicious use of `+` in `Mul` impl[0m
+  [1m[94m--> [0msrc/units.rs:48:31
+   [1m[94m|[0m
+[1m[94m48[0m [1m[94m|[0m             *slot = self.0[i] + rhs.0[i];
+   [1m[94m|[0m                               [1m[91m^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mhelp[0m: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#suspicious_arithmetic_impl
+   [1m[94m= [0m[1mnote[0m: `-D clippy::suspicious-arithmetic-impl` implied by `-D warnings`
+   [1m[94m= [0m[1mhelp[0m: to override `-D warnings` add `#[allow(clippy::suspicious_arithmetic_impl)]`
+
+[1m[91merror[0m[1m: suspicious use of `-` in `Div` impl[0m
+  [1m[94m--> [0msrc/units.rs:59:31
+   [1m[94m|[0m
+[1m[94m59[0m [1m[94m|[0m             *slot = self.0[i] - rhs.0[i];
+   [1m[94m|[0m                               [1m[91m^[0m
+   [1m[94m|[0m
+   [1m[94m= [0m[1mhelp[0m: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#suspicious_arithmetic_impl
+
+[1m[91merror[0m: could not compile `resolvent` (lib) due to 2 previous errors
+[1m[33mwarning[0m: build failed, waiting for other jobs to finish...
+[1m[91merror[0m: could not compile `resolvent` (lib test) due to 2 previous errors
+exit_status=101
