@@ -1290,7 +1290,13 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
                 f.space.order,
                 f.domain
             ));
-            if f.quantity_kind.is_some() || f.unit.is_some() || f.nominal.is_some() {
+            if f.quantity_kind.is_some()
+                || f.unit.is_some()
+                || f.nominal.is_some()
+                || f.physical_min.is_some()
+                || f.physical_max.is_some()
+                || f.time_role.is_some()
+            {
                 out.push_str(" {\n");
                 if let Some(k) = &f.quantity_kind {
                     out.push_str(&format!("        quantity = {};\n", k.0));
@@ -1300,6 +1306,19 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
                 }
                 if let Some(n) = &f.nominal {
                     out.push_str(&format!("        nominal = {} {};\n", n.value, n.unit.0));
+                }
+                if let Some(n) = &f.physical_min {
+                    out.push_str(&format!("        min = {} {};\n", n.value, n.unit.0));
+                }
+                if let Some(n) = &f.physical_max {
+                    out.push_str(&format!("        max = {} {};\n", n.value, n.unit.0));
+                }
+                if let Some(role) = f.time_role {
+                    let role = match role {
+                        TimeRole::Differential => "differential",
+                        TimeRole::Algebraic => "algebraic",
+                    };
+                    out.push_str(&format!("        time_role = {role};\n"));
                 }
                 out.push_str("    }");
             }
@@ -1338,13 +1357,6 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
                     .unwrap_or_default(),
                 format_expr(&e.lhs),
                 format_expr(&e.rhs)
-            ));
-        }
-        for c in &model.initial_conditions {
-            out.push_str(&format!(
-                "    initial {{ {} = {}; }}\n",
-                c.target,
-                format_expr(&c.value)
             ));
         }
         for form in &model.forms {
