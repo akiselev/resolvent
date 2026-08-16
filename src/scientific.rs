@@ -930,7 +930,9 @@ impl Parser {
             None
         };
         self.expect_punct('{');
-        let lhs = self.expr(0)?;
+        // Top-level equality belongs to the equation declaration, not the expression tree.
+        // Parse above equality precedence so comparisons remain legal inside each side.
+        let lhs = self.expr(2)?;
         if !self.eat_op("=") {
             self.error("equation requires `=`".into());
         }
