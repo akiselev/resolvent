@@ -8,7 +8,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum GeneratedVerifyError {
-    #[error(transparent)] Calculus(#[from] CalculusError),
+    #[error(transparent)]
+    Calculus(#[from] CalculusError),
     #[error("expression {0} is missing")]
     Missing(u32),
     #[error("dimension is not known for symbol {0}")]
@@ -269,8 +270,7 @@ pub fn finite_difference_gate(
     let mut lo = values.clone();
     hi.insert(wrt, x + step);
     lo.insert(wrt, x - step);
-    let fd = (evaluate_f64(store, root, &hi)? - evaluate_f64(store, root, &lo)?)
-        / (2.0 * step);
+    let fd = (evaluate_f64(store, root, &hi)? - evaluate_f64(store, root, &lo)?) / (2.0 * step);
     let abs = (fd - analytic).abs();
     let rel = abs / analytic.abs().max(fd.abs()).max(1e-300);
     Ok(DerivativeGate {
@@ -313,8 +313,8 @@ pub fn observed_orders(obs: &[ConvergenceObservation]) -> Vec<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expr::{ScalarLiteral, Symbol, SymbolRole};
     use crate::Context;
+    use crate::expr::{ScalarLiteral, Symbol, SymbolRole};
 
     #[test]
     fn manufactured_derivative_is_exact() {
@@ -363,7 +363,10 @@ mod tests {
     #[test]
     fn order_is_computed() {
         let o = observed_orders(&[
-            ConvergenceObservation { h: 0.5, error: 0.25 },
+            ConvergenceObservation {
+                h: 0.5,
+                error: 0.25,
+            },
             ConvergenceObservation {
                 h: 0.25,
                 error: 0.0625,

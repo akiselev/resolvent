@@ -7,12 +7,18 @@ pub struct SourceSpan {
 }
 
 impl SourceSpan {
-    pub fn new(start: usize, end: usize) -> Self { Self { start, end } }
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SourceSeverity { Note, Warning, Error }
+pub enum SourceSeverity {
+    Note,
+    Warning,
+    Error,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelatedSpan {
@@ -37,10 +43,24 @@ pub struct SourceDiagnostic {
 
 impl SourceDiagnostic {
     pub fn error(code: impl Into<String>, message: impl Into<String>, span: SourceSpan) -> Self {
-        Self { code: code.into(), severity: SourceSeverity::Error, message: message.into(), span, related: vec![], hints: vec![], phase: None }
+        Self {
+            code: code.into(),
+            severity: SourceSeverity::Error,
+            message: message.into(),
+            span,
+            related: vec![],
+            hints: vec![],
+            phase: None,
+        }
     }
-    pub fn hint(mut self, hint: impl Into<String>) -> Self { self.hints.push(hint.into()); self }
-    pub fn phase(mut self, phase: impl Into<String>) -> Self { self.phase = Some(phase.into()); self }
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hints.push(hint.into());
+        self
+    }
+    pub fn phase(mut self, phase: impl Into<String>) -> Self {
+        self.phase = Some(phase.into());
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

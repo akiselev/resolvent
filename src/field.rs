@@ -13,11 +13,24 @@ pub enum ValueShape {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Continuity { H1, HCurl, HDiv, L2, Custom(String) }
+pub enum Continuity {
+    H1,
+    HCurl,
+    HDiv,
+    L2,
+    Custom(String),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ElementFamily { Lagrange, Nedelec, RaviartThomas, BrezziDouglasMarini, DiscontinuousGalerkin, Custom(String) }
+pub enum ElementFamily {
+    Lagrange,
+    Nedelec,
+    RaviartThomas,
+    BrezziDouglasMarini,
+    DiscontinuousGalerkin,
+    Custom(String),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionSpace {
@@ -31,13 +44,28 @@ pub struct FunctionSpace {
 
 impl FunctionSpace {
     pub fn h1_lagrange(order: u8, domain: impl Into<String>) -> Self {
-        Self { family: ElementFamily::Lagrange, order, continuity: Continuity::H1, value_shape: ValueShape::Scalar, domain: Some(domain.into()) }
+        Self {
+            family: ElementFamily::Lagrange,
+            order,
+            continuity: Continuity::H1,
+            value_shape: ValueShape::Scalar,
+            domain: Some(domain.into()),
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FieldRole { Unknown, State, Coefficient, Parameter, Trial, Test, Derived, Observable }
+pub enum FieldRole {
+    Unknown,
+    State,
+    Coefficient,
+    Parameter,
+    Trial,
+    Test,
+    Derived,
+    Observable,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Field {

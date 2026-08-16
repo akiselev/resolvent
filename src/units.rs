@@ -7,7 +7,9 @@ use std::ops::{Div, Mul};
 /// Dimensions are semantic compiler data: addition requires equality while multiplication
 /// and division compose exponents. Unit scale/offset belongs to the authoring layer; the
 /// scientific IR stores canonical-SI dimensions.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 pub struct Dimension(pub [i8; 7]);
 
 impl Dimension {
@@ -65,10 +67,18 @@ impl fmt::Display for Dimension {
         const NAMES: [&str; 7] = ["kg", "m", "s", "A", "K", "mol", "cd"];
         let mut first = true;
         for (name, exp) in NAMES.into_iter().zip(self.0) {
-            if exp == 0 { continue; }
-            if !first { write!(f, " ")?; }
+            if exp == 0 {
+                continue;
+            }
+            if !first {
+                write!(f, " ")?;
+            }
             first = false;
-            if exp == 1 { write!(f, "{name}")?; } else { write!(f, "{name}^{exp}")?; }
+            if exp == 1 {
+                write!(f, "{name}")?;
+            } else {
+                write!(f, "{name}^{exp}")?;
+            }
         }
         if first { write!(f, "1") } else { Ok(()) }
     }
@@ -84,20 +94,37 @@ pub enum UnitError {
     Syntax(String),
 }
 
-struct UnitParser<'a> { input: &'a str, pos: usize }
+struct UnitParser<'a> {
+    input: &'a str,
+    pos: usize,
+}
 impl<'a> UnitParser<'a> {
-    fn new(input: &'a str) -> Self { Self { input, pos: 0 } }
+    fn new(input: &'a str) -> Self {
+        Self { input, pos: 0 }
+    }
     fn parse(mut self) -> Result<Dimension, UnitError> {
         self.skip_ws();
-        if self.input[self.pos..].trim().is_empty() { return Ok(Dimension::DIMENSIONLESS); }
+        if self.input[self.pos..].trim().is_empty() {
+            return Ok(Dimension::DIMENSIONLESS);
+        }
         let mut value = self.factor()?;
         loop {
             self.skip_ws();
-            if self.pos >= self.input.len() { break; }
+            if self.pos >= self.input.len() {
+                break;
+            }
             match self.peek() {
-                Some('*') => { self.pos += 1; value = value * self.factor()?; }
-                Some('/') => { self.pos += 1; value = value / self.factor()?; }
-                Some(c) if c.is_alphabetic() || c == '(' => { value = value * self.factor()?; }
+                Some('*') => {
+                    self.pos += 1;
+                    value = value * self.factor()?;
+                }
+                Some('/') => {
+                    self.pos += 1;
+                    value = value / self.factor()?;
+                }
+                Some(c) if c.is_alphabetic() || c == '(' => {
+                    value = value * self.factor()?;
+                }
                 _ => return Err(UnitError::Syntax(self.input[self.pos..].to_string())),
             }
         }
@@ -110,14 +137,22 @@ impl<'a> UnitParser<'a> {
             let start = self.pos;
             let mut depth = 1usize;
             while self.pos < self.input.len() && depth > 0 {
-                match self.peek() { Some('(') => depth += 1, Some(')') => depth -= 1, _ => {} }
+                match self.peek() {
+                    Some('(') => depth += 1,
+                    Some(')') => depth -= 1,
+                    _ => {}
+                }
                 self.pos += 1;
             }
-            if depth != 0 { return Err(UnitError::Syntax(self.input[start..].to_string())); }
+            if depth != 0 {
+                return Err(UnitError::Syntax(self.input[start..].to_string()));
+            }
             Dimension::parse(&self.input[start..self.pos - 1])?
         } else {
             let start = self.pos;
-            while matches!(self.peek(), Some(c) if c.is_alphabetic() || c == '_' || c == '1') { self.pos += 1; }
+            while matches!(self.peek(), Some(c) if c.is_alphabetic() || c == '_' || c == '1') {
+                self.pos += 1;
+            }
             let name = &self.input[start..self.pos];
             unit_atom(name).ok_or_else(|| UnitError::Unknown(name.to_string()))?
         };
@@ -125,24 +160,46 @@ impl<'a> UnitParser<'a> {
         if self.peek() == Some('^') {
             self.pos += 1;
             let start = self.pos;
-            if matches!(self.peek(), Some('+') | Some('-')) { self.pos += 1; }
-            while matches!(self.peek(), Some(c) if c.is_ascii_digit()) { self.pos += 1; }
+            if matches!(self.peek(), Some('+') | Some('-')) {
+                self.pos += 1;
+            }
+            while matches!(self.peek(), Some(c) if c.is_ascii_digit()) {
+                self.pos += 1;
+            }
             let text = &self.input[start..self.pos];
-            let n: i8 = text.parse().map_err(|_| UnitError::BadExponent(text.to_string()))?;
+            let n: i8 = text
+                .parse()
+                .map_err(|_| UnitError::BadExponent(text.to_string()))?;
             value = value.powi(n);
         }
         Ok(value)
     }
-    fn skip_ws(&mut self) { while matches!(self.peek(), Some(c) if c.is_whitespace()) { self.pos += c.len_utf8(); } }
-    fn peek(&self) -> Option<char> { self.input[self.pos..].chars().next() }
+    fn skip_ws(&mut self) {
+        while matches!(self.peek(), Some(c) if c.is_whitespace()) {
+            self.pos += c.len_utf8();
+        }
+    }
+    fn peek(&self) -> Option<char> {
+        self.input[self.pos..].chars().next()
+    }
 }
 
 fn unit_atom(name: &str) -> Option<Dimension> {
-    let m = Dimension::MASS; let l = Dimension::LENGTH; let t = Dimension::TIME;
-    let i = Dimension::CURRENT; let th = Dimension::TEMPERATURE; let n = Dimension::AMOUNT;
+    let m = Dimension::MASS;
+    let l = Dimension::LENGTH;
+    let t = Dimension::TIME;
+    let i = Dimension::CURRENT;
+    let th = Dimension::TEMPERATURE;
+    let n = Dimension::AMOUNT;
     Some(match name {
         "" | "1" | "rad" => Dimension::DIMENSIONLESS,
-        "kg" => m, "m" => l, "s" => t, "A" => i, "K" => th, "mol" => n, "cd" => Dimension::LUMINOUS_INTENSITY,
+        "kg" => m,
+        "m" => l,
+        "s" => t,
+        "A" => i,
+        "K" => th,
+        "mol" => n,
+        "cd" => Dimension::LUMINOUS_INTENSITY,
         "Hz" => t.powi(-1),
         "N" => m * l / t.powi(2),
         "Pa" => m / l / t.powi(2),
@@ -162,10 +219,18 @@ fn unit_atom(name: &str) -> Option<Dimension> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn parses_thermal_conductivity() {
-        assert_eq!(Dimension::parse("W / (m K)").unwrap(), Dimension::MASS * Dimension::LENGTH / Dimension::TIME.powi(3) / Dimension::TEMPERATURE);
+    #[test]
+    fn parses_thermal_conductivity() {
+        assert_eq!(
+            Dimension::parse("W / (m K)").unwrap(),
+            Dimension::MASS * Dimension::LENGTH / Dimension::TIME.powi(3) / Dimension::TEMPERATURE
+        );
     }
-    #[test] fn parses_density() {
-        assert_eq!(Dimension::parse("kg / m^3").unwrap(), Dimension::MASS / Dimension::LENGTH.powi(3));
+    #[test]
+    fn parses_density() {
+        assert_eq!(
+            Dimension::parse("kg / m^3").unwrap(),
+            Dimension::MASS / Dimension::LENGTH.powi(3)
+        );
     }
 }
