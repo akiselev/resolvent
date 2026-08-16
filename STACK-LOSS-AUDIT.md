@@ -1,7 +1,7 @@
 # Scientific stack no-loss audit
 
 **Reviewed:** 2026-08-15 / 2026-08-16 UTC  
-**Architecture branch:** `agent/scientific-refinement-stack` across the participating repos.
+**Architecture branches:** `agent/scientific-refinement-stack` plus Ferris–Howard's active-main `agent/scientific-refinement-stack-main`.
 
 This is a responsibility audit, not merely a line-diff review. The migration rule is that a
 capability may change owners only after the new implementation has a parity/differential gate;
@@ -16,8 +16,9 @@ No production implementation was deleted in this architecture wave.
   untouched; scientific provenance is an additive envelope.
 - Solverang: no solver/constraint implementation was removed; symbolic export is an optional
   defaulted capability.
-- Ferris–Howard: one integration document added; existing design/agent anti-cheat contract is
-  untouched.
+- Ferris–Howard: the active `main` implementation gains Lean-native discovery labels and a
+  manifest command over elaborated declarations; existing FH expansion/proof/anti-cheat paths
+  are untouched. The stale master-based integration PR was closed as superseded.
 - Lean Atlas: external-artifact relations are additive; the existing declaration relation
   schema is unchanged.
 - Pi Lab: old evidence required fields and `strength` vocabulary remain valid; new evidence
@@ -44,7 +45,7 @@ No production implementation was deleted in this architecture wave.
 | nonlinear/linear/DAE/eigen/optimization solve policy | Solverang | Solverang | unchanged | existing Solverang suites |
 | geometric/general constraint product | Solverang | Solverang | unchanged; optional CAS-neutral symbolic sink added | all existing constraints + symbolic/numeric differential tests |
 | simulator composition/coupling/studies/results | Sinbad | Sinbad | unchanged | existing Sinbad corpus/gates |
-| formal authoring UX | Ferris–Howard | Ferris–Howard | unchanged | FH statement freeze + clean elaboration |
+| formal authoring UX | Ferris–Howard | Ferris–Howard | unchanged; Lean-native Resolvent labels/manifest are additive | FH statement freeze + clean elaboration + Lean four-tier suite |
 | proof authority | Lean kernel | Lean kernel | unchanged | axiom audit + kernel recheck |
 | formal corpus mining/relations | Lean Atlas | Lean Atlas | unchanged; external artifact links additive | relation warrant category tests |
 | research judgment/evidence promotion | Pi Lab | Pi Lab | unchanged; evidence schema made more explicit | append-only promotion/state invariants |
@@ -59,7 +60,7 @@ not modified. `ScientificResultSnapshot` wraps the old snapshot and stores forei
 references rather than importing Resolvent's schema into Sinbad. Old readers/cache hashes
 therefore do not silently reinterpret old bytes.
 
-### Resolvent caller-owned stores
+### Resolvent caller-owned stores and artifact identity
 
 A post-CI semantic review found and fixed a serialization hazard: skipped hash-cons/symbol
 indexes originally needed a manual `rebuild_indexes()` after deserialization. `ExprStore` and
@@ -69,6 +70,12 @@ A second review found evidence summaries were insertion-order dependent. Grades 
 ordered **within** each evidence axis and profiles retain the strongest grade on that axis;
 formal/numerical/empirical axes remain non-comparable to one another.
 
+A third review found that hashing a bare handle-bearing `ScientificSpec`/System/Form/operator
+could omit the arena stores that give its ids meaning. `Context::rooted_artifact_ref` now
+content-addresses the root together with the frozen semantic context, with a regression test.
+A future compact subgraph packager may reduce bytes only if it preserves self-contained
+meaning.
+
 ### Scope
 
 Both Resolvent and Pi Lab now retain explicit scope obligations. Resolvent rejects a
@@ -76,11 +83,19 @@ Both Resolvent and Pi Lab now retain explicit scope obligations. Resolvent rejec
 whose tested/proved scope differs from target scope without a transport/generalization
 obligation. This is the generalized 3HDM anti-scope-laundering gate.
 
+### Ferris–Howard trust boundary
+
+The active Lean implementation now registers `@[resolvent_spec]`, `@[resolvent_observable]`,
+`@[resolvent_property]`, and `@[resolvent_reification]` as discovery labels and emits a
+manifest from the elaborated Lean environment. These labels make no proof-strength claim.
+A Resolvent receipt still needs the frozen declaration identity, axiom audit, exact artifact
+and named soundness theorem/checker. FH surface syntax is never the semantic wire format.
+
 ## Validation status at review time
 
-- **Resolvent:** GitHub Actions runs format, clippy with warnings denied, and Rust tests. The
-  core architecture was green before the SCC/BLT/tearing migration; the structural migration
-  receives a fresh run before handoff.
+- **Resolvent:** GitHub Actions is green after the final semantic review: format, clippy with
+  warnings denied, and tests including structural SCC/BLT/tearing, store round-trips,
+  context-complete hashes, scope obligations, evidence profiles and Lean receipts.
 - **Lean Atlas:** full Rust tests and formatting green after one formatting-only correction.
 - **Pi Lab:** targeted strict TypeScript check for the new evidence contract plus repository
   tests green. Full-repository `npm run check` is independently blocked on pre-existing
@@ -92,17 +107,18 @@ obligation. This is the generalized 3HDM anti-scope-laundering gate.
 - **Sinbad:** current base has no GitHub workflow directory. New result/provenance code is
   additive and was API-reviewed against `ContentHash::of`/`ResultSnapshot`; full federation
   execution remains an on-machine gate.
-- **Ferris–Howard:** current `master` is architecture-only for this integration. An older
-  large `main -> master` reconciliation PR remains open; merge/rebase ordering must be handled
-  explicitly.
+- **Ferris–Howard:** the active integration is PR #3 against `main`; its Lean four-tier CI is
+  the relevant bridge gate. The Rust CI job is independently red on eight pre-existing
+  `fh-atlas-py` `type_complexity` lints from base `main`. Existing PR #1 still carries
+  `main -> master` and must be refreshed after the integration lands.
 - **3dhm-lab:** architecture/configuration only; no evidence mutation.
 
 ## Open blockers intentionally not hidden
 
 1. **Solverang portability:** replace absolute Sinbad path dependencies with a reproducible
    federation/package arrangement without deleting DAE/JIT functionality.
-2. **Ferris–Howard branch topology:** reconcile the older `main -> master` PR with the
-   additive Resolvent integration document.
+2. **Ferris–Howard branch topology:** merge the active-main bridge, then refresh the existing
+   `main -> master` reconciliation PR; do not resurrect the closed stale integration PR #2.
 3. **Sinbad older compiler ADR PR:** the older tentative architecture must be reconciled with
    ADR-035 rather than merged as a second normative architecture.
 4. **Pi Lab global TypeScript baseline:** fix `TeacherSession` optional-field mutations in a
