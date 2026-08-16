@@ -671,7 +671,7 @@ mod tests {
             field T: state H1(1) [K] on Omega;
             parameter rho [kg / m^3];
             coefficient cp(T) [J / (kg K)];
-            equation latex "rho cp(T) \\frac{\\partial T}{\\partial t} = 0";
+            equation latex "rho cp(T) \frac{\partial T}{\partial t} = 0";
         }"#;
         let model = parse_rsl(src).unwrap();
         let mut ctx = Context::new();

@@ -103,11 +103,7 @@ impl SparseMatrix {
             entries: vec![],
         }
     }
-    pub fn from_coo(
-        rows: usize,
-        cols: usize,
-        mut entries: Vec<(usize, usize, f64)>,
-    ) -> Self {
+    pub fn from_coo(rows: usize, cols: usize, mut entries: Vec<(usize, usize, f64)>) -> Self {
         entries.sort_by_key(|(r, c, _)| (*r, *c));
         let mut merged: Vec<(usize, usize, f64)> = vec![];
         for (r, c, v) in entries {
@@ -192,11 +188,7 @@ impl ReferenceOperator {
             .map(|&(r, c, v)| (r, c, stiffness_scale * v))
             .collect::<Vec<_>>();
         if let Some(m) = &self.mass {
-            e.extend(
-                m.entries
-                    .iter()
-                    .map(|&(r, c, v)| (r, c, mass_scale * v)),
-            )
+            e.extend(m.entries.iter().map(|&(r, c, v)| (r, c, mass_scale * v)))
         }
         SparseMatrix::from_coo(self.stiffness.rows, self.stiffness.cols, e)
     }
@@ -343,11 +335,7 @@ fn build_dofs(
     })
 }
 
-fn condense(
-    k: &SparseMatrix,
-    load: &[f64],
-    d: &DofLayout,
-) -> (SparseMatrix, Vec<f64>) {
+fn condense(k: &SparseMatrix, load: &[f64], d: &DofLayout) -> (SparseMatrix, Vec<f64>) {
     let mut e = vec![];
     let mut rhs = vec![0.0; d.n_free()];
     for (v, &g) in d.free_of_vertex.iter().enumerate() {
@@ -393,12 +381,9 @@ fn tri_points(
     ])
 }
 
-fn p1_geometry(
-    cell: usize,
-    p: &[[f64; 2]; 3],
-) -> Result<(f64, [[f64; 2]; 3]), ReferenceError> {
-    let signed = (p[1][0] - p[0][0]) * (p[2][1] - p[0][1])
-        - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
+fn p1_geometry(cell: usize, p: &[[f64; 2]; 3]) -> Result<(f64, [[f64; 2]; 3]), ReferenceError> {
+    let signed =
+        (p[1][0] - p[0][0]) * (p[2][1] - p[0][1]) - (p[2][0] - p[0][0]) * (p[1][1] - p[0][1]);
     if signed.abs() < 1e-300 {
         return Err(ReferenceError::Degenerate {
             cell,
@@ -407,18 +392,9 @@ fn p1_geometry(
     }
     let inv = 1.0 / signed;
     let g = [
-        [
-            (p[1][1] - p[2][1]) * inv,
-            (p[2][0] - p[1][0]) * inv,
-        ],
-        [
-            (p[2][1] - p[0][1]) * inv,
-            (p[0][0] - p[2][0]) * inv,
-        ],
-        [
-            (p[0][1] - p[1][1]) * inv,
-            (p[1][0] - p[0][0]) * inv,
-        ],
+        [(p[1][1] - p[2][1]) * inv, (p[2][0] - p[1][0]) * inv],
+        [(p[2][1] - p[0][1]) * inv, (p[0][0] - p[2][0]) * inv],
+        [(p[0][1] - p[1][1]) * inv, (p[1][0] - p[0][0]) * inv],
     ];
     Ok((0.5 * signed.abs(), g))
 }
