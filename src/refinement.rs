@@ -138,9 +138,9 @@ impl RefinementRecord {
     }
 
     pub fn validate(&self) -> Result<(), RefinementError> {
-        let required = match self.scope_transition {
+        let required = match &self.scope_transition {
             ScopeTransition::Broadened { obligation, .. }
-            | ScopeTransition::Changed { obligation, .. } => Some(obligation),
+            | ScopeTransition::Changed { obligation, .. } => Some(*obligation),
             ScopeTransition::Preserved | ScopeTransition::Narrowed { .. } => None,
         };
         if let Some(id) = required
