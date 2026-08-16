@@ -40,6 +40,33 @@ fn serialized_context_rebuilds_interning_indexes() {
 }
 
 #[test]
+fn handle_bearing_artifact_hash_includes_its_semantic_context() {
+    let mut first = Context::new();
+    let x = first.declare_symbol(Symbol {
+        name: "x".into(),
+        role: SymbolRole::State,
+        dimension: None,
+    });
+    let root = first.exprs.symbol(x);
+    let first_ref = first
+        .rooted_artifact_ref(ArtifactKind::Expression, &root)
+        .unwrap();
+
+    let mut second = first.clone();
+    let p = second.declare_symbol(Symbol {
+        name: "p".into(),
+        role: SymbolRole::Parameter,
+        dimension: None,
+    });
+    let _ = second.exprs.symbol(p);
+    let second_ref = second
+        .rooted_artifact_ref(ArtifactKind::Expression, &root)
+        .unwrap();
+
+    assert_ne!(first_ref.digest, second_ref.digest);
+}
+
+#[test]
 fn scope_broadening_requires_named_obligation() {
     let source = ArtifactRef::of(ArtifactKind::System, &"restricted").unwrap();
     let target = ArtifactRef::of(ArtifactKind::System, &"global").unwrap();
@@ -63,11 +90,18 @@ fn scope_broadening_requires_named_obligation() {
 }
 
 #[test]
-fn evidence_axes_do_not_collapse() {
+fn evidence_axes_do_not_collapse_and_profiles_are_order_independent() {
     let items = vec![
         EvidenceItem {
             grade: EvidenceGrade::Formal(FormalGrade::KernelProved),
             claim: "the transformation is a theorem".into(),
+            artifacts: vec![],
+            limitations: vec![],
+            metadata: Default::default(),
+        },
+        EvidenceItem {
+            grade: EvidenceGrade::Formal(FormalGrade::Asserted),
+            claim: "an older source asserted the same transformation".into(),
             artifacts: vec![],
             limitations: vec![],
             metadata: Default::default(),
@@ -84,6 +118,10 @@ fn evidence_axes_do_not_collapse() {
     assert_eq!(profile.formal, Some(FormalGrade::KernelProved));
     assert_eq!(profile.empirical, Some(EmpiricalGrade::NoData));
     assert_eq!(profile.numerical, None);
+
+    let mut reversed = items;
+    reversed.reverse();
+    assert_eq!(profile, EvidenceProfile::from_items(&reversed));
 }
 
 #[test]
