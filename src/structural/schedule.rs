@@ -346,7 +346,12 @@ mod tests {
         let system = incidence(3, &[&[0], &[0, 1], &[1, 2]]);
         let schedule = compile_schedule(&system).unwrap();
         assert_eq!(schedule.blocks.len(), 3);
-        assert!(schedule.blocks.iter().all(|b| b.kind == BlockKind::Explicit));
+        assert!(
+            schedule
+                .blocks
+                .iter()
+                .all(|b| b.kind == BlockKind::Explicit)
+        );
         assert_eq!(schedule.blocks[0].solved_vars, vec![0]);
         assert_eq!(schedule.blocks[1].solved_vars, vec![1]);
         assert_eq!(schedule.blocks[2].solved_vars, vec![2]);
