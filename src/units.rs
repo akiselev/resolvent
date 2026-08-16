@@ -271,9 +271,7 @@ mod tests {
         let got = parse_unit("J / (m^3 K)").unwrap().dimension;
         assert_eq!(
             got,
-            Dimension::named("J").unwrap()
-                / Dimension::LENGTH.powi(3)
-                / Dimension::TEMPERATURE
+            Dimension::named("J").unwrap() / Dimension::LENGTH.powi(3) / Dimension::TEMPERATURE
         );
     }
 }
