@@ -1,5 +1,5 @@
-use resolvent::{derive_coupling_graph, parse_scientific_module, semantic_digest};
 use resolvent::scientific::CouplingReason;
+use resolvent::{derive_coupling_graph, parse_scientific_module, semantic_digest};
 
 fn source(reordered: bool) -> String {
     let fields = if reordered {
