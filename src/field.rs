@@ -44,11 +44,53 @@ pub struct FunctionSpace {
 
 impl FunctionSpace {
     pub fn h1_lagrange(order: u8, domain: impl Into<String>) -> Self {
+        Self::h1_lagrange_shaped(order, ValueShape::Scalar, domain)
+    }
+
+    pub fn h1_lagrange_vector(order: u8, dim: u8, domain: impl Into<String>) -> Self {
+        Self::h1_lagrange_shaped(order, ValueShape::Vector { dim }, domain)
+    }
+
+    pub fn h1_lagrange_shaped(
+        order: u8,
+        value_shape: ValueShape,
+        domain: impl Into<String>,
+    ) -> Self {
         Self {
             family: ElementFamily::Lagrange,
             order,
             continuity: Continuity::H1,
-            value_shape: ValueShape::Scalar,
+            value_shape,
+            domain: Some(domain.into()),
+        }
+    }
+
+    pub fn hcurl_nedelec(order: u8, geometric_dim: u8, domain: impl Into<String>) -> Self {
+        Self {
+            family: ElementFamily::Nedelec,
+            order,
+            continuity: Continuity::HCurl,
+            value_shape: ValueShape::Vector { dim: geometric_dim },
+            domain: Some(domain.into()),
+        }
+    }
+
+    pub fn hdiv_raviart_thomas(order: u8, geometric_dim: u8, domain: impl Into<String>) -> Self {
+        Self {
+            family: ElementFamily::RaviartThomas,
+            order,
+            continuity: Continuity::HDiv,
+            value_shape: ValueShape::Vector { dim: geometric_dim },
+            domain: Some(domain.into()),
+        }
+    }
+
+    pub fn l2_discontinuous(order: u8, value_shape: ValueShape, domain: impl Into<String>) -> Self {
+        Self {
+            family: ElementFamily::DiscontinuousGalerkin,
+            order,
+            continuity: Continuity::L2,
+            value_shape,
             domain: Some(domain.into()),
         }
     }
