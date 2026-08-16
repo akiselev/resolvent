@@ -1,9 +1,12 @@
 use resolvent::quantities::{Dimension, QuantityKindId};
-use resolvent::{
-    DerivativeContract, FrameSemantics, PropertyDefinition, PropertyDomain, PropertyEvidence,
+use resolvent::scientific::{
+    DerivativeContract, FrameSemantics, OutOfValidityPolicy, PropertyDomain, PropertyEvidence,
     PropertyInput, PropertyLocality, PropertyModel, PropertyOutput, PropertySignature,
-    ScientificPhysicsLock, TensorSymmetry, UncertaintyModel, ValueShapeV1, freeze_scientific,
-    parse_scientific_module, semantic_digest,
+    TensorSymmetry, UncertaintyModel, ValueShapeV1,
+};
+use resolvent::{
+    PropertyDefinition, ScientificPhysicsLock, freeze_scientific, parse_scientific_module,
+    semantic_digest,
 };
 use std::collections::BTreeMap;
 
@@ -52,7 +55,7 @@ fn property(dataset_digest: &str) -> PropertyDefinition {
             phase_constraints: vec![],
             composition_constraints: vec![],
             assumptions: vec![],
-            out_of_validity: resolvent::scientific::OutOfValidityPolicy::Error,
+            out_of_validity: OutOfValidityPolicy::Error,
         },
         evidence: PropertyEvidence {
             sources: vec!["doi:10.example/thermal".into()],
