@@ -62,4 +62,6 @@ pub enum P1Error {
 #[cfg(test)]
 mod definiteness_tests;
 #[cfg(test)]
+mod evolution_class_tests;
+#[cfg(test)]
 mod tests;
