@@ -1,10 +1,10 @@
 //! Structural equation analysis over the common [`System`] IR.
 //!
-//! Incidence, alias analysis, DAE/index analysis, matching, SCC/BLT and tearing are all
-//! projections or passes over the semantic System. There is intentionally no second equation
-//! language after the Plexus migration.
+//! The module deliberately owns projections and passes, not a second source equation AST.
+//! Incidence is derived from `System` + `ExprStore`; matching, SCC/BLT and tearing operate on
+//! that projection. This is the long-term home of the algorithms currently reference-tested
+//! in Sinbad's Plexus crate.
 
-pub mod dae;
 pub mod scc;
 pub mod schedule;
 
@@ -15,10 +15,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
 
-pub use dae::{
-    AliasAnalysis, AliasClass, DerivativeVariable, DifferentiationStep, EquationDerivativeProfile,
-    IndexReductionPlan, analyze_aliases, derivative_profile, pantelides_plan,
-};
 pub use schedule::{
     Block, BlockKind, Schedule, StructuralCompileError, compile_schedule,
     compile_schedule_without_tearing,
@@ -29,12 +25,17 @@ pub struct IncidenceSystem {
     pub variables: Vec<SymbolId>,
     pub rows: Vec<Vec<usize>>,
 }
+
 impl IncidenceSystem {
+    /// Project the semantic `System` to the exact structural view used by matching/BLT.
+    /// This replaces a second equation language: structural passes consume a projection of
+    /// the common model IR rather than owning their own source-of-truth AST.
     pub fn from_system(system: &System, exprs: &ExprStore) -> Result<Self, StructuralError> {
         let mut columns = BTreeMap::new();
         for (index, symbol) in system.unknowns.iter().copied().enumerate() {
             columns.insert(symbol, index);
         }
+
         let mut rows = Vec::with_capacity(system.equations.len());
         for equation in &system.equations {
             let mut symbols = BTreeSet::new();
@@ -45,16 +46,18 @@ impl IncidenceSystem {
                     .into_iter()
                     .filter_map(|symbol| columns.get(&symbol).copied())
                     .collect(),
-            )
+            );
         }
         Ok(Self {
             variables: system.unknowns.clone(),
             rows,
         })
     }
+
     pub fn n_equations(&self) -> usize {
         self.rows.len()
     }
+
     pub fn n_variables(&self) -> usize {
         self.variables.len()
     }
@@ -86,7 +89,7 @@ fn collect_symbols(
                 denominator,
             } => {
                 stack.push(*numerator);
-                stack.push(*denominator)
+                stack.push(*denominator);
             }
             ExprNode::PowI { base, .. } => stack.push(*base),
             ExprNode::Apply { args, .. } => stack.extend(args.iter().copied()),
@@ -102,19 +105,13 @@ fn collect_symbols(
     }
     Ok(())
 }
-pub(crate) fn collect_symbols_for_dae(
-    root: crate::id::ExprId,
-    exprs: &ExprStore,
-    out: &mut BTreeSet<SymbolId>,
-) -> Result<(), StructuralError> {
-    collect_symbols(root, exprs, out)
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Matching {
     pub equation_to_variable: Vec<Option<usize>>,
     pub variable_to_equation: Vec<Option<usize>>,
 }
+
 impl Matching {
     pub fn cardinality(&self) -> usize {
         self.equation_to_variable
@@ -122,10 +119,12 @@ impl Matching {
             .filter(|v| v.is_some())
             .count()
     }
+
     pub fn is_perfect(&self) -> bool {
         self.equation_to_variable.len() == self.variable_to_equation.len()
             && self.cardinality() == self.equation_to_variable.len()
     }
+
     pub fn unmatched_equations(&self) -> Vec<usize> {
         self.equation_to_variable
             .iter()
@@ -133,6 +132,7 @@ impl Matching {
             .filter_map(|(i, v)| v.is_none().then_some(i))
             .collect()
     }
+
     pub fn unmatched_variables(&self) -> Vec<usize> {
         self.variable_to_equation
             .iter()
@@ -142,13 +142,15 @@ impl Matching {
     }
 }
 
-/// Deterministic Hopcroft–Karp maximum matching, migrated from the Plexus reference corpus.
+/// Deterministic Hopcroft–Karp maximum matching, migrated conceptually from Plexus but run
+/// directly on the Resolvent structural projection.
 pub fn maximum_matching(system: &IncidenceSystem) -> Matching {
     let n_u = system.n_equations();
     let n_v = system.n_variables();
     let mut pair_u = vec![None; n_u];
     let mut pair_v = vec![None; n_v];
     let mut dist = vec![usize::MAX; n_u];
+
     while bfs(&system.rows, &pair_u, &pair_v, &mut dist) {
         for u in 0..n_u {
             if pair_u[u].is_none() {
@@ -156,11 +158,13 @@ pub fn maximum_matching(system: &IncidenceSystem) -> Matching {
             }
         }
     }
+
     Matching {
         equation_to_variable: pair_u,
         variable_to_equation: pair_v,
     }
 }
+
 fn bfs(
     rows: &[Vec<usize>],
     pair_u: &[Option<usize>],
@@ -171,9 +175,9 @@ fn bfs(
     for u in 0..pair_u.len() {
         if pair_u[u].is_none() {
             dist[u] = 0;
-            queue.push_back(u)
+            queue.push_back(u);
         } else {
-            dist[u] = usize::MAX
+            dist[u] = usize::MAX;
         }
     }
     let mut nil = usize::MAX;
@@ -186,7 +190,7 @@ fn bfs(
                 None => nil = nil.min(dist[u] + 1),
                 Some(next) if dist[next] == usize::MAX => {
                     dist[next] = dist[u] + 1;
-                    queue.push_back(next)
+                    queue.push_back(next);
                 }
                 Some(_) => {}
             }
@@ -194,6 +198,7 @@ fn bfs(
     }
     nil != usize::MAX
 }
+
 fn dfs(
     u: usize,
     rows: &[Vec<usize>],
