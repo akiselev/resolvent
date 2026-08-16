@@ -158,8 +158,7 @@ pub fn assemble_stokes_p1_p0(
             for j in 0..3 {
                 let scalar = viscosity
                     * area
-                    * (gradients[i][0] * gradients[j][0]
-                        + gradients[i][1] * gradients[j][1]);
+                    * (gradients[i][0] * gradients[j][0] + gradients[i][1] * gradients[j][1]);
                 for component in 0..2 {
                     a_entries.push(SparseEntry {
                         row: 2 * vertices[i] + component,
@@ -180,26 +179,27 @@ pub fn assemble_stokes_p1_p0(
 
     let velocity_stiffness =
         SparseMatrix::from_triplets(velocity_dofs, velocity_dofs, a_entries.clone());
-    let divergence =
-        SparseMatrix::from_triplets(pressure_dofs, velocity_dofs, b_entries.clone());
+    let divergence = SparseMatrix::from_triplets(pressure_dofs, velocity_dofs, b_entries.clone());
     let pressure_offset = velocity_dofs;
     let saddle = SparseMatrix::from_triplets(
         velocity_dofs + pressure_dofs,
         velocity_dofs + pressure_dofs,
-        a_entries.into_iter().chain(b_entries.into_iter().flat_map(|entry| {
-            [
-                SparseEntry {
-                    row: pressure_offset + entry.row,
-                    col: entry.col,
-                    value: entry.value,
-                },
-                SparseEntry {
-                    row: entry.col,
-                    col: pressure_offset + entry.row,
-                    value: entry.value,
-                },
-            ]
-        })),
+        a_entries
+            .into_iter()
+            .chain(b_entries.into_iter().flat_map(|entry| {
+                [
+                    SparseEntry {
+                        row: pressure_offset + entry.row,
+                        col: entry.col,
+                        value: entry.value,
+                    },
+                    SparseEntry {
+                        row: entry.col,
+                        col: pressure_offset + entry.row,
+                        value: entry.value,
+                    },
+                ]
+            })),
     );
 
     Ok(AssembledStokesP1P0 {
@@ -301,9 +301,7 @@ pub fn assemble_hcurl_maxwell_nedelec0(
                 mass_entries.push(SparseEntry {
                     row: global[i],
                     col: global[j],
-                    value: orientation
-                        * epsilon
-                        * nedelec_mass_entry(area, gradients, a, b, c, d),
+                    value: orientation * epsilon * nedelec_mass_entry(area, gradients, a, b, c, d),
                 });
             }
         }
@@ -352,11 +350,7 @@ fn cross(a: [f64; 2], b: [f64; 2]) -> f64 {
     a[0] * b[1] - a[1] * b[0]
 }
 
-fn require_positive(
-    cell: usize,
-    name: &str,
-    value: f64,
-) -> Result<(), MultiphysicsReferenceError> {
+fn require_positive(cell: usize, name: &str, value: f64) -> Result<(), MultiphysicsReferenceError> {
     if value.is_finite() && value > 0.0 {
         Ok(())
     } else {
@@ -438,7 +432,10 @@ mod tests {
     fn mesh(vertices: [usize; 3]) -> TriangleMesh {
         TriangleMesh {
             vertices: vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]],
-            cells: vec![TriangleCell { vertices, region: 0 }],
+            cells: vec![TriangleCell {
+                vertices,
+                region: 0,
+            }],
             boundaries: vec![],
         }
     }
