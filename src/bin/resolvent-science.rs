@@ -1,8 +1,17 @@
-use resolvent::scientific::{derive_coupling_graph, execution_plan, format_scientific_module, parse_scientific_module, semantic_digest};
+use resolvent::scientific::{
+    derive_coupling_graph, execution_plan, format_scientific_module, parse_scientific_module,
+    semantic_digest,
+};
 use std::{env, fs, process::ExitCode};
 
 fn main() -> ExitCode {
-    match run() { Ok(()) => ExitCode::SUCCESS, Err(e) => { eprintln!("{e}"); ExitCode::from(2) } }
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 fn run() -> Result<(), String> {
@@ -11,7 +20,11 @@ fn run() -> Result<(), String> {
     let file = args.next().ok_or_else(usage)?;
     let source = fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
     let module = parse_scientific_module(&source).map_err(|errors| {
-        errors.into_iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n")
+        errors
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
     })?;
     match command.as_str() {
         "check" => {
