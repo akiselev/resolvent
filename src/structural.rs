@@ -59,7 +59,9 @@ fn collect_symbols(
         if !seen.insert(id) {
             continue;
         }
-        let node = exprs.get(id).ok_or(StructuralError::MissingExpression(id.0))?;
+        let node = exprs
+            .get(id)
+            .ok_or(StructuralError::MissingExpression(id.0))?;
         match node {
             ExprNode::Literal(_) => {}
             ExprNode::Symbol(symbol) => {
@@ -67,7 +69,10 @@ fn collect_symbols(
             }
             ExprNode::Neg(x) => stack.push(*x),
             ExprNode::Add(xs) | ExprNode::Mul(xs) => stack.extend(xs.iter().copied()),
-            ExprNode::Div { numerator, denominator } => {
+            ExprNode::Div {
+                numerator,
+                denominator,
+            } => {
                 stack.push(*numerator);
                 stack.push(*denominator);
             }
@@ -94,7 +99,10 @@ pub struct Matching {
 
 impl Matching {
     pub fn cardinality(&self) -> usize {
-        self.equation_to_variable.iter().filter(|v| v.is_some()).count()
+        self.equation_to_variable
+            .iter()
+            .filter(|v| v.is_some())
+            .count()
     }
 
     pub fn is_perfect(&self) -> bool {
