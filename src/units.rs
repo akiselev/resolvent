@@ -40,6 +40,9 @@ impl Dimension {
     }
 }
 
+// Multiplication/division of physical dimensions is addition/subtraction of their exponent
+// vectors by definition. Clippy's generic arithmetic-operator heuristic is not applicable.
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl Mul for Dimension {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
@@ -51,6 +54,7 @@ impl Mul for Dimension {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl Div for Dimension {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
