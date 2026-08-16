@@ -18,16 +18,32 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: '1.93.0'
-          components: rustfmt, clippy
-      - name: Apply compiler-suggested fixes
+          components: rustfmt
+      - name: Apply targeted fix
+        shell: bash
         run: |
-          cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings || true
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('crates/resolvent-quantities/src/lib.rs')
+          s = p.read_text()
+          old = '''        if !is_interval {
+            if let Some(offset) = unit.offset_to_si {
+                value += offset.as_f64();
+            }
+        }'''
+          new = '''        if !is_interval && let Some(offset) = unit.offset_to_si {
+            value += offset.as_f64();
+        }'''
+          if old not in s:
+              raise SystemExit('expected nested offset block not found')
+          p.write_text(s.replace(old, new))
+          PY
           cargo fmt --all
-      - name: Commit fixes
+          git rm .github/workflows/wave-fixup.yml
+      - name: Commit fix and remove temporary workflow
         run: |
-          if git diff --quiet; then exit 0; fi
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -u
-          git commit -m 'Apply machine-applicable clippy fixes'
+          git commit -m 'Fix quantity canonicalization lint'
           git push origin HEAD:agent/r13-r20-wave-a-f
