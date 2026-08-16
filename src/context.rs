@@ -25,23 +25,26 @@ pub struct ModelNode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FormNode {
-    Integral {
-        domain: String,
-        integrand: ExprId,
-    },
+    Integral { domain: String, integrand: ExprId },
     Sum(Vec<FormId>),
-    Named {
-        kind: String,
-        payload: ExprId,
-    },
+    Named { kind: String, payload: ExprId },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OperatorNode {
-    Residual { name: String },
-    Mass { name: String },
-    Block { name: String, children: Vec<OperatorId> },
-    MatrixFree { name: String },
+    Residual {
+        name: String,
+    },
+    Mass {
+        name: String,
+    },
+    Block {
+        name: String,
+        children: Vec<OperatorId>,
+    },
+    MatrixFree {
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
