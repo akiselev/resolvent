@@ -1239,23 +1239,35 @@ pub fn semantic_digest(module: &ScientificModule) -> String {
     // whitespace/comments/formatting do not perturb the physics identity.
     let mut value =
         serde_json::to_value(module).expect("scientific module serialization is infallible");
-    fn strip_spans(value: &mut serde_json::Value) {
+    fn canonicalize(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(map) => {
                 map.remove("span");
                 for child in map.values_mut() {
-                    strip_spans(child);
+                    canonicalize(child);
                 }
             }
             serde_json::Value::Array(items) => {
-                for child in items {
-                    strip_spans(child);
+                for child in items.iter_mut() {
+                    canonicalize(child);
+                }
+                if items
+                    .iter()
+                    .all(|item| item.get("name").and_then(|x| x.as_str()).is_some())
+                {
+                    items.sort_by(|a, b| {
+                        a.get("name")
+                            .and_then(|x| x.as_str())
+                            .cmp(&b.get("name").and_then(|x| x.as_str()))
+                    });
+                } else if items.iter().all(|item| item.as_str().is_some()) {
+                    items.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
                 }
             }
             _ => {}
         }
     }
-    strip_spans(&mut value);
+    canonicalize(&mut value);
     let bytes =
         serde_json::to_vec(&value).expect("semantic projection serialization is infallible");
     blake3::hash(&bytes).to_hex().to_string()
@@ -2350,6 +2362,78 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
         .iter()
         .map(|p| (p.name.clone(), p.value.clone()))
         .collect();
+    let constitutive_map: BTreeMap<_, _> = model
+        .constitutive_laws
+        .iter()
+        .map(|law| (law.name.clone(), law.law.clone()))
+        .collect();
+
+    fn trace(
+        symbol: &str,
+        residual: &str,
+        field_names: &BTreeSet<String>,
+        property_map: &BTreeMap<String, Expr>,
+        constitutive_map: &BTreeMap<String, Expr>,
+        path: &mut Vec<String>,
+        seen: &mut BTreeSet<String>,
+        reason: Option<CouplingReason>,
+        out: &mut Vec<CouplingEdge>,
+    ) {
+        if field_names.contains(symbol) {
+            let mut full = vec![symbol.to_string()];
+            full.extend(path.iter().cloned());
+            full.push(residual.to_string());
+            out.push(CouplingEdge {
+                from: symbol.to_string(),
+                to: residual.to_string(),
+                reason: reason.unwrap_or(CouplingReason::DirectFieldUse),
+                path: full,
+            });
+            return;
+        }
+        if !seen.insert(symbol.to_string()) {
+            return;
+        }
+        if let Some(expr) = property_map.get(symbol) {
+            path.insert(0, symbol.to_string());
+            let mut names = BTreeSet::new();
+            expr.names(&mut names);
+            for name in names {
+                trace(
+                    &name,
+                    residual,
+                    field_names,
+                    property_map,
+                    constitutive_map,
+                    path,
+                    seen,
+                    Some(CouplingReason::PropertyDependency(symbol.to_string())),
+                    out,
+                );
+            }
+            path.remove(0);
+        } else if let Some(expr) = constitutive_map.get(symbol) {
+            path.insert(0, symbol.to_string());
+            let mut names = BTreeSet::new();
+            expr.names(&mut names);
+            for name in names {
+                trace(
+                    &name,
+                    residual,
+                    field_names,
+                    property_map,
+                    constitutive_map,
+                    path,
+                    seen,
+                    Some(CouplingReason::ConstitutiveDependency(symbol.to_string())),
+                    out,
+                );
+            }
+            path.remove(0);
+        }
+        seen.remove(symbol);
+    }
+
     let unknowns = field_names
         .iter()
         .map(|f| UnknownBlock {
@@ -2357,39 +2441,82 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
             field: f.clone(),
         })
         .collect::<Vec<_>>();
-    let residual_blocks = model
+    let mut residual_blocks = model
         .equations
         .iter()
         .map(|e| e.name.clone())
         .collect::<Vec<_>>();
+    residual_blocks.extend(model.forms.iter().map(|f| f.name.clone()));
+    residual_blocks.sort();
+    residual_blocks.dedup();
+
     let mut edges = vec![];
-    for eq in &model.equations {
+    for equation in &model.equations {
         let mut names = BTreeSet::new();
-        eq.lhs.names(&mut names);
-        eq.rhs.names(&mut names);
-        for name in names.clone() {
-            if field_names.contains(&name) {
-                edges.push(CouplingEdge {
-                    from: name.clone(),
-                    to: eq.name.clone(),
-                    reason: CouplingReason::DirectFieldUse,
-                    path: vec![name.clone(), eq.name.clone()],
-                });
-            }
-            if let Some(prop) = property_map.get(&name) {
-                let mut deps = BTreeSet::new();
-                prop.names(&mut deps);
-                for dep in deps.intersection(&field_names) {
-                    edges.push(CouplingEdge {
-                        from: dep.clone(),
-                        to: eq.name.clone(),
-                        reason: CouplingReason::PropertyDependency(name.clone()),
-                        path: vec![dep.clone(), name.clone(), eq.name.clone()],
-                    });
-                }
+        equation.lhs.names(&mut names);
+        equation.rhs.names(&mut names);
+        for name in names {
+            trace(
+                &name,
+                &equation.name,
+                &field_names,
+                &property_map,
+                &constitutive_map,
+                &mut Vec::new(),
+                &mut BTreeSet::new(),
+                None,
+                &mut edges,
+            );
+        }
+    }
+    for form in &model.forms {
+        for integral in &form.integrals {
+            let mut names = BTreeSet::new();
+            integral.integrand.names(&mut names);
+            for name in names {
+                trace(
+                    &name,
+                    &form.name,
+                    &field_names,
+                    &property_map,
+                    &constitutive_map,
+                    &mut Vec::new(),
+                    &mut BTreeSet::new(),
+                    None,
+                    &mut edges,
+                );
             }
         }
     }
+    // Conditions contribute to the residual block for their target field. Their region/value
+    // dependencies are explicit interface/boundary coupling rather than invisible runtime state.
+    for condition in model
+        .boundary_conditions
+        .iter()
+        .chain(model.interface_conditions.iter())
+    {
+        let mut names = BTreeSet::new();
+        condition.region.names(&mut names);
+        condition.value.names(&mut names);
+        for name in names {
+            let before = edges.len();
+            trace(
+                &name,
+                &condition.target,
+                &field_names,
+                &property_map,
+                &constitutive_map,
+                &mut Vec::new(),
+                &mut BTreeSet::new(),
+                Some(CouplingReason::InterfaceTerm),
+                &mut edges,
+            );
+            for edge in &mut edges[before..] {
+                edge.reason = CouplingReason::InterfaceTerm;
+            }
+        }
+    }
+
     edges.sort_by(|a, b| (&a.to, &a.from, &a.path).cmp(&(&b.to, &b.from, &b.path)));
     edges.dedup_by(|a, b| a.from == b.from && a.to == b.to && a.path == b.path);
     let mut derivatives = Vec::new();

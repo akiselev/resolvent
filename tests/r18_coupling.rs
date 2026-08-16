@@ -1,4 +1,4 @@
-use resolvent::{derive_coupling_graph, parse_scientific_module, semantic_digest, CouplingReason};
+use resolvent::{CouplingReason, derive_coupling_graph, parse_scientific_module, semantic_digest};
 
 fn source(reordered: bool) -> String {
     let fields = if reordered {
@@ -54,7 +54,10 @@ fn declaration_reordering_preserves_semantic_digest_and_coupling_graph() {
     let a = parse_scientific_module(&source(false)).unwrap();
     let b = parse_scientific_module(&source(true)).unwrap();
     assert_eq!(semantic_digest(&a), semantic_digest(&b));
-    assert_eq!(canonical_edges(&source(false)), canonical_edges(&source(true)));
+    assert_eq!(
+        canonical_edges(&source(false)),
+        canonical_edges(&source(true))
+    );
 }
 
 #[test]
@@ -67,7 +70,12 @@ fn nested_property_and_constitutive_dependencies_reach_cross_blocks() {
         .iter()
         .find(|edge| edge.from == "V" && edge.to == "thermal")
         .expect("Joule source must couple voltage into thermal residual");
-    assert!(thermal_from_voltage.path.iter().any(|name| name == "current"));
+    assert!(
+        thermal_from_voltage
+            .path
+            .iter()
+            .any(|name| name == "current")
+    );
     assert!(thermal_from_voltage.path.iter().any(|name| name == "joule"));
 
     let electrical_from_temperature = graph
@@ -75,8 +83,18 @@ fn nested_property_and_constitutive_dependencies_reach_cross_blocks() {
         .iter()
         .find(|edge| edge.from == "T" && edge.to == "electrical")
         .expect("conductivity chain must couple temperature into electrical residual");
-    assert!(electrical_from_temperature.path.iter().any(|name| name == "base_sigma"));
-    assert!(electrical_from_temperature.path.iter().any(|name| name == "effective_sigma"));
+    assert!(
+        electrical_from_temperature
+            .path
+            .iter()
+            .any(|name| name == "base_sigma")
+    );
+    assert!(
+        electrical_from_temperature
+            .path
+            .iter()
+            .any(|name| name == "effective_sigma")
+    );
     assert!(matches!(
         electrical_from_temperature.reason,
         CouplingReason::PropertyDependency(_) | CouplingReason::ConstitutiveDependency(_)
