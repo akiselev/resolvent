@@ -30,11 +30,12 @@ pub fn analyze_aliases(system: &System, exprs: &ExprStore) -> AliasAnalysis {
         system.unknowns.iter().copied().map(|s| (s, s)).collect();
     let mut eliminated = vec![];
     for (i, e) in system.equations.iter().enumerate() {
-        if let (Some(a), Some(b)) = (as_symbol(exprs, e.lhs), as_symbol(exprs, e.rhs)) {
-            if parent.contains_key(&a) && parent.contains_key(&b) {
-                union(&mut parent, a, b);
-                eliminated.push(i)
-            }
+        if let (Some(a), Some(b)) = (as_symbol(exprs, e.lhs), as_symbol(exprs, e.rhs))
+            && parent.contains_key(&a)
+            && parent.contains_key(&b)
+        {
+            union(&mut parent, a, b);
+            eliminated.push(i)
         }
     }
     let mut groups: BTreeMap<SymbolId, Vec<SymbolId>> = BTreeMap::new();
@@ -139,13 +140,13 @@ fn collect_derivatives(
                 with_respect_to,
                 order,
             } => {
-                if *with_respect_to == time {
-                    if let Some(s) = as_symbol(exprs, *expr) {
-                        out.insert(DerivativeVariable {
-                            symbol: s,
-                            order: *order,
-                        });
-                    }
+                if *with_respect_to == time
+                    && let Some(s) = as_symbol(exprs, *expr)
+                {
+                    out.insert(DerivativeVariable {
+                        symbol: s,
+                        order: *order,
+                    });
                 }
                 stack.push(*expr)
             }

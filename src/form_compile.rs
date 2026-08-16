@@ -268,14 +268,12 @@ fn recognize(
     if let Some(c) = mass(&term.integrand, unknown, test) {
         return RecognizedFormTerm::Mass { coefficient: c };
     }
-    if let FormExpr::Product(xs) = &term.integrand {
-        if xs.len() == 2 {
-            if let (FormExpr::Scalar(s), FormExpr::Field(f)) = (&xs[0], &xs[1]) {
-                if *f == test {
-                    return RecognizedFormTerm::Source { source: *s };
-                }
-            }
-        }
+    if let FormExpr::Product(xs) = &term.integrand
+        && xs.len() == 2
+        && let (FormExpr::Scalar(s), FormExpr::Field(f)) = (&xs[0], &xs[1])
+        && *f == test
+    {
+        return RecognizedFormTerm::Source { source: *s };
     }
     RecognizedFormTerm::Custom
 }

@@ -232,6 +232,7 @@ fn split_statements(
     Ok(out)
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_field(text: &str, span: SourceSpan) -> Result<RslFieldDecl, SourceDiagnostic> {
     // Compact forms:
     //   field T: state H1(1) [K] on Omega
@@ -313,6 +314,7 @@ fn parse_field(text: &str, span: SourceSpan) -> Result<RslFieldDecl, SourceDiagn
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_symbol(text: &str, span: SourceSpan) -> Result<RslSymbolDecl, SourceDiagnostic> {
     let (kind, rest) = text.split_once(' ').unwrap();
     let name = rest
@@ -339,6 +341,7 @@ fn parse_symbol(text: &str, span: SourceSpan) -> Result<RslSymbolDecl, SourceDia
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn parse_bracket_unit(text: &str, span: SourceSpan) -> Result<Option<Dimension>, SourceDiagnostic> {
     let Some(open) = text.find('[') else {
         return Ok(None);
@@ -355,6 +358,7 @@ fn parse_bracket_unit(text: &str, span: SourceSpan) -> Result<Option<Dimension>,
         .map_err(|e| SourceDiagnostic::error("RSL-U002", e.to_string(), span).phase("units"))
 }
 
+#[allow(clippy::result_large_err)]
 fn extract_latex(text: &str, span: SourceSpan) -> Result<Spanned<String>, SourceDiagnostic> {
     let text = text.trim();
     let Some(rest) = text.strip_prefix("latex") else {

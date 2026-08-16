@@ -107,11 +107,12 @@ impl SparseMatrix {
         entries.sort_by_key(|(r, c, _)| (*r, *c));
         let mut merged: Vec<(usize, usize, f64)> = vec![];
         for (r, c, v) in entries {
-            if let Some(last) = merged.last_mut() {
-                if last.0 == r && last.1 == c {
-                    last.2 += v;
-                    continue;
-                }
+            if let Some(last) = merged.last_mut()
+                && last.0 == r
+                && last.1 == c
+            {
+                last.2 += v;
+                continue;
             }
             merged.push((r, c, v))
         }

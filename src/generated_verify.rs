@@ -303,10 +303,8 @@ pub struct ConvergenceObservation {
 
 pub fn observed_orders(obs: &[ConvergenceObservation]) -> Vec<f64> {
     obs.windows(2)
-        .filter_map(|w| {
-            (w[0].h > 0.0 && w[1].h > 0.0 && w[0].error > 0.0 && w[1].error > 0.0)
-                .then(|| (w[0].error / w[1].error).ln() / (w[0].h / w[1].h).ln())
-        })
+        .filter(|&w| w[0].h > 0.0 && w[1].h > 0.0 && w[0].error > 0.0 && w[1].error > 0.0)
+        .map(|w| (w[0].error / w[1].error).ln() / (w[0].h / w[1].h).ln())
         .collect()
 }
 
