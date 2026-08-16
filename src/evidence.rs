@@ -10,44 +10,66 @@ pub enum EvidenceAxis {
     Empirical,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum EvidenceGrade {
-    /// The claim is declared but has no attached warrant yet.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum FormalEvidenceGrade {
     Open,
-    /// The claim is an explicit modeling assumption or external premise.
     Assumed,
-    /// A deterministic structural/checking procedure established the claim.
     Checked,
-    /// An independently checkable certificate establishes the claim.
     CertificateChecked,
-    /// A theorem instance or proof object establishes the claim.
     TheoremProved,
-    /// A trusted kernel checked the theorem/proof term.
     KernelProved,
-    /// A numerical reference implementation or oracle independently reproduced the behavior.
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum NumericalEvidenceGrade {
+    Open,
     ReferenceCrosschecked,
-    /// Convergence, metamorphic, mutation, or other numerical validation supports the claim.
     NumericallyValidated,
-    /// Repeated observations under a declared measurement/uncertainty model support adequacy.
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum EmpiricalEvidenceGrade {
+    Open,
     ExperimentallyValidated,
+}
+
+/// The grade carries its axis in the type, making invalid combinations such as
+/// "empirical/kernel-proved" unrepresentable.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum EvidenceGrade {
+    Formal(FormalEvidenceGrade),
+    Numerical(NumericalEvidenceGrade),
+    Empirical(EmpiricalEvidenceGrade),
+}
+
+impl EvidenceGrade {
+    pub const fn axis(self) -> EvidenceAxis {
+        match self {
+            EvidenceGrade::Formal(_) => EvidenceAxis::Formal,
+            EvidenceGrade::Numerical(_) => EvidenceAxis::Numerical,
+            EvidenceGrade::Empirical(_) => EvidenceAxis::Empirical,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Evidence {
-    pub axis: EvidenceAxis,
     pub grade: EvidenceGrade,
     pub artifact: Option<String>,
     pub note: String,
 }
 
 impl Evidence {
-    pub fn new(axis: EvidenceAxis, grade: EvidenceGrade, note: impl Into<String>) -> Self {
+    pub fn new(grade: EvidenceGrade, note: impl Into<String>) -> Self {
         Self {
-            axis,
             grade,
             artifact: None,
             note: note.into(),
         }
+    }
+
+    pub const fn axis(&self) -> EvidenceAxis {
+        self.grade.axis()
     }
 
     pub fn with_artifact(mut self, artifact: impl Into<String>) -> Self {
@@ -69,10 +91,24 @@ impl EvidenceSet {
     }
 
     pub fn on_axis(&self, axis: EvidenceAxis) -> impl Iterator<Item = &Evidence> {
-        self.0.iter().filter(move |e| e.axis == axis)
+        self.0.iter().filter(move |e| e.axis() == axis)
     }
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn evidence_grade_encodes_axis() {
+        let evidence = Evidence::new(
+            EvidenceGrade::Empirical(EmpiricalEvidenceGrade::ExperimentallyValidated),
+            "measurement agreement",
+        );
+        assert_eq!(evidence.axis(), EvidenceAxis::Empirical);
     }
 }
