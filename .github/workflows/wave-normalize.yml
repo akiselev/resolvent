@@ -1,0 +1,33 @@
+name: wave-normalize
+
+on:
+  push:
+    branches: [agent/r13-r20-wave-a-f]
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - name: Install rustfmt from rustup.rs
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain 1.93.0 --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: |
+          cargo fmt --all
+          git rm .github/workflows/wave-normalize.yml
+      - name: Commit formatting
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -u
+          git commit -m 'Format final Wave A-F semantic sources'
+          git push origin HEAD:agent/r13-r20-wave-a-f
