@@ -21,6 +21,25 @@ fn expression_store_hash_conses_commutative_builders() {
 }
 
 #[test]
+fn serialized_context_rebuilds_interning_indexes() {
+    let mut ctx = Context::new();
+    let symbol = Symbol {
+        name: "temperature".into(),
+        role: SymbolRole::State,
+        dimension: Some("temperature".into()),
+    };
+    let id = ctx.declare_symbol(symbol.clone());
+    let expr = ctx.exprs.symbol(id);
+
+    let bytes = serde_json::to_vec(&ctx).unwrap();
+    let mut restored: Context = serde_json::from_slice(&bytes).unwrap();
+
+    assert_eq!(restored.declare_symbol(symbol), id);
+    assert_eq!(restored.exprs.symbol(id), expr);
+    assert_eq!(restored.exprs.len(), 1);
+}
+
+#[test]
 fn scope_broadening_requires_named_obligation() {
     let source = ArtifactRef::of(ArtifactKind::System, &"restricted").unwrap();
     let target = ArtifactRef::of(ArtifactKind::System, &"global").unwrap();
