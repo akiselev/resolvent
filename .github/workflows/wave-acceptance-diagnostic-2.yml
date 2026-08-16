@@ -1,0 +1,33 @@
+name: wave-acceptance-diagnostic-2
+on:
+  push:
+    branches:
+      - agent/r13-r20-wave-a-f
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+      - shell: bash
+        run: |
+          set +e
+          cargo test --all-features --test r14_acceptance --test r18_coupling --test scientific_bridge -- --nocapture > wave-acceptance-diagnostic-2.log 2>&1
+          code=$?
+          cat wave-acceptance-diagnostic-2.log
+          printf '%s\n' "$code" > wave-acceptance-diagnostic-2.exit
+          exit 0
+      - shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add wave-acceptance-diagnostic-2.log wave-acceptance-diagnostic-2.exit
+          git commit -m 'Capture post-parser Wave acceptance diagnostics'
+          git push origin HEAD:agent/r13-r20-wave-a-f
