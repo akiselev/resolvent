@@ -26,7 +26,7 @@ Resolvent owns scientific authoring semantics, quantity/kind semantics, property
 
 Local Rust validation is unavailable because the execution sandbox cannot resolve the rustup download host. GitHub-hosted runners install Rust successfully and are the validation authority.
 
-The branch has been rustfmt-normalized. This status commit deliberately retriggers normal CI after the formatter-bot commit was marked `action_required`. The implementation remains unverified until format, clippy, and all-feature tests pass on this user-authored head.
+Mechanical rustfmt and the quantity canonicalization clippy fix were applied at `6924144570bd528855eb462d8272036e5923954e`. GitHub marks bot-authored follow-up checks `action_required`, so this user-authored status commit retriggers the normal format/clippy/all-feature test workflow on the corrected tree. The implementation remains unverified until that run is green.
 
 ## Cross-repository contract
 
