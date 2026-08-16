@@ -1,9 +1,9 @@
-use resolvent::quantities::QuantityKindId;
+use resolvent::quantities::{Dimension, QuantityKindId};
 use resolvent::{
-    DerivativeContract, Dimension, FrameSemantics, PropertyDefinition, PropertyDomain,
-    PropertyEvidence, PropertyInput, PropertyLocality, PropertyModel, PropertyOutput,
-    PropertySignature, ScientificPhysicsLock, TensorSymmetry, UncertaintyModel, ValueShapeV1,
-    freeze_scientific, parse_scientific_module, semantic_digest,
+    DerivativeContract, FrameSemantics, PropertyDefinition, PropertyDomain, PropertyEvidence,
+    PropertyInput, PropertyLocality, PropertyModel, PropertyOutput, PropertySignature,
+    ScientificPhysicsLock, TensorSymmetry, UncertaintyModel, ValueShapeV1, freeze_scientific,
+    parse_scientific_module, semantic_digest,
 };
 use std::collections::BTreeMap;
 
@@ -29,7 +29,7 @@ fn property(dataset_digest: &str) -> PropertyDefinition {
             inputs: vec![PropertyInput {
                 name: "T".into(),
                 quantity_kind: QuantityKindId("ThermodynamicTemperature".into()),
-                dimension: Dimension::new([0, 0, 0, 1, 0, 0, 0]),
+                dimension: Dimension::TEMPERATURE,
                 shape: ValueShapeV1::Scalar,
                 physical_min: Some(0.0),
                 physical_max: None,
