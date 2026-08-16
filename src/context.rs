@@ -4,7 +4,7 @@ use crate::form::FormProgram;
 use crate::id::{DiscreteProgramId, FieldId, FormId, OperatorId, RefinementId, SymbolId, SystemId};
 use crate::model::System;
 use crate::operator::OperatorProgram;
-use crate::refinement::RefinementRecord;
+use crate::refinement::{ArtifactKind, ArtifactRef, RefinementError, RefinementRecord};
 use serde::{Deserialize, Serialize};
 
 /// One caller-owned semantic world. The stores are separate dialects but share stable
@@ -94,5 +94,35 @@ impl Context {
 
     pub fn refinements(&self) -> &[RefinementRecord] {
         &self.refinements
+    }
+
+    /// Content-address a handle-bearing root together with the frozen semantic context that
+    /// gives all of its ids meaning. Hashing a bare `ScientificSpec`, `System`, `Form`, or
+    /// `OperatorProgram` is insufficient because their arena handles are only meaningful
+    /// relative to this context.
+    ///
+    /// This first implementation hashes the complete context snapshot for correctness. A
+    /// future subgraph-minimizing packager may make artifacts smaller, but it must preserve
+    /// the same self-contained semantic property.
+    pub fn rooted_artifact_ref<T: Serialize>(
+        &self,
+        kind: ArtifactKind,
+        root: &T,
+    ) -> Result<ArtifactRef, RefinementError> {
+        #[derive(Serialize)]
+        struct Rooted<'a, T> {
+            schema_version: &'static str,
+            context: &'a Context,
+            root: &'a T,
+        }
+
+        ArtifactRef::of(
+            kind,
+            &Rooted {
+                schema_version: crate::SCIENTIFIC_SCHEMA_VERSION,
+                context: self,
+                root,
+            },
+        )
     }
 }
