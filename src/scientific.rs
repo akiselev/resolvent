@@ -1653,10 +1653,10 @@ impl PropertyDefinition {
             check_bound(bound, inputs).map_err(ScientificError::Property)?;
         }
         for bound in &self.domain.validity_bounds {
-            if let Err(message) = check_bound(bound, inputs) {
-                if matches!(self.domain.out_of_validity, OutOfValidityPolicy::Error) {
-                    return Err(ScientificError::Property(message));
-                }
+            if let Err(message) = check_bound(bound, inputs)
+                && matches!(self.domain.out_of_validity, OutOfValidityPolicy::Error)
+            {
+                return Err(ScientificError::Property(message));
             }
         }
         evaluate_property_model(&self.model, inputs)
