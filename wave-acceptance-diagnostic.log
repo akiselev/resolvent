@@ -1,77 +1,75 @@
 [1m[92m    Updating[0m crates.io index
 [1m[92m     Locking[0m 23 packages to latest compatible versions
 [1m[92m Downloading[0m crates ...
-[1m[92m  Downloaded[0m find-msvc-tools v0.1.11
 [1m[92m  Downloaded[0m proc-macro2 v1.0.107
-[1m[92m  Downloaded[0m zmij v1.0.23
-[1m[92m  Downloaded[0m arrayref v0.3.9
-[1m[92m  Downloaded[0m thiserror-impl v2.0.20
-[1m[92m  Downloaded[0m unicode-ident v1.0.24
-[1m[92m  Downloaded[0m cfg-if v1.0.4
-[1m[92m  Downloaded[0m shlex v2.0.1
 [1m[92m  Downloaded[0m itoa v1.0.18
+[1m[92m  Downloaded[0m arrayref v0.3.9
 [1m[92m  Downloaded[0m thiserror v2.0.20
-[1m[92m  Downloaded[0m arrayvec v0.7.8
-[1m[92m  Downloaded[0m serde_core v1.0.229
-[1m[92m  Downloaded[0m quote v1.0.47
-[1m[92m  Downloaded[0m constant_time_eq v0.4.2
 [1m[92m  Downloaded[0m cpufeatures v0.3.0
+[1m[92m  Downloaded[0m find-msvc-tools v0.1.11
+[1m[92m  Downloaded[0m quote v1.0.47
+[1m[92m  Downloaded[0m shlex v2.0.1
+[1m[92m  Downloaded[0m arrayvec v0.7.8
+[1m[92m  Downloaded[0m zmij v1.0.23
+[1m[92m  Downloaded[0m serde_core v1.0.229
+[1m[92m  Downloaded[0m unicode-ident v1.0.24
 [1m[92m  Downloaded[0m serde_derive v1.0.229
-[1m[92m  Downloaded[0m memchr v2.8.3
 [1m[92m  Downloaded[0m serde v1.0.229
-[1m[92m  Downloaded[0m blake3 v1.8.6
+[1m[92m  Downloaded[0m memchr v2.8.3
 [1m[92m  Downloaded[0m cc v1.4.3
-[1m[92m  Downloaded[0m syn v3.0.3
+[1m[92m  Downloaded[0m thiserror-impl v2.0.20
+[1m[92m  Downloaded[0m constant_time_eq v0.4.2
 [1m[92m  Downloaded[0m serde_json v1.0.151
+[1m[92m  Downloaded[0m blake3 v1.8.6
+[1m[92m  Downloaded[0m cfg-if v1.0.4
+[1m[92m  Downloaded[0m syn v3.0.3
 [1m[92m   Compiling[0m proc-macro2 v1.0.107
-[1m[92m   Compiling[0m unicode-ident v1.0.24
 [1m[92m   Compiling[0m quote v1.0.47
+[1m[92m   Compiling[0m unicode-ident v1.0.24
 [1m[92m   Compiling[0m serde_core v1.0.229
-[1m[92m   Compiling[0m find-msvc-tools v0.1.11
 [1m[92m   Compiling[0m shlex v2.0.1
-[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m find-msvc-tools v0.1.11
 [1m[92m   Compiling[0m cc v1.4.3
-[1m[92m   Compiling[0m serde v1.0.229
 [1m[92m   Compiling[0m thiserror v2.0.20
+[1m[92m   Compiling[0m zmij v1.0.23
+[1m[92m   Compiling[0m serde v1.0.229
 [1m[92m   Compiling[0m syn v3.0.3
 [1m[92m   Compiling[0m serde_json v1.0.151
-[1m[92m   Compiling[0m cpufeatures v0.3.0
-[1m[92m   Compiling[0m memchr v2.8.3
-[1m[92m   Compiling[0m blake3 v1.8.6
-[1m[92m   Compiling[0m arrayvec v0.7.8
-[1m[92m   Compiling[0m constant_time_eq v0.4.2
-[1m[92m   Compiling[0m arrayref v0.3.9
 [1m[92m   Compiling[0m cfg-if v1.0.4
 [1m[92m   Compiling[0m itoa v1.0.18
+[1m[92m   Compiling[0m blake3 v1.8.6
+[1m[92m   Compiling[0m arrayvec v0.7.8
+[1m[92m   Compiling[0m memchr v2.8.3
+[1m[92m   Compiling[0m cpufeatures v0.3.0
+[1m[92m   Compiling[0m arrayref v0.3.9
+[1m[92m   Compiling[0m constant_time_eq v0.4.2
 [1m[92m   Compiling[0m thiserror-impl v2.0.20
 [1m[92m   Compiling[0m serde_derive v1.0.229
 [1m[92m   Compiling[0m resolvent-quantities v0.1.0 (/home/runner/work/resolvent/resolvent/crates/resolvent-quantities)
 [1m[92m   Compiling[0m resolvent v0.1.0 (/home/runner/work/resolvent/resolvent)
-[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 16.05s
+[1m[92m    Finished[0m `test` profile [unoptimized + debuginfo] target(s) in 18.70s
 [1m[92m     Running[0m tests/r14_acceptance.rs (target/debug/deps/r14_acceptance-e46e176cf5b05b52)
 
 running 3 tests
+test every_current_semantic_declaration_has_a_nonempty_source_span ... ok
+test whitespace_and_comments_do_not_change_semantic_digest ... ok
+test format_roundtrip_preserves_all_current_scientific_v1_semantics ... ok
 
-thread 'format_roundtrip_preserves_all_current_scientific_v1_semantics' (3051) panicked at tests/r14_acceptance.rs:51:45:
-called `Result::unwrap()` on an `Err` value: [Syntax { message: "equation requires `=`", span: SourceSpan { start: 553, end: 554 } }, Syntax { message: "expected expression", span: SourceSpan { start: 553, end: 554 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 559, end: 563 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 606, end: 614 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 630, end: 644 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 665, end: 672 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 690, end: 698 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 753, end: 762 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 816, end: 826 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 854, end: 863 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 888, end: 889 } }]
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-thread 'every_current_semantic_declaration_has_a_nonempty_source_span' (3050) panicked at tests/r14_acceptance.rs:60:50:
-called `Result::unwrap()` on an `Err` value: [Syntax { message: "equation requires `=`", span: SourceSpan { start: 553, end: 554 } }, Syntax { message: "expected expression", span: SourceSpan { start: 553, end: 554 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 559, end: 563 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 606, end: 614 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 630, end: 644 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 665, end: 672 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 690, end: 698 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 753, end: 762 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 816, end: 826 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 854, end: 863 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 888, end: 889 } }]
+[1m[92m     Running[0m tests/r18_coupling.rs (target/debug/deps/r18_coupling-bd2e4320149b6a0d)
 
-thread 'whitespace_and_comments_do_not_change_semantic_digest' (3052) panicked at tests/r14_acceptance.rs:38test format_roundtrip_preserves_all_current_scientific_v1_semantics ... :FAILED45
-:
-called `Result::unwrap()` on an `Err` value: [Syntax { message: "equation requires `=`", span: SourceSpan { start: 553, end: 554 } }, Syntax { message: "expected expression", span: SourceSpan { start: 553, end: 554 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 559, end: 563 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 606, end: 614 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 630, end: 644 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 665, end: 672 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 690, end: 698 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 753, end: 762 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 816, end: 826 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 854, end: 863 } }, Syntax { message: "expected `model` declaration", span: SourceSpan { start: 888, end: 889 } }]test every_current_semantic_declaration_has_a_nonempty_source_span ... 
-FAILED
-test whitespace_and_comments_do_not_change_semantic_digest ... FAILED
+running 2 tests
+test nested_property_and_constitutive_dependencies_reach_cross_blocks ... ok
+test declaration_reordering_preserves_semantic_digest_and_coupling_graph ... ok
 
-failures:
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-failures:
-    every_current_semantic_declaration_has_a_nonempty_source_span
-    format_roundtrip_preserves_all_current_scientific_v1_semantics
-    whitespace_and_comments_do_not_change_semantic_digest
+[1m[92m     Running[0m tests/scientific_bridge.rs (target/debug/deps/scientific_bridge-49a00d35ced83d1b)
 
-test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 2 tests
+test scientific_physics_lock_carries_property_provenance_and_digest_identity ... ok
+test file_and_rust_macro_use_identical_scientific_semantics ... ok
 
-[1m[91merror[0m: test failed, to rerun pass `--test r14_acceptance`
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
