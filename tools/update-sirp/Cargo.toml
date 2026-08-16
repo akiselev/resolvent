@@ -1,0 +1,10 @@
+[package]
+name = "update-sirp"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[dependencies]
+blake3 = "1"
+serde_json = "1"
