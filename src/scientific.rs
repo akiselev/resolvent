@@ -2479,9 +2479,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
                 trace(
                     &name,
                     &form.name,
-                    &field_names,
-                    &property_map,
-                    &constitutive_map,
+                    &context,
                     &mut Vec::new(),
                     &mut BTreeSet::new(),
                     None,
