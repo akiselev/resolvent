@@ -2,55 +2,7 @@ use crate::id::{ExprId, FieldId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ValueShape {
-    Scalar,
-    Vector { dim: u8 },
-    Tensor { rows: u8, cols: u8 },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Continuity {
-    H1,
-    HCurl,
-    HDiv,
-    L2,
-    Custom(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FunctionSpace {
-    pub family: String,
-    pub order: u8,
-    pub continuity: Continuity,
-    pub value_shape: ValueShape,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub domain: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FieldRole {
-    Unknown,
-    Coefficient,
-    Trial,
-    Test,
-    Derived,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Field {
-    pub id: FieldId,
-    pub name: String,
-    pub role: FieldRole,
-    pub space: FunctionSpace,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dimension: Option<String>,
-    #[serde(default)]
-    pub metadata: BTreeMap<String, String>,
-}
+pub use crate::field::{Continuity, ElementFamily, Field, FieldRole, FunctionSpace, ValueShape};
 
 /// Continuum/variational expression dialect. Scalar coefficients reference the generic
 /// expression store by `ExprId`; they are not copied into a second CAS AST.
@@ -67,18 +19,10 @@ pub enum FormExpr {
     Curl(Box<FormExpr>),
     TimeDerivative(Box<FormExpr>),
     Trace(Box<FormExpr>),
-    Inner {
-        left: Box<FormExpr>,
-        right: Box<FormExpr>,
-    },
-    Contract {
-        left: Box<FormExpr>,
-        right: Box<FormExpr>,
-    },
-    Custom {
-        operator: String,
-        args: Vec<FormExpr>,
-    },
+    Normal,
+    Inner { left: Box<FormExpr>, right: Box<FormExpr> },
+    Contract { left: Box<FormExpr>, right: Box<FormExpr> },
+    Custom { operator: String, args: Vec<FormExpr> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +43,31 @@ pub struct Integral {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EssentialBoundary {
+    pub field: FieldId,
+    pub boundary: String,
+    pub value: ExprId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NaturalBoundary {
+    pub field: FieldId,
+    pub boundary: String,
+    pub flux: ExprId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RobinBoundary {
+    pub field: FieldId,
+    pub boundary: String,
+    pub coefficient: ExprId,
+    pub ambient: ExprId,
+}
+
+/// A method-neutral continuum form. Boundary conditions are semantic data and are compiled
+/// into restriction/elimination or natural integral terms; solver policy is deliberately
+/// absent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormProgram {
     pub name: String,
     #[serde(default)]
@@ -107,6 +76,12 @@ pub struct FormProgram {
     pub residual_terms: Vec<Integral>,
     #[serde(default)]
     pub boundary_terms: Vec<Integral>,
+    #[serde(default)]
+    pub essential_boundaries: Vec<EssentialBoundary>,
+    #[serde(default)]
+    pub natural_boundaries: Vec<NaturalBoundary>,
+    #[serde(default)]
+    pub robin_boundaries: Vec<RobinBoundary>,
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
 }
