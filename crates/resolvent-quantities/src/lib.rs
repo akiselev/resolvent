@@ -290,10 +290,8 @@ impl UnitRegistry {
             });
         }
         let mut value = literal.value * unit.scale_to_si.as_f64();
-        if !is_interval {
-            if let Some(offset) = unit.offset_to_si {
-                value += offset.as_f64();
-            }
+        if !is_interval && let Some(offset) = unit.offset_to_si {
+            value += offset.as_f64();
         }
         Ok(CanonicalQuantity {
             value_si: value,
