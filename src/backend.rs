@@ -77,7 +77,7 @@ pub fn build_execution_plan(
         )
     }
     let context_digest = ctx
-        .rooted_artifact_ref(crate::ArtifactKind::Operator, &operator)
+        .rooted_artifact_ref(crate::ArtifactKind::OperatorProgram, &operator)
         .map_err(|e| BackendError::Hash(e.to_string()))?
         .digest;
     Ok(ExecutionPlan {
