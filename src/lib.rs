@@ -1,77 +1,52 @@
 //! `resolvent` — exact algebra and a symbolic scientific compiler.
 //!
 //! The public crate intentionally contains several semantic dialects rather than one giant
-//! expression enum:
-//!
-//! `expr -> model/system -> form -> discrete -> operator -> executable`
-//!
-//! Not every model visits every dialect. A circuit or geometric constraint system may lower
-//! from `model` directly to `operator`; a continuum model may visit `form` and `discrete`.
-//! Every semantic transition is represented by [`RefinementRecord`], which carries the
-//! claimed relation, scope change, assumptions, obligations, evidence and provenance.
-//!
-//! This crate does **not** own numerical solve policy (Solverang), machine scheduling/codegen
-//! (Anvil), simulation orchestration (Sinbad), theorem proving (Lean/Ferris–Howard), theorem
-//! mining (Lean Atlas), or scientific campaign authority (Pi Lab). It provides the common
-//! mathematical objects those systems can relate without inventing parallel ASTs.
+//! expression enum. The RSL authoring surface, Rust macros and Lean bridge all elaborate into
+//! the same caller-owned semantic context.
 
 #![forbid(unsafe_code)]
 
+extern crate self as resolvent;
+
+pub mod author;
+pub mod calculus;
 pub mod compile;
 pub mod context;
+pub mod diagnostic;
 pub mod discrete;
 pub mod evidence;
 pub mod expr;
 pub mod form;
 pub mod id;
+pub mod latex;
 pub mod lean;
+pub mod migration;
 pub mod model;
 pub mod operator;
 pub mod refinement;
 pub mod structural;
+pub mod units;
 pub mod verify;
 
-pub use compile::{
-    CompileError, CompilerDiagnostic, DiagnosticSeverity, Dialect, LegalityTarget, Lowering,
-    LoweringPass, PassContract, declare_refinement,
-};
+pub use resolvent_macros::{include_physics, physics};
+
+pub use compile::{CompileError, CompilerDiagnostic, DiagnosticSeverity as CompileDiagnosticSeverity, Dialect, LegalityTarget, Lowering, LoweringPass, PassContract, declare_refinement};
 pub use context::Context;
-pub use discrete::{
-    BasisEvaluation, DiscreteInstruction, DiscreteOp, DiscreteProgram, DiscreteValueId,
-    RestrictionDirection,
-};
-pub use evidence::{
-    EmpiricalGrade, EvidenceArtifact, EvidenceAxis, EvidenceGrade, EvidenceItem, EvidenceProfile,
-    FormalGrade, NumericalGrade, Obligation, ObligationStatus,
-};
+pub use diagnostic::{Diagnostic, DiagnosticSeverity, SourceLabel, SourceSpan, SuggestedFix};
+pub use discrete::{BasisEvaluation, DiscreteInstruction, DiscreteOp, DiscreteProgram, DiscreteValueId, RestrictionDirection};
+pub use evidence::{EmpiricalGrade, EvidenceArtifact, EvidenceAxis, EvidenceGrade, EvidenceItem, EvidenceProfile, FormalGrade, NumericalGrade, Obligation, ObligationStatus};
 pub use expr::{ExprNode, ExprStore, ScalarLiteral, Symbol, SymbolRole, SymbolTable};
-pub use form::{
-    Continuity, Field, FieldRole, FormExpr, FormProgram, FunctionSpace, Integral, Measure,
-    ValueShape,
-};
-pub use id::{
-    Digest, DiscreteProgramId, ExprId, FieldId, FormId, ObligationId, ObservableId, OperatorId,
-    RefinementId, SymbolId, SystemId,
-};
+pub use form::{Continuity, Field, FieldRole, FormExpr, FormProgram, FunctionSpace, Integral, Measure, ValueShape};
+pub use id::{Digest, DiscreteProgramId, ExprId, FieldId, FormId, ObligationId, ObservableId, OperatorId, RefinementId, SymbolId, SystemId};
 pub use lean::{LeanBridgeError, LeanDeclaration, LeanExportManifest, ReificationReceipt};
-pub use model::{
-    Assumption, Equation, Event, Observable, PropertyContract, PropertyKind, ScientificSpec, Scope,
-    System,
-};
-pub use operator::{
-    DerivativeCapability, OperatorBlock, OperatorBlockKind, OperatorProgram, OperatorProperty,
-    SparsityContract,
-};
-pub use refinement::{
-    ArtifactKind, ArtifactRef, RefinementError, RefinementProvenance, RefinementRecord,
-    RefinementRelation, ScopeTransition,
-};
+pub use model::{Assumption, Equation, Event, Observable, PropertyContract, PropertyKind, ScientificSpec, Scope, System};
+pub use operator::{DerivativeCapability, OperatorBlock, OperatorBlockKind, OperatorProgram, OperatorProperty, SparsityContract};
+pub use refinement::{ArtifactKind, ArtifactRef, RefinementError, RefinementProvenance, RefinementRecord, RefinementRelation, ScopeTransition};
+pub use structural::dae::{AliasGroup, DerivativeVariable, DummyDerivative, PantelidesStep, StructuralDaeAnalysis, analyze_dae};
 pub use structural::scc::{Digraph, GraphError, Sccs, tarjan_scc};
-pub use structural::{
-    Block, BlockKind, IncidenceSystem, Matching, Schedule, StructuralCompileError, StructuralError,
-    compile_schedule, compile_schedule_without_tearing, maximum_matching,
-};
+pub use structural::{Block, BlockKind, IncidenceSystem, Matching, Schedule, StructuralCompileError, StructuralError, compile_schedule, compile_schedule_without_tearing, maximum_matching};
+pub use units::{Dimension, UnitError, UnitExpr, parse_unit};
 pub use verify::{CheckResult, CheckStatus, ValidationBundle, ValidationCheck, ValidationKind};
 
 /// Wire-level schema family for the unified scientific compiler surface.
-pub const SCIENTIFIC_SCHEMA_VERSION: &str = "resolvent-science/0.1";
+pub const SCIENTIFIC_SCHEMA_VERSION: &str = "resolvent-science/0.2";
