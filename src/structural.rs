@@ -1,9 +1,24 @@
+//! Structural equation analysis over the common [`System`] IR.
+//!
+//! The module deliberately owns projections and passes, not a second source equation AST.
+//! Incidence is derived from `System` + `ExprStore`; matching, SCC/BLT and tearing operate on
+//! that projection. This is the long-term home of the algorithms currently reference-tested
+//! in Sinbad's Plexus crate.
+
+pub mod scc;
+pub mod schedule;
+
 use crate::expr::{ExprNode, ExprStore};
 use crate::id::SymbolId;
 use crate::model::System;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
+
+pub use schedule::{
+    Block, BlockKind, Schedule, StructuralCompileError, compile_schedule,
+    compile_schedule_without_tearing,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncidenceSystem {
