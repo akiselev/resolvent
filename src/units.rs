@@ -175,7 +175,10 @@ impl<'a> UnitParser<'a> {
         Ok(value)
     }
     fn skip_ws(&mut self) {
-        while matches!(self.peek(), Some(c) if c.is_whitespace()) {
+        while let Some(c) = self.peek() {
+            if !c.is_whitespace() {
+                break;
+            }
             self.pos += c.len_utf8();
         }
     }
