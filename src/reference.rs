@@ -188,7 +188,7 @@ impl DofLayout {
         values: &[DirichletValue],
     ) -> Result<Self, ReferenceError> {
         let by_tag: BTreeMap<u32, f64> = values.iter().map(|v| (v.boundary, v.value)).collect();
-        let mut prescribed = vec![None; mesh.vertices.len()];
+        let mut prescribed: Vec<Option<f64>> = vec![None; mesh.vertices.len()];
         for edge in &mesh.boundaries {
             if let Some(&value) = by_tag.get(&edge.tag) {
                 for &vertex in &edge.vertices {
