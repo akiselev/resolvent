@@ -33,6 +33,7 @@ pub mod reference_mixed;
 pub mod refinement;
 pub mod rsl;
 pub mod scientific;
+pub mod scientific_bridge;
 pub mod scientific_weak;
 pub mod source;
 pub mod structural;
@@ -111,6 +112,10 @@ pub use scientific::{
     ScientificExecutionPlan, ScientificModel, ScientificModule, TimeStateSemantics,
     derive_coupling_graph, execution_plan, format_scientific_module, parse_scientific_module,
     resolve_modules, semantic_digest,
+};
+pub use scientific_bridge::{
+    PropertyEvidenceLock, ScientificPhysicsLock, freeze_scientific, parse_and_freeze_scientific,
+    parse_scientific_latex_expr,
 };
 pub use scientific_weak::{
     WeakLoweringError, WeakOperatorProgram, WeakResidualBlock, WeakTerm, lower_scalar_h1_equation,
