@@ -61,6 +61,8 @@ fn check_equation(
     }
 }
 
+// Keep dimension composition on the standard Mul/Div traits. That gives the compiler, parser and
+// downstream semantic checks one arithmetic surface instead of parallel inherent helpers.
 fn infer(
     expr: &MathExpr,
     dims: &BTreeMap<String, Dimension>,
