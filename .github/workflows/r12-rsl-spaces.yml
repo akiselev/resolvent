@@ -18,7 +18,7 @@ jobs:
         with:
           toolchain: 1.93.0
           components: rustfmt
-      - name: Extend RSL field spaces
+      - name: Extend RSL field spaces and vector-calculus LaTeX
         shell: python
         run: |
           from pathlib import Path
@@ -106,6 +106,27 @@ jobs:
           }
           '''
           path.write_text(text[:start] + replacement + text[end:])
+
+          latex = Path('src/latex.rs')
+          text = latex.read_text()
+          old = '''    s = s.replace("\\\\cdot", " @dot ");
+              s = s.replace("\\\\times", " * ");
+              s = s.replace("\\\\nabla \\\\cdot", " @div ");
+              s = s.replace("\\\\nabla\\\\cdot", " @div ");
+              s = s.replace("\\\\nabla \\\\times", " @curl ");
+              s = s.replace("\\\\nabla\\\\times", " @curl ");
+              s = s.replace("\\\\nabla", " @grad ");'''
+          new = '''    // Recognize compound vector-calculus operators before their component TeX tokens.
+              s = s.replace("\\\\nabla \\\\cdot", " @div ");
+              s = s.replace("\\\\nabla\\\\cdot", " @div ");
+              s = s.replace("\\\\nabla \\\\times", " @curl ");
+              s = s.replace("\\\\nabla\\\\times", " @curl ");
+              s = s.replace("\\\\nabla", " @grad ");
+              s = s.replace("\\\\cdot", " @dot ");
+              s = s.replace("\\\\times", " * ");'''
+          if old not in text:
+              raise SystemExit('LaTeX normalization precedence marker missing')
+          latex.write_text(text.replace(old, new, 1))
       - name: Format
         run: cargo fmt --all
       - name: Commit
@@ -113,7 +134,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/rsl.rs src/field.rs src/reference_mixed.rs tests/plexus_parity.rs src/lib.rs
+          git add src/rsl.rs src/latex.rs src/field.rs src/reference_mixed.rs tests/plexus_parity.rs src/lib.rs
           if git diff --cached --quiet; then exit 0; fi
           git commit -m "extend RSL to mixed and H(curl) physics spaces"
           git push origin HEAD:agent/r0-r9-agent-physics-stack
