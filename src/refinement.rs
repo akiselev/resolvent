@@ -203,9 +203,11 @@ mod tests {
 
     #[test]
     fn scope_change_requires_transport_witness() {
-        let mut target = Scope::default();
-        target.label = "restricted".into();
-        target.restrictions.push("slice-a".into());
+        let target = Scope {
+            label: "restricted".into(),
+            restrictions: vec!["slice-a".into()],
+            ..Scope::default()
+        };
         let refinement = Refinement {
             source_stage: Stage::FormalSpec,
             target_stage: Stage::SymbolicModel,
