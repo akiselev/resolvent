@@ -335,13 +335,10 @@ The property suite **is** the verdict function for this layer (§7.4). Additiona
 
 ### 3.7 Layer 4 — expression DAG
 
-Scope note, ~~as of 2026-07-31~~ **rewritten 2026-08-08 (ADR-029, ADR-031, ADR-033).** The
-previous note held M7's line at hash-consing, `diff`/`diff_with`, constant folding,
-`walk_topological`, `is_polynomial_in` and canonical bytes, and put `RuleSet`, the rewriter
-and rational-function normalization post-v1 on the strength of C1 §15. C1 §15's *finding* —
-that three documents gave three answers — was right and is what this section now closes; its
-*premise*, that L4 is "not the point", was retired by ADR-029. Rows still owed here, and their
-kinds, so their absence is visible:
+Scope note (ADR-029, ADR-031, ADR-033). M7 covers hash-consing, `diff`/`diff_with`, constant
+folding, `walk_topological`, `is_polynomial_in`, canonical and provenance bytes, the exactness
+lattice, `canonicalize`, `simplify` + `RuleSet`, and assumptions. Rows still owed here, and
+their kinds, so their absence is visible:
 
 | Owed row | Kind |
 |---|---|

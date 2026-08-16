@@ -67,20 +67,16 @@ divergence_ceiling = "rewrite.quality.divergence"   # key into sharpness-ceiling
 
 **`oracle` and `oracle_systems` are different fields on purpose.** ADR-021's CI rule 2
 resolves every entry in `oracle` against `[lane.*]` and requires it green and frozen; an
-external system name in that field would simply fail to resolve. A draft of this ADR wrote
-`oracle = ["sympy"]` and would have broken the existing rule on the first conformance lane.
-ADR-021 §3 is amended in the same commit to carry both keys and the three checks over them.
+external system name in that field does not resolve. ADR-021 §3 is amended in the same commit
+to carry both keys and the three checks over them.
 
 ### 2. Nothing on the default path has conformance-graded soundness
 
-*A draft of this section said "soundness is never conformance-graded", full stop. ADR-033 §3
-violates that on its face — class-S rules like `sin²+cos²→1` and class-D rules like
-`log(ab)→log a+log b` have **no** automatic soundness verdict, and their grade is conformance.
-Two ADRs in the same package contradicting each other is the defect this repository's own
-`CLAUDE.md` §0 says to stop and settle. Settled here, and the precise rule is better than the
-absolute one.*
-
-The rule, in two parts:
+Class-S rules like `sin²+cos²→1` and class-D rules like `log(ab)→log a+log b` have **no**
+automatic soundness verdict — no inverse operation checks them, so their grade is conformance.
+A blanket "soundness is never conformance-graded" would therefore be false of this package on
+its first lane. The rule that keeps the grade from becoming an escape hatch is narrower, and it
+binds harder:
 
 **(a) Where a self-certificate exists, soundness is certificate-graded. Always.** Choosing
 oracle comparison over an available inverse-operation check is a review defect, and the
@@ -99,9 +95,7 @@ ADR-033 is the worked case and it satisfies (b) exactly:
 | **Class-S / class-D rule soundness** | Committed justification + differential testing; class D additionally needs a discharged side condition | `conformance` | **No.** There is no default rule set; a caller names any set containing S or D members, and `simplify` then returns `Probable` with the firing rules named, never `Proved` |
 | **Rewrite quality** (any class) | Node count / expected form against an oracle, under a divergence ceiling | `conformance` | n/a — gates nothing |
 
-So a conformance-graded soundness argument never silently backs a `Proved` result. That is
-the property the absolute version was reaching for, and stating it this way is what makes it
-true of the package rather than of a slogan.
+So a conformance-graded soundness argument never silently backs a `Proved` result.
 
 A lane whose soundness is conformance-graded **and** whose capability is default-reachable is
 not ready to be briefed. That combination is the escape hatch, and it is what §3 forbids.

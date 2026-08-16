@@ -63,9 +63,9 @@ impl Store {
 
 *The error type is `Error`, not `Decline`.* ADR-011's model is one error type with
 `is_decline()` distinguishing a recoverable decline (budget exhausted — the caller may retry
-or climb a rung) from a fault. A draft of this ADR wrote `Result<_, Decline>`, which would have
-made budget exhaustion the *only* expressible failure and left no channel for a malformed rule
-set — the distinction `API.md` X-1 requires.
+or climb a rung) from a fault. `Result<_, Decline>` would make budget exhaustion the *only*
+expressible failure and leave no channel for a malformed rule set — a distinction `API.md` X-1
+requires be preserved.
 
 There is no `simplify(expr)`. A caller names the rule set every time. `RuleSet::default()`
 does not exist, because a default rule set is an implicit rule set with an extra step.

@@ -87,16 +87,15 @@ second implementation to reconcile at an adapter boundary — **ADR-015 is uname
 committed conformance-vector file (§5) becomes the shared spec for the outward `f64`
 conversion rather than a nicety.
 
-**Bounds live on leaves only, and resolvent does not propagate them.** *This is the load-bearing
-restriction and it was missing from this ADR's first draft.* An interior node's `Exactness` is
-the meet of its children's — a three-element lattice operation, trivial and exact. Its
-**bound is not computed**, because computing one is interval arithmetic, and ADR-015 §Context
-is explicit that resolvent "has no filtered-arithmetic layer of its own and does not want one,
-because filtering *arithmetic* is an orthogonal axis to filtering *algebra*." A first draft of
-this ADR had interior `Enclosed` nodes answering sign queries when their enclosure excluded
-zero; that is a filter API, it is the one ADR-015 §Alternatives rejected by name (`try_cmp_f64`),
-and it would have made resolvent own an enclosure-propagation semantics at exactly the boundary
-ADR-015 exists to keep clean.
+**Bounds live on leaves only, and resolvent does not propagate them.** This is the
+load-bearing restriction. An interior node's `Exactness` is the meet of its children's — a
+three-element lattice operation, trivial and exact. Its **bound is not computed**, because
+computing one is interval arithmetic, and ADR-015 §Context is explicit that resolvent "has no
+filtered-arithmetic layer of its own and does not want one, because filtering *arithmetic* is
+an orthogonal axis to filtering *algebra*." An interior `Enclosed` node answering a sign query
+when its enclosure excludes zero is a filter API — the one ADR-015 §Alternatives rejects by
+name (`try_cmp_f64`) — and it would make resolvent own an enclosure-propagation semantics at
+exactly the boundary ADR-015 exists to keep clean.
 
 So, precisely:
 
@@ -119,10 +118,9 @@ mechanism:
   `-> Option<MPoly>` signature (`API.md` L4-5 — "a coercion would lie; a predicate cannot")
   and returns `None` for any subtree carrying `Enclosed` or `Approximate`. The *witness*
   accompanying a `None` — which M7's exit gate already requires — names the offending node and
-  its exactness, so the refusal is diagnosable without changing the return type. **No `Result`,
-  no new error variant on this function**: an earlier draft of this ADR specified
-  `Err(Unsupported::InexactSubtree)` and would have silently broken a ratified signature that
-  `API.md`, `ROADMAP.md` M7 and `DESIGN.md`:1750 all state as `Option`.
+  its exactness, so the refusal is diagnosable without changing the return type. **No `Result` and no new
+  error variant on this function** — `API.md` L4-5, `ROADMAP.md` M7 and `DESIGN.md`:1750 all
+  state the signature as `Option`, and it stays that way.
 - **No inexact value can reach `UPoly`, `MPoly`, `AlgebraicReal`, or `SqrtExt`,** because the
   only door is closed by construction rather than by review.
 - **Neither `Enclosed` nor `Approximate` may produce a `Sign`.** Both return `Unknown`. See
@@ -192,9 +190,7 @@ arena-relative (ADR-020), and `API.md` L4-6 requires canonical bytes to be "inde
 interning order, handles, arena addresses, insertion history and build configuration". So the
 witness set is addressed **structurally in serialization and by handle only in memory**: a
 witness appears in `provenance_bytes` as its own canonical bytes (or a fixed-width digest of
-them), never as its id. An earlier draft of §5 said "witness identities" without saying which
-kind, which would have put arena-relative ids into a content address and broken the
-cross-process byte-identity gate on its first run.
+them), never as its id.
 
 Sets are bounded by the number of inexact leaves in the DAG and are shared through
 hash-consing. **If measurement shows the union cost matters on a real workload, the fallback
@@ -236,13 +232,11 @@ was not). A consumer content-addressing generated artifacts keys on the second; 
 comparing mathematical values keys on the first. Neither digest alone would serve both, which
 is the whole argument for having two.
 
-**A leaf's enclosure bounds are content and go in `canonical_bytes`.** *Corrected here: an
-earlier draft excluded widths as "the tuning-dependent part", which was reasoning carried over
-from a design where resolvent refined bounds. Under §1 it does not — bounds are supplied by the
-caller at the leaf and never move.* An `Enclosed(lo, hi)` leaf denotes an interval, that
-interval **is** its mathematical content, and two leaves with different bounds are different
-objects; excluding the bounds would make them collide. Nothing resolvent does changes a width,
-so no tuning knob can move these bytes and ADR-012 §8's value-equality gate is unaffected.
+**A leaf's enclosure bounds are content and go in `canonical_bytes`.** An `Enclosed(lo, hi)`
+leaf denotes an interval, that interval **is** its mathematical content, and two leaves with
+different bounds are different objects — excluding the bounds would collide them. Bounds are
+supplied by the caller and never move (§1), so no tuning knob can shift these bytes and
+ADR-012 §8's value-equality gate is unaffected.
 
 What `canonical_bytes` excludes is the **label and the provenance**, not the value:
 `Approximate(0.1_f64)` and `Exact(1/10)` serialize identically — same value, and the f64 is
@@ -260,9 +254,7 @@ This is the rule that makes the whole design cheap and keeps it inside ADR-015. 
 alternative readings both fail: folding `Approximate(0.1) · Exact(3)` into `Approximate(0.3)`
 means resolvent is doing floating-point arithmetic internally, and folding
 `Enclosed(lo,hi) · Exact(3)` into a wider enclosure means resolvent is doing interval
-arithmetic — the filtered-arithmetic layer §1 already refused. An earlier draft said folding
-happens "within an exactness class" without saying what that meant, and both readings are
-natural.
+arithmetic — the filtered-arithmetic layer §1 already refused.
 
 So the division of labour is: **resolvent tracks where inexactness entered and refuses to
 launder it; the consumer evaluates.** A consumer that wants a number walks the DAG with

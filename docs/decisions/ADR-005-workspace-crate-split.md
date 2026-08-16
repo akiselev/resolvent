@@ -5,8 +5,8 @@
 **Amended:** 2026-07-31 — gate L6a (published crates have zero dev-dependencies) added;
 the crate graph is declared normative against the alternative sketched in
 `plans/api-shape.md` §1.4 (ADR-021 §3, item 1).
-**Amended:** 2026-08-08 — **nine** published crates, not seven: `resolvent-calculus` (L5) and
-`resolvent-display` are added, and `resolvent-expr` regains its `resolvent-algebra` edge.
+**Amended:** 2026-08-08 — two further published crates, `resolvent-calculus` (L5) and
+`resolvent-display`; `resolvent-expr` regains its `resolvent-algebra` edge.
 ADR-032's zero-test tiers are placed in `-calculus` specifically so `resolvent-expr` does not
 acquire a `resolvent-real` edge (ADR-029 §4, ADR-033 §5).
 **Gates lanes:** H1, and every lane thereafter.
@@ -62,8 +62,7 @@ publish = false:  resolvent-oracles, resolvent-bench, resolvent-fuzz, xtask
 and `resolvent-display`. ADR-029 declares a general-purpose scope, and the analytic surface
 does not belong in `resolvent-expr`: putting series, integration and transforms in the DAG
 crate would make the one crate every L4 consumer depends on the largest in the workspace.
-(This ADR's title says "seven" and the graph above lists eight including the facade; the
-discrepancy predates this amendment and the graph is what gate L1 diffs against.)
+The graph above, not this ADR's title, is what gate L1 diffs `cargo tree` against.
 
 | Crate | Holds | Depends on |
 |---|---|---|
@@ -93,7 +92,7 @@ Three consequences of the split, each load-bearing:
 Two gate interactions, checked rather than assumed:
 
 - **Gate L7 is unchanged, and that is a decision.** It reads "`rayon` appears only in
-  `-algebra` and `-rea`l". Neither new crate is added to it, so **`resolvent-calculus` is
+  `-algebra` and `-real`". Neither new crate is added to it, so **`resolvent-calculus` is
   single-threaded** until an ADR says otherwise. No surveyed consumer asks for parallel
   calculus, and widening a determinism-adjacent gate for a crate that does not exist yet is
   how the `parallel` feature stops meaning anything.

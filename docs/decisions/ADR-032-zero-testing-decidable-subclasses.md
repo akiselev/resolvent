@@ -82,18 +82,15 @@ pub fn is_zero(store: &Store, e: ExprId, tiers: &TierPolicy, budget: Budget)
 
 **It cannot be `Store::is_zero`.** `Store` is defined in `resolvent-expr`, and an inherent
 method on it would put the tier machinery — and therefore an edge to `resolvent-real` — inside
-L4, which is the exact thing §Where the tier check happens forbids. A draft of this ADR wrote
-`pub fn is_zero(&self, …)` and quietly reintroduced the coupling the crate split exists to
-prevent. The free-function form is also what keeps `resolvent-expr` usable by a consumer that
-never links `-calculus`.
+L4, which is the exact thing §Where the tier check happens forbids. The free-function form is
+also what keeps `resolvent-expr` usable by a consumer that never links `-calculus`.
 
 **Not `Verdict<Sign>`, and not `Verdict` at anything.** ADR-011 §5 / `API.md` INV-18 bind here:
 `Verdict` is produced **only** by enclosure and filter APIs and never by an algebraic-decision
-API, and a zero-test is the archetypal algebraic-decision API. A draft of this ADR returned
-`Verdict::Unknown` for Tier 3 and `Verdict::Certain(NonZero)` for Tier 1(c) — the first
-violates INV-18 outright and the second is not even well-typed, since `NonZero` is not a
-`Sign`. `Certified<bool>` carries the answer in the value and the tier in the `Certainty`,
-which is the mechanism the library already has (ADR-010 §2).
+API, and a zero-test is the archetypal algebraic-decision API. `Verdict::Unknown` would violate
+INV-18 outright, and there is no well-typed way to say "proved non-zero" in a `Verdict<Sign>` —
+`NonZero` is not a `Sign`. `Certified<bool>` carries the answer in the value and the tier in the
+`Certainty`, which is the mechanism the library already has (ADR-010 §2).
 
 ### Tier 1 — unconditionally decidable. Returns `Certainty::Proved`.
 

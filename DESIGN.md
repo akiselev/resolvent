@@ -102,17 +102,14 @@ arbitrary degree, with the coefficient-growth control that makes arbitrary degre
 The measurement behind that number: the entire algebraic surface a shipping 17k-LOC exact
 geometry engine consumes is re-exported under six names
 (`arrangements/crates/lazy-exact/src/lib.rs:82` — `QPoly, RealRoot, RootError, isolate_roots,
-sign_radical1, sign_radical2`, plus `SqrtExt` on the next line). ~~Symbolic calculus is a thin
-optional layer at the top and is not the point.~~
+sign_radical1, sign_radical2`, plus `SqrtExt` on the next line).
 
-*Amended 2026-08-08 (ADR-029).* **The scope is a general-purpose CAS**, and symbolic calculus
-is a stratum of it rather than an optional layer. What survives unchanged is the sentence
-above it: the *first useful release* is still roughly twenty-five functions, and the
-twenty-five are still the algebraic ones. The distinction ADR-029 §1 draws is between what is
-**in scope** and what is **specified** — most of the analytic surface is in scope and
-unspecified, which blocks its lane rather than licensing it. Nothing in this document's
-sequencing changes because of the scope declaration; what changes is that the ceiling was
-removed, not that the floor moved.
+**The scope is a general-purpose CAS** (ADR-029), and symbolic calculus is a stratum of it.
+That does not move the first release: it is still roughly twenty-five functions and they are
+still the algebraic ones. ADR-029 §1 distinguishes what is **in scope** from what is
+**specified** — most of the analytic surface is in scope and unspecified, which blocks its lane
+rather than licensing it. The scope declaration removed a ceiling; it did not move the floor,
+and nothing in this document's sequencing changes because of it.
 
 Two framings correct the source specification and this architecture is built around both:
 
@@ -170,9 +167,9 @@ one exists, the consumer that would be damaged by including it.
 | **Numeric root polishing, Newton correctors, homotopy continuation, interval-Newton solvers** | cadabra2 calls this an "attractive nuisance" and has a module that exists specifically so that no numeric polishing enters a decision path. An f64 root-finder in resolvent's API actively damages one consumer and helps none. |
 | **BKK / mixed-volume root counting** | Convex geometry over Newton polytopes, not algebra. It belongs in a polytope crate. |
 | **A code emitter (Rust/C/WASM printer)** | The consumer that wants one says resolvent must not ship it: it needs Rust closures, the next consumer needs its own opcode tape. resolvent exposes `walk_topological` and stops. |
-| **An `egg`/`egglog` dependency** | *Narrowed 2026-08-08.* This row previously excluded five things — an e-graph dependency, a rule language, a built-in rewriter, symbolic integration, and a rational-function type — on the ground that L4 was "not the point". ADR-029 retired that ground and **four of the five are now in scope** (ADR-033 for rewriting and rational functions; `API.md` §4.2 for integration). What survives is the e-graph *dependency* alone, and for its own unchanged reasons: `egg`'s `Language` trait wants to own the term representation, its maintainers point at the successor, and `egglog` churns. Adapters stay external and post-v1 (ADR-033 §6). |
+| **An `egg`/`egglog` dependency** | `egg`'s `Language` trait wants to own the term representation; its maintainers point at the successor; `egglog` churns. Adapters stay external and post-v1 (ADR-033 §6). *Narrowed 2026-08-08 to the dependency alone: a rule language, a built-in rewriter, symbolic integration and a rational-function type are in scope (ADR-033; `API.md` §4.2).* |
 | **Adapter crates, and any optional dependency on an ecosystem crate** | Features are capability-named (`parallel`, `serde`, `simd`, `number-fields`). No feature flag is named after a consumer; a `lazy-exact` feature would be the deferred integration decision smuggled into the one place it must not live. |
-| **`no_std`** | `AlgebraicReal` needs `Arc` and an atomic; `dashu` allocates. ~~None of the five prospective consumers is embedded.~~ *That reason is void as of 2026-08-08 — ADR-029 §2 declares embedding a first-class constraint.* The **conclusion** survives on the other reasons, and ADR-029 §2 says so explicitly: `no_std` is "neither promised nor foreclosed". `resolvent-base` holds no arena and no allocation, so the question stays live *for that crate only* (§10.7). |
+| **`no_std`** | `AlgebraicReal` needs `Arc` and an atomic; `dashu` allocates. ADR-029 §2 declares embedding a first-class constraint and is explicit that `no_std` is "neither promised nor foreclosed" — the two are separate questions. `resolvent-base` holds no arena and no allocation, so the question stays live *for that crate only* (§10.7). |
 | **Signature-based Gröbner (F5 and successors)** | The two fastest open implementations both chose non-signature F4. A serious signature implementation could not be shown beating F4-based systems, and F5's *termination* took years and multiple papers to settle — the wrong shape for an agent-built codebase graded by oracles. Recorded as a future lane if a consumer demands syzygies. |
 
 ---
@@ -479,7 +476,7 @@ it *after* fan-out, not before.
 | [014](docs/decisions/ADR-014-algebraic-real-no-hash-no-arithmetic.md) | No `Hash`, no general arithmetic; `canonicalize()` opt-in; multiplicity is not part of identity; **`SqrtExt` stays first-class** | one-way |
 | [015](docs/decisions/ADR-015-no-float-interval-type.md) | No float interval in the public API; rational bounds + outward `(f64, f64)` | cheap |
 | [016](docs/decisions/ADR-016-oracles-are-subprocesses.md) | Subprocess-only oracles; two crate categories; no exception process | cheap |
-| [017](docs/decisions/ADR-017-layer-4-egraph-seam.md) | Resolvent-owned L4 seam; no `egg`/`egglog` dependency. ~~**scope held at M7's exit gate**~~ **§2 bullet 3 and §5–§6 superseded 2026-08-08 by ADR-032/033** | cheap |
+| [017](docs/decisions/ADR-017-layer-4-egraph-seam.md) | Resolvent-owned L4 seam; no `egg`/`egglog` dependency. **§2 bullet 3 and §5–§6 superseded by ADR-032/033 — read its header table first** | cheap |
 | [018](docs/decisions/ADR-018-deferred-consumer-integration.md) | Defer the `arrangements` question; adapter-by-consumer is the default; keep A and C open | cheap by design |
 | [019](docs/decisions/ADR-019-numeric-type-seam.md) | One open trait tower; no ops-surface scalar trait; no seam crate; defaulted in-place forms | one-way |
 | [020](docs/decisions/ADR-020-arena-and-handle-ownership.md) | Arenas are caller-owned values; handles are arena-relative; no global or implicit interner at any layer | one-way |

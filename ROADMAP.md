@@ -394,8 +394,7 @@ node set `{ Const, Symbol(interned), ring ops, Apply(FuncId, args) }` with a cal
 `canonicalize` as an explicit value-preserving function; canonical bytes with a schema
 version. **No code emitter, and no e-graph dependency** (ADR-017 §1, §4 — both still stand).
 
-*Amended 2026-08-08 (ADR-029).* Three items move **into** M7 that the previous version
-excluded by name, and one qualifier is narrowed:
+Also in M7 (ADR-029, ADR-031, ADR-033):
 
 - **The exactness lattice** — `Exact` / `Enclosed` / `Approximate` on every node, monotone
   under composition, plus `provenance_bytes` alongside `canonical_bytes` (ADR-031). This is in
@@ -406,10 +405,9 @@ excluded by name, and one qualifier is narrowed:
   *quality* is a separate conformance lane.
 - **Assumptions on symbols**, as the discharge mechanism for class-D side conditions. In
   scope, unspecified — its lane is blocked until an ADR specifies it.
-- ~~No transcendental zero-test, at any layer, ever~~ → **no *unsound* zero-test, ever**
-  (ADR-032). The tier machinery itself is **not** in M7: it lands in `resolvent-calculus` at
-  M9, because a Tier-1(b) reduction produces an `AlgebraicReal` and placing it here would give
-  L4 a dependency on L3 (ADR-005, amended).
+- **No *unsound* zero-test, ever** (ADR-032) — but the tier machinery is **not** in M7. It
+  lands in `resolvent-calculus` at M9, because a Tier-1(b) reduction produces an
+  `AlgebraicReal` and placing it here would give L4 a dependency on L3 (ADR-005, amended).
 
 **Unlocks.** Build-time symbolic differentiation for a multiphysics forcing-term generator
 and for a Pantelides index-reduction pass that is currently an identity stub waiting on
@@ -476,10 +474,9 @@ the other trunks, and the previous plan said it was:**
 X1 + X3 are the cleanest parallel work in the plan and should be staffed from the beginning.
 X2 and X4 are not free of the other trunks and must not be scheduled as though they were.
 
-**The X1 amendment is the scheduling item that bites.** The exactness lattice is a field in
-the hash-consed node, so it is not additive: staffing X1 against the pre-2026-08-08 node set
-and adding exactness afterwards is a rewrite of the `Store` and of every golden file X3
-committed. If X1 has already started when ADR-031 ratifies, stop it and re-brief it.
+**X1 is the scheduling item that bites.** The exactness lattice is a field in the hash-consed
+node, so it is not additive: adding it after X1 ships is a rewrite of the `Store` and of every
+golden file X3 committed. X1's brief must carry it from the first commit.
 
 ---
 
@@ -577,13 +574,11 @@ M0 harness
      └─ M8 towers / CAD / RUR / M8-N   ← needs M4 + M5 + M6 ───────────┘
 ```
 
-**What changed on 2026-08-08 (ADR-029 §5).** M7 was previously a leaf — "L4 blocks nothing and
-is blocked by nothing; sequence it last and do not let it block anything" (ADR-017
-§Consequences). It is now the foundation of M9, so that deferral no longer holds and M7's own
-one-way door (the exactness lattice in the node) has to be decided before X1 is staffed. Two
-things survive the change and still govern: **no analytic lane may start before M1's
-representation freeze**, and **M4 remains the release that unlocks the strongest evidenced
-consumer** — scope growth is not a reason to reorder it.
+**M7 is the foundation of M9, not a leaf** (ADR-029 §5). ADR-017's "sequence it last and do not
+let it block anything" no longer holds, and M7's own one-way door — the exactness lattice in
+the node — has to be decided before X1 is staffed. Two constraints govern the ordering: **no
+analytic lane may start before M1's representation freeze**, and **M4 remains the release that
+unlocks the strongest evidenced consumer**; scope growth is not a reason to reorder it.
 
 ---
 
@@ -669,7 +664,7 @@ certifiable, and it decomposes cleanly into `Fp` / `Zn` / `GF(p^k)`.
 
 | Lane | What | Grade | Par | Size | Blocked on |
 |---|---|---|---|---|---|
-| **X1** | Hash-consed `Store`, node set, `FuncTable`, **the exactness lattice** (ADR-031) | certificate | 1 | M | M1 only. **Re-sized and re-briefed 2026-08-08** — the lattice is in the node, not additive |
+| **X1** | Hash-consed `Store`, node set, `FuncTable`, **the exactness lattice** (ADR-031) | certificate | 1 | M | M1 only. The lattice is in the node and is not additive — see the note under M7 |
 | **X3** | `walk_topological`, canonical **and provenance** bytes, schema version, `rebuild_from` | certificate | 1 | S | M1 only |
 | **X2** | `diff` / `diff_with`, constant folding, `canonicalize` | certificate | 1 | M | **U2** |
 | **X4** | `is_polynomial_in` bridge to Layer 1, refusing any non-`Exact` subtree | certificate | 1 | S | **P3** |
@@ -927,7 +922,7 @@ win available and it is why the geometry trunk is short and the SMT trunk is lon
 
 | Risk | Mitigation |
 |---|---|
-| ~~**Scope creep into a general-purpose CAS**~~ **Scope declared but not delivered** *(rewritten 2026-08-08, ADR-029)* | The old mitigation — refuse `simplify`, build what geometry needs then what FEM needs — was a scope bound, and ADR-029 removed it. The risk inverts: a README claiming a general-purpose CAS over an empty workspace is worse than the narrow claim it replaced. Mitigation: **"in scope" and "specified" are different states**, an unspecified capability's lane cannot open (ADR-021 §3), M9's table lists every unwritten ADR by name, and `README.md` §Status still says plainly that no implementation exists. M4 is still the release that matters |
+| **Scope declared but not delivered** | A README claiming a general-purpose CAS over an empty workspace is worse than a narrow claim. Mitigation: **"in scope" and "specified" are different states**, an unspecified capability's lane cannot open (ADR-021 §3), M9's table lists every unwritten ADR by name, and `README.md` §Status says plainly that no implementation exists. M4 is still the release that matters |
 | **The conformance grade becomes an escape hatch** *(added 2026-08-08)* | A capability with an available self-certificate graded by oracle comparison instead. Mitigation is mechanical and in ADR-030 §2–§3: soundness is **never** conformance-graded, a conformance lane gates nothing and is an oracle for nothing, `self_certifying = false` is a required field, and a lane proposing the grade where an inverse operation exists is a review defect — the reviewer's question is "what is the inverse operation?" |
 | **A domain-restricted rewrite rule fires on an undischarged side condition** *(added 2026-08-08)* | This is where essentially all real CAS unsoundness lives — `√(x²) → x`, `log(ab) → log a + log b` on the negative reals. Mitigation: ADR-033 §3's class D carries a machine-checkable side condition and **firing without discharging it is a bug, not a heuristic**; `RuleSet::ring_identities()` is class-R only; and `simplify` returns `Proved` only when every rule that actually fired was class R |
 | **The exactness lattice is retrofitted rather than built in** *(added 2026-08-08)* | It is a field in the hash-consed node (ADR-031), so adding it after X1 ships is a rewrite of the `Store` and invalidates every golden file X3 committed. Mitigation: it is in M7's *Lands* list and in X1's brief, and if X1 has started when ADR-031 ratifies, X1 stops and is re-briefed |

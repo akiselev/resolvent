@@ -88,9 +88,8 @@ invariants below are promoted from accident to requirement, and each gets a gate
 | No dependency on process identity, working directory, or filesystem in any published crate | grep gate **L15** (new) |
 
 Gates **L13–L15** are cheap now and archaeology later, which is the same argument ADR-015 §5
-makes about conformance vectors. They land with H1 in Wave 0. *(Numbered from 13 because
-`DESIGN.md` §3.5 already defines L11 — `forbid(unsafe_code)` outside the named SIMD leaf — and
-L12 — per-crate compile-time ceilings. A draft of this ADR reused 11 and 12.)*
+makes about conformance vectors. They land with H1 in Wave 0. *(Numbered from 13: `DESIGN.md` §3.5 already defines L11 —
+`forbid(unsafe_code)` outside the named SIMD leaf — and L12, per-crate compile-time ceilings.)*
 
 **This is not a `no_std` commitment.** `no_std` is a separate, larger question with its own
 allocator and bignum consequences; it is neither promised nor foreclosed here.
@@ -112,7 +111,7 @@ depend on what, and nothing about soundness. Specifically, and non-negotiably:
   analytic surface — heuristic simplification, numeric zero-testing, silent branch-cut
   choices. Matching their capability list while refusing their failure modes is the thesis.
 
-### 4. Consequences for the crate graph, stated but not settled here
+### 4. The crate graph
 
 The analytic surface does not belong in `resolvent-expr`. **ADR-005 was amended in the same
 commit as this ADR** and now carries the extended graph: `resolvent-calculus` (L5 — series,
