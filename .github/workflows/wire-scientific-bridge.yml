@@ -1,0 +1,88 @@
+name: wire-scientific-bridge
+on:
+  push:
+    branches:
+      - agent/r13-r20-wave-a-f
+permissions:
+  contents: write
+jobs:
+  wire:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: rustfmt
+      - name: Wire public surface
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/lib.rs')
+          s=p.read_text()
+          if 'pub mod scientific_bridge;' not in s:
+              s=s.replace('pub mod scientific;\n', 'pub mod scientific;\npub mod scientific_bridge;\n', 1)
+          if 'pub use scientific_bridge::' not in s:
+              anchor='pub use scientific_weak::{\n'
+              export='''pub use scientific_bridge::{
+    PropertyEvidenceLock, ScientificPhysicsLock, freeze_scientific,
+    parse_and_freeze_scientific, parse_scientific_latex_expr,
+};
+'''
+              s=s.replace(anchor, export+anchor, 1)
+          p.write_text(s)
+
+          p=Path('src/scientific_bridge.rs')
+          s=p.read_text()
+          old='''    fn fold(op: BinaryOp, mut values: Vec<MathExpr>) -> Result<Expr, String> {
+        let first = values
+            .is_empty()
+            .then_some(())
+            .map(|_| Err("empty variadic mathematical expression".to_owned()))
+            .unwrap_or_else(|| lower_math(values.remove(0)))?;
+        values.into_iter().try_fold(first, |lhs, rhs| {
+            Ok(Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(lower_math(rhs)?),
+            })
+        })
+    }'''
+          new='''    fn fold(op: BinaryOp, values: Vec<MathExpr>) -> Result<Expr, String> {
+        let mut values = values.into_iter();
+        let first = values
+            .next()
+            .ok_or_else(|| "empty variadic mathematical expression".to_owned())?;
+        let first = lower_math(first)?;
+        values.try_fold(first, |lhs, rhs| {
+            Ok(Expr::Binary {
+                op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(lower_math(rhs)?),
+            })
+        })
+    }'''
+          if old not in s:
+              raise SystemExit('scientific bridge fold target not found')
+          p.write_text(s.replace(old,new,1))
+
+          p=Path('tests/scientific_bridge.rs')
+          s=p.read_text()
+          s=s.replace('DerivativeContract, Dimension, FrameSemantics,', 'DerivativeContract, FrameSemantics,')
+          s=s.replace('use resolvent::quantities::QuantityKindId;', 'use resolvent::quantities::{Dimension, QuantityKindId};')
+          s=s.replace('Dimension::new([0, 0, 0, 1, 0, 0, 0])', 'Dimension::TEMPERATURE')
+          p.write_text(s)
+          PY
+          cargo fmt --all
+      - name: Commit code
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/lib.rs src/scientific_bridge.rs tests/scientific_bridge.rs tests/fixtures/scientific_macro.res
+          git commit -m 'Wire scientific-v1 macro, lock, and LaTeX bridge'
+          git push origin HEAD:agent/r13-r20-wave-a-f
