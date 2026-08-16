@@ -1,4 +1,6 @@
-use crate::refinement::{ArtifactKind, ArtifactRef, RefinementError, RefinementRecord, RefinementRelation};
+use crate::refinement::{
+    ArtifactKind, ArtifactRef, RefinementError, RefinementRecord, RefinementRelation,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use thiserror::Error;
