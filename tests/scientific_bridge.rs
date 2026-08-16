@@ -1,10 +1,10 @@
+use resolvent::quantities::QuantityKindId;
 use resolvent::{
     DerivativeContract, Dimension, FrameSemantics, PropertyDefinition, PropertyDomain,
     PropertyEvidence, PropertyInput, PropertyLocality, PropertyModel, PropertyOutput,
     PropertySignature, ScientificPhysicsLock, TensorSymmetry, UncertaintyModel, ValueShapeV1,
     freeze_scientific, parse_scientific_module, semantic_digest,
 };
-use resolvent::quantities::QuantityKindId;
 use std::collections::BTreeMap;
 
 resolvent::include_scientific!(pub Embedded = "fixtures/scientific_macro.res");
@@ -14,7 +14,10 @@ fn file_and_rust_macro_use_identical_scientific_semantics() {
     let direct = parse_scientific_module(Embedded::SOURCE).unwrap();
     let embedded = Embedded::parse().unwrap();
     assert_eq!(semantic_digest(&direct), semantic_digest(&embedded));
-    assert_eq!(Embedded::semantic_digest().unwrap(), semantic_digest(&direct));
+    assert_eq!(
+        Embedded::semantic_digest().unwrap(),
+        semantic_digest(&direct)
+    );
     let lock = Embedded::freeze().unwrap();
     assert_eq!(lock.semantic_digest, semantic_digest(&direct));
 }
@@ -64,11 +67,18 @@ fn property(dataset_digest: &str) -> PropertyDefinition {
 #[test]
 fn scientific_physics_lock_carries_property_provenance_and_digest_identity() {
     let module = Embedded::parse().unwrap();
-    let a: ScientificPhysicsLock = freeze_scientific(Embedded::SOURCE, &module, &[property("data-a")]);
+    let a: ScientificPhysicsLock =
+        freeze_scientific(Embedded::SOURCE, &module, &[property("data-a")]);
     let b = freeze_scientific(Embedded::SOURCE, &module, &[property("data-b")]);
     assert_eq!(a.semantic_digest, b.semantic_digest);
     assert_ne!(a.digest, b.digest);
-    assert_eq!(a.property_evidence[0].dataset_digest.as_deref(), Some("data-a"));
-    assert_eq!(a.property_evidence[0].sources, vec!["doi:10.example/thermal"]);
+    assert_eq!(
+        a.property_evidence[0].dataset_digest.as_deref(),
+        Some("data-a")
+    );
+    assert_eq!(
+        a.property_evidence[0].sources,
+        vec!["doi:10.example/thermal"]
+    );
     assert!(a.property_evidence[0].uncertainty_digest.is_some());
 }
