@@ -25,6 +25,7 @@ pub mod latex;
 pub mod lean;
 pub mod migration;
 pub mod model;
+pub mod multiphysics_reference;
 pub mod operator;
 pub mod reference;
 pub mod refinement;
@@ -63,6 +64,12 @@ pub use lean::{LeanBridgeError, LeanDeclaration, LeanExportManifest, Reification
 pub use model::{
     Assumption, Equation, Event, Observable, PropertyContract, PropertyKind, ScientificSpec, Scope,
     System,
+};
+pub use multiphysics_reference::{
+    AssembledElasticity2d, AssembledHcurlMaxwell2d, AssembledStokesP1P0,
+    HcurlMaxwellProblem2d, LinearElasticity2d, MultiphysicsReferenceError, PlaneKinematics,
+    StokesP1P0Problem2d, assemble_hcurl_maxwell_nedelec0, assemble_linear_elasticity_p1,
+    assemble_stokes_p1_p0,
 };
 pub use operator::{
     DerivativeCapability, OperatorBlock, OperatorBlockKind, OperatorProgram, OperatorProperty,
