@@ -70,13 +70,34 @@ pub struct Observable {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ValidationContract {
-    Invariant { name: String, predicate: ExprId },
-    Conservation { name: String, balance: ExprId },
-    Bound { name: String, predicate: ExprId },
-    Symmetry { name: String, relation: ExprId },
-    Convergence { name: String, expected_order: Option<String> },
-    ReferenceCase { name: String, predicate: ExprId },
-    ObservableAgreement { observable: ObservableId, metric: String },
+    Invariant {
+        name: String,
+        predicate: ExprId,
+    },
+    Conservation {
+        name: String,
+        balance: ExprId,
+    },
+    Bound {
+        name: String,
+        predicate: ExprId,
+    },
+    Symmetry {
+        name: String,
+        relation: ExprId,
+    },
+    Convergence {
+        name: String,
+        expected_order: Option<String>,
+    },
+    ReferenceCase {
+        name: String,
+        predicate: ExprId,
+    },
+    ObservableAgreement {
+        observable: ObservableId,
+        metric: String,
+    },
 }
 
 /// The semantic center of the scientific stack.
