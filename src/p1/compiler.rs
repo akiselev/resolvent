@@ -348,7 +348,10 @@ fn operator_program(
         });
     }
 
-    let mut properties = vec![OperatorProperty::Symmetric, OperatorProperty::UnitsConsistent];
+    let mut properties = vec![
+        OperatorProperty::Symmetric,
+        OperatorProperty::UnitsConsistent,
+    ];
     properties.extend(diffusion_definiteness(request, assembly));
 
     OperatorProgram {
@@ -389,7 +392,10 @@ fn diffusion_definiteness(
         .map(|cell| request.elliptic.diffusion.value(cell.region))
         .collect();
 
-    if coefficients.iter().any(|value| !value.is_finite() || *value < 0.0) {
+    if coefficients
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
         return Vec::new();
     }
 
@@ -404,10 +410,7 @@ fn diffusion_definiteness(
     }
 }
 
-fn every_mesh_component_is_constrained(
-    mesh: &P1Mesh,
-    assembly: &ScalarEllipticAssembly,
-) -> bool {
+fn every_mesh_component_is_constrained(mesh: &P1Mesh, assembly: &ScalarEllipticAssembly) -> bool {
     if mesh.vertices.is_empty() {
         return false;
     }
