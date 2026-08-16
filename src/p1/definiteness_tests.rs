@@ -76,7 +76,11 @@ fn properties(
         },
     )
     .unwrap();
-    context.operator(result.operator).unwrap().properties.clone()
+    context
+        .operator(result.operator)
+        .unwrap()
+        .properties
+        .clone()
 }
 
 #[test]
