@@ -31,6 +31,7 @@ pub mod reference_mixed;
 pub mod refinement;
 pub mod rsl;
 pub mod scientific;
+pub mod scientific_weak;
 pub mod source;
 pub mod structural;
 pub mod units;
@@ -106,6 +107,10 @@ pub use scientific::{
     ScientificExecutionPlan, ScientificModel, ScientificModule, TimeStateSemantics,
     derive_coupling_graph, execution_plan, format_scientific_module, parse_scientific_module,
     resolve_modules, semantic_digest,
+};
+pub use scientific_weak::{
+    WeakLoweringError, WeakOperatorProgram, WeakResidualBlock, WeakTerm, lower_scalar_h1_equation,
+    lower_scalar_h1_model,
 };
 pub use source::{RelatedSpan, SourceDiagnostic, SourceSeverity, SourceSpan, Spanned};
 pub use structural::scc::{Digraph, GraphError, Sccs, tarjan_scc};
