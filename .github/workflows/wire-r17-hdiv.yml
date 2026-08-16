@@ -1,0 +1,40 @@
+name: wire-r17-hdiv
+on:
+  push:
+    branches:
+      - agent/r13-r20-wave-a-f
+permissions:
+  contents: write
+jobs:
+  wire:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: rustfmt
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('src/lib.rs')
+          s=p.read_text()
+          if 'pub mod reference_hdiv;' not in s:
+              s=s.replace('pub mod reference;', 'pub mod reference;\npub mod reference_hdiv;', 1)
+          if 'pub use reference_hdiv::' not in s:
+              anchor='pub use reference::{\n'
+              export='pub use reference_hdiv::{RaviartThomasOperator2, compile_raviart_thomas0_2d};\n'
+              s=s.replace(anchor, export+anchor, 1)
+          p.write_text(s)
+          PY
+          cargo fmt --all
+          git rm .github/workflows/wire-r17-hdiv.yml
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Expose R17 Raviart-Thomas H(div) reference path'
+          git push origin HEAD:agent/r13-r20-wave-a-f
