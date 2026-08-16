@@ -1,0 +1,17 @@
+[package]
+name = "resolvent"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "A proof-producing symbolic scientific compiler and computer algebra system"
+repository = "https://github.com/akiselev/resolvent"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+
+[lints.rust]
+unsafe_code = "forbid"
