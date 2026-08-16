@@ -614,7 +614,7 @@ mod tests {
             boundaries: vec![
                 BoundaryEdge {
                     vertices: [0, 2],
-                    tag: 1,
+                    tag: 3,
                 },
                 BoundaryEdge {
                     vertices: [0, 1],

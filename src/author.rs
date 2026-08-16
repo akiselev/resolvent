@@ -807,7 +807,8 @@ impl Parser<'_> {
         let text = self.tokens[start..self.pos]
             .iter()
             .map(render_token)
-            .collect::<String>();
+            .collect::<Vec<_>>()
+            .join(" ");
         self.eat(|k| matches!(k, Kind::RBracket));
         match parse_unit(&text) {
             Ok(unit) => Some(unit),
@@ -825,7 +826,8 @@ impl Parser<'_> {
         let text = self.tokens[start..self.pos]
             .iter()
             .map(render_token)
-            .collect::<String>();
+            .collect::<Vec<_>>()
+            .join(" ");
         match parse_unit(&text) {
             Ok(unit) => Some(unit),
             Err(error) => {
