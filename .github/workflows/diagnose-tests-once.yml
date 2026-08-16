@@ -1,0 +1,27 @@
+name: diagnose-tests-once
+on:
+  push:
+    branches: [agent/r0-r9-agent-physics-stack]
+permissions:
+  contents: write
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r0-r9-agent-physics-stack
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+      - shell: bash
+        run: |
+          set +e
+          cargo test --all-targets --all-features > latest-test.txt 2>&1
+          echo "exit_status=$?" >> latest-test.txt
+          rm .github/workflows/diagnose-tests-once.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add latest-test.txt .github/workflows/diagnose-tests-once.yml
+          git commit -m "capture remaining Resolver test failure"
+          git push origin HEAD:agent/r0-r9-agent-physics-stack
