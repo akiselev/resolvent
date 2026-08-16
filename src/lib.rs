@@ -16,8 +16,13 @@ pub mod ids;
 pub mod refinement;
 pub mod spec;
 
-pub use context::{Context, ContextError};
-pub use evidence::{Evidence, EvidenceAxis, EvidenceGrade, EvidenceSet};
+pub use context::{
+    Context, ContextError, EquationNode, ExprNode, FormNode, ModelNode, OperatorNode,
+};
+pub use evidence::{
+    EmpiricalEvidenceGrade, Evidence, EvidenceAxis, EvidenceGrade, EvidenceSet,
+    FormalEvidenceGrade, NumericalEvidenceGrade,
+};
 pub use ids::{
     ArtifactHash, EquationId, ExprId, FormId, ModelId, ObservableId, OperatorId, ScopeId,
 };
