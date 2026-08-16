@@ -112,6 +112,10 @@ impl ObligationSet {
     pub fn all_discharged(&self) -> bool {
         self.0.iter().all(|o| o.discharged)
     }
+
+    pub fn has_discharged(&self, kind: ObligationKind) -> bool {
+        self.0.iter().any(|o| o.kind == kind && o.discharged)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -133,6 +137,13 @@ impl Default for Provenance {
             notes: Vec::new(),
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RefinementIssue {
+    ScopeChangedWithoutTransport,
+    StageDidNotAdvance { source: Stage, target: Stage },
+    MissingProducer,
 }
 
 /// Auditable receipt connecting two compiler/scientific artifacts.
@@ -160,5 +171,57 @@ impl Refinement {
 
     pub fn has_open_obligations(&self) -> bool {
         !self.obligations.all_discharged()
+    }
+
+    /// Structural audit of the receipt itself. This does not prove the semantic relation;
+    /// it catches category errors before a receipt is accepted into a chain.
+    pub fn validate(&self) -> Vec<RefinementIssue> {
+        let mut issues = Vec::new();
+        if self.changes_scope()
+            && !self.obligations.has_discharged(ObligationKind::ScopeTransport)
+        {
+            issues.push(RefinementIssue::ScopeChangedWithoutTransport);
+        }
+        if self.source_stage == self.target_stage {
+            issues.push(RefinementIssue::StageDidNotAdvance {
+                source: self.source_stage,
+                target: self.target_stage,
+            });
+        }
+        if self.provenance.producer.trim().is_empty() {
+            issues.push(RefinementIssue::MissingProducer);
+        }
+        issues
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scope_change_requires_transport_witness() {
+        let mut target = Scope::default();
+        target.label = "restricted".into();
+        target.restrictions.push("slice-a".into());
+        let refinement = Refinement {
+            source_stage: Stage::FormalSpec,
+            target_stage: Stage::SymbolicModel,
+            source_hash: ArtifactHash::ZERO,
+            target_hash: ArtifactHash::new([1; 32]),
+            relation: RefinementRelation::Specialization,
+            source_scope: Scope::default(),
+            target_scope: target,
+            assumptions: AssumptionSet::default(),
+            obligations: ObligationSet::default(),
+            evidence: EvidenceSet::default(),
+            provenance: Provenance {
+                producer: "resolvent".into(),
+                ..Provenance::default()
+            },
+        };
+        assert!(refinement
+            .validate()
+            .contains(&RefinementIssue::ScopeChangedWithoutTransport));
     }
 }
