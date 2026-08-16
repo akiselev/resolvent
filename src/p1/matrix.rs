@@ -45,9 +45,7 @@ impl CsrMatrix {
         while cursor < triplets.len() {
             let (row, col, _) = triplets[cursor];
             let mut sum = 0.0;
-            while cursor < triplets.len()
-                && triplets[cursor].0 == row
-                && triplets[cursor].1 == col
+            while cursor < triplets.len() && triplets[cursor].0 == row && triplets[cursor].1 == col
             {
                 sum += triplets[cursor].2;
                 cursor += 1;
