@@ -10,7 +10,10 @@ use std::collections::BTreeMap;
 #[serde(rename_all = "snake_case")]
 pub enum ScalarLiteral {
     Integer(String),
-    Rational { numerator: String, denominator: String },
+    Rational {
+        numerator: String,
+        denominator: String,
+    },
     FloatBits(u64),
     NamedConstant(String),
 }
@@ -54,12 +57,25 @@ pub enum ExprNode {
     Neg(ExprId),
     Add(Vec<ExprId>),
     Mul(Vec<ExprId>),
-    Div { numerator: ExprId, denominator: ExprId },
-    PowI { base: ExprId, exponent: i32 },
-    Apply { function: String, args: Vec<ExprId> },
+    Div {
+        numerator: ExprId,
+        denominator: ExprId,
+    },
+    PowI {
+        base: ExprId,
+        exponent: i32,
+    },
+    Apply {
+        function: String,
+        args: Vec<ExprId>,
+    },
     /// Semantic derivative. Structural/system passes may later replace state derivatives
     /// with derivative variables; executable AD belongs below this layer.
-    Derivative { expr: ExprId, with_respect_to: SymbolId, order: u8 },
+    Derivative {
+        expr: ExprId,
+        with_respect_to: SymbolId,
+        order: u8,
+    },
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
