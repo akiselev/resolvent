@@ -111,7 +111,10 @@ impl Obligation {
     }
 
     pub fn is_closed(&self) -> bool {
-        matches!(self.status, ObligationStatus::Discharged | ObligationStatus::Waived { .. })
+        matches!(
+            &self.status,
+            ObligationStatus::Discharged | ObligationStatus::Waived { .. }
+        )
     }
 }
 
