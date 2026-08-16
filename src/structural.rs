@@ -33,7 +33,7 @@ impl IncidenceSystem {
     pub fn from_system(system: &System, exprs: &ExprStore) -> Result<Self, StructuralError> {
         let mut columns = BTreeMap::new();
         for (index, symbol) in system.unknowns.iter().copied().enumerate() {
-            columns.insert(symbol, index)
+            columns.insert(symbol, index);
         }
         let mut rows = Vec::with_capacity(system.equations.len());
         for equation in &system.equations {

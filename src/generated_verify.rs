@@ -175,7 +175,7 @@ fn dim_inner(
             first
         }
         ExprNode::Mul(xs) => xs.iter().try_fold(Dimension::DIMENSIONLESS, |a, x| {
-            Ok(a * dim_inner(store, *x, symbols, memo)?)
+            Ok::<Dimension, GeneratedVerifyError>(a * dim_inner(store, *x, symbols, memo)?)
         })?,
         ExprNode::Div {
             numerator,

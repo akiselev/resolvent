@@ -308,7 +308,6 @@ mod nobreak {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::expr::{Symbol, SymbolRole};
     #[test]
     fn derivative_matches_quadratic() {
         let mut s = ExprStore::new();

@@ -1,6 +1,6 @@
 use crate::discrete::{BasisEvaluation, DiscreteOp, DiscreteProgram, RestrictionDirection};
 use crate::field::FieldRole;
-use crate::form::{FormExpr, FormProgram, Integral, Measure};
+use crate::form::{FormExpr, Integral, Measure};
 use crate::id::{DiscreteProgramId, ExprId, FormId, OperatorId};
 use crate::operator::{
     DerivativeCapability, OperatorBlock, OperatorBlockKind, OperatorProgram, OperatorProperty,
