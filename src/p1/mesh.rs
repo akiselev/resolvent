@@ -134,10 +134,7 @@ pub struct DofMap {
 }
 
 impl DofMap {
-    pub fn from_dirichlet(
-        mesh: &P1Mesh,
-        specs: &[DirichletBoundary],
-    ) -> Result<Self, P1Error> {
+    pub fn from_dirichlet(mesh: &P1Mesh, specs: &[DirichletBoundary]) -> Result<Self, P1Error> {
         mesh.validate()?;
 
         // Mirror Residua's incumbent behavior exactly: the last declaration for a tag wins,
