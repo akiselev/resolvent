@@ -2256,7 +2256,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
                     from: name.clone(),
                     to: eq.name.clone(),
                     reason: CouplingReason::DirectFieldUse,
-                    path: vec![name, eq.name.clone()],
+                    path: vec![name.clone(), eq.name.clone()],
                 });
             }
             if let Some(prop) = property_map.get(&name) {
@@ -2275,16 +2275,18 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
     }
     edges.sort_by(|a, b| (&a.to, &a.from, &a.path).cmp(&(&b.to, &b.from, &b.path)));
     edges.dedup_by(|a, b| a.from == b.from && a.to == b.to && a.path == b.path);
-    let derivatives = residual_blocks
-        .iter()
-        .flat_map(|r| {
-            field_names.iter().map(move |u| BlockDerivative {
-                residual: r.clone(),
-                unknown: u.clone(),
-                structurally_nonzero: edges.iter().any(|e| &e.to == r && &e.from == u),
-            })
-        })
-        .collect();
+    let mut derivatives = Vec::new();
+    for residual in &residual_blocks {
+        for unknown in &field_names {
+            derivatives.push(BlockDerivative {
+                residual: residual.clone(),
+                unknown: unknown.clone(),
+                structurally_nonzero: edges
+                    .iter()
+                    .any(|edge| &edge.to == residual && &edge.from == unknown),
+            });
+        }
+    }
     CouplingGraph {
         unknowns,
         residual_blocks,
