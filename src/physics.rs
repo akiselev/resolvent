@@ -125,7 +125,10 @@ mod tests {
         ));
     }
     #[test]
-    fn macro_uses_same_parser() {
+    fn macro_uses_same_parser_and_elaborator() {
         assert_eq!(Heat::parse().unwrap().name, "Heat");
+        let (_ctx, parsed, elaborated) = Heat::elaborate().unwrap();
+        assert_eq!(parsed.name, "Heat");
+        assert_eq!(elaborated.system.equations.len(), 1);
     }
 }
