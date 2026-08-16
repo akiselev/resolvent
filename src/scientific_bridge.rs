@@ -83,12 +83,14 @@ pub fn parse_and_freeze_scientific(
 pub fn parse_scientific_latex_expr(input: &str) -> Result<Expr, Vec<SourceDiagnostic>> {
     parse_scientific_latex(input).and_then(|expr| {
         lower_math(expr).map_err(|message| {
-            vec![SourceDiagnostic::error(
-                "RSL-LATEX-005",
-                message,
-                crate::source::SourceSpan::new(0, input.len()),
-            )
-            .phase("latex")]
+            vec![
+                SourceDiagnostic::error(
+                    "RSL-LATEX-005",
+                    message,
+                    crate::source::SourceSpan::new(0, input.len()),
+                )
+                .phase("latex"),
+            ]
         })
     })
 }
