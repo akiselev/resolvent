@@ -1,0 +1,28 @@
+name: r18-dependency-fix
+on:
+  push:
+    branches:
+      - agent/r13-r20-wave-a-f
+permissions:
+  contents: write
+jobs:
+  migrate:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: rustfmt
+      - run: python tools/r18_dependency_fix.py
+      - run: cargo fmt --all
+      - run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm tools/r18_dependency_fix.py .github/workflows/r18-dependency-fix.yml
+          git add -A
+          git commit -m 'Derive recursive R18 coupling dependencies canonically'
+          git push origin HEAD:agent/r13-r20-wave-a-f
