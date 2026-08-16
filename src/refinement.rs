@@ -62,15 +62,26 @@ pub enum RefinementRelation {
     Specialization,
     StructuralReduction,
     StrongToWeakForm,
-    Discretization { scheme: String, declared_order: Option<u8> },
+    Discretization {
+        scheme: String,
+        declared_order: Option<u8>,
+    },
     ConsistentApproximation,
     ConvergentApproximation,
-    BoundedApproximation { bound: String },
+    BoundedApproximation {
+        bound: String,
+    },
     AlgebraicImplementation,
-    FloatingPointImplementation { arithmetic: String },
-    CompiledImplementation { target: String },
+    FloatingPointImplementation {
+        arithmetic: String,
+    },
+    CompiledImplementation {
+        target: String,
+    },
     MeasurementModel,
-    Custom { name: String },
+    Custom {
+        name: String,
+    },
 }
 
 /// Scope is not inferred. In particular, a restricted-orbit or parameter-family result
@@ -79,12 +90,20 @@ pub enum RefinementRelation {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScopeTransition {
     Preserved,
-    Narrowed { reason: String },
+    Narrowed {
+        reason: String,
+    },
     /// Broadening is legal only when the named obligation exists in the same record.
-    Broadened { obligation: ObligationId, reason: String },
+    Broadened {
+        obligation: ObligationId,
+        reason: String,
+    },
     /// Non-orderable changes (different convention/domain parameterization) likewise need
     /// an explicit obligation connecting the two meanings.
-    Changed { obligation: ObligationId, reason: String },
+    Changed {
+        obligation: ObligationId,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
