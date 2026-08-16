@@ -96,13 +96,13 @@ pub fn parse_scientific_latex_expr(input: &str) -> Result<Expr, Vec<SourceDiagno
 }
 
 fn lower_math(expr: MathExpr) -> Result<Expr, String> {
-    fn fold(op: BinaryOp, mut values: Vec<MathExpr>) -> Result<Expr, String> {
+    fn fold(op: BinaryOp, values: Vec<MathExpr>) -> Result<Expr, String> {
+        let mut values = values.into_iter();
         let first = values
-            .is_empty()
-            .then_some(())
-            .map(|_| Err("empty variadic mathematical expression".to_owned()))
-            .unwrap_or_else(|| lower_math(values.remove(0)))?;
-        values.into_iter().try_fold(first, |lhs, rhs| {
+            .next()
+            .ok_or_else(|| "empty variadic mathematical expression".to_owned())?;
+        let first = lower_math(first)?;
+        values.try_fold(first, |lhs, rhs| {
             Ok(Expr::Binary {
                 op,
                 lhs: Box::new(lhs),
