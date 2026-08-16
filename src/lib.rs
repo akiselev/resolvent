@@ -27,6 +27,7 @@ pub mod model;
 pub mod operator;
 pub mod physics;
 pub mod reference;
+pub mod reference_hdiv;
 pub mod reference_mixed;
 pub mod refinement;
 pub mod rsl;
@@ -93,6 +94,7 @@ pub use reference::{
     BoundaryEdge, DofLayout, PiecewiseConstant, ReferenceError, ReferenceMesh2, ReferenceOperator,
     RobinData, ScalarH1Problem, SparseMatrix, compile_scalar_h1_p1,
 };
+pub use reference_hdiv::{RaviartThomasOperator2, compile_raviart_thomas0_2d};
 pub use reference_mixed::{
     ElasticityOperator2, IsotropicElasticity2, NedelecOperator2, StokesOperatorP1P1,
     compile_elasticity_p1_2d, compile_nedelec0_2d, compile_stokes_p1p1_2d,

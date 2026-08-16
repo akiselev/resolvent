@@ -105,17 +105,9 @@ pub fn compile_raviart_thomas0_2d(
         }
         for i in 0..3 {
             for j in 0..3 {
-                mass.push((
-                    global[i],
-                    global[j],
-                    sign[i] * sign[j] * local_mass[i][j],
-                ));
+                mass.push((global[i], global[j], sign[i] * sign[j] * local_mass[i][j]));
                 // div((x-p_i)/(2A)) = 1/A.
-                div_div.push((
-                    global[i],
-                    global[j],
-                    sign[i] * sign[j] / area,
-                ));
+                div_div.push((global[i], global[j], sign[i] * sign[j] / area));
             }
         }
     }
@@ -146,10 +138,18 @@ fn triangle(
 fn canonical_edge(a: usize, b: usize) -> (usize, usize) {
     if a < b { (a, b) } else { (b, a) }
 }
-fn sub(a: [f64; 2], b: [f64; 2]) -> [f64; 2] { [a[0] - b[0], a[1] - b[1]] }
-fn scale(a: [f64; 2], s: f64) -> [f64; 2] { [a[0] * s, a[1] * s] }
-fn dot(a: [f64; 2], b: [f64; 2]) -> f64 { a[0] * b[0] + a[1] * b[1] }
-fn cross(a: [f64; 2], b: [f64; 2]) -> f64 { a[0] * b[1] - a[1] * b[0] }
+fn sub(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [a[0] - b[0], a[1] - b[1]]
+}
+fn scale(a: [f64; 2], s: f64) -> [f64; 2] {
+    [a[0] * s, a[1] * s]
+}
+fn dot(a: [f64; 2], b: [f64; 2]) -> f64 {
+    a[0] * b[0] + a[1] * b[1]
+}
+fn cross(a: [f64; 2], b: [f64; 2]) -> f64 {
+    a[0] * b[1] - a[1] * b[0]
+}
 
 #[cfg(test)]
 mod tests {
@@ -182,6 +182,11 @@ mod tests {
         let op = compile_raviart_thomas0_2d(&triangle([0, 1, 2])).unwrap();
         let trace = (0..3).map(|i| op.div_div.get(i, i)).sum::<f64>();
         assert!(trace > 0.0);
-        assert!(op.mass.entries.iter().all(|(_, _, value)| value.is_finite()));
+        assert!(
+            op.mass
+                .entries
+                .iter()
+                .all(|(_, _, value)| value.is_finite())
+        );
     }
 }

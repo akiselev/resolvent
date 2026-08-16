@@ -37,7 +37,10 @@ model Complete {
 fn whitespace_and_comments_do_not_change_semantic_digest() {
     let a = parse_scientific_module(SOURCE).unwrap();
     let decorated = SOURCE
-        .replace("model Complete", "// presentation-only comment\n\nmodel   Complete")
+        .replace(
+            "model Complete",
+            "// presentation-only comment\n\nmodel   Complete",
+        )
         .replace("field T", "field   T");
     let b = parse_scientific_module(&decorated).unwrap();
     assert_eq!(semantic_digest(&a), semantic_digest(&b));
@@ -59,7 +62,9 @@ fn every_current_semantic_declaration_has_a_nonempty_source_span() {
     let m = &module.models[0];
     assert!(m.span.end > m.span.start);
     for span in m
-        .domains.iter().map(|x| x.span)
+        .domains
+        .iter()
+        .map(|x| x.span)
         .chain(m.fields.iter().map(|x| x.span))
         .chain(m.parameters.iter().map(|x| x.span))
         .chain(m.constants.iter().map(|x| x.span))
@@ -74,7 +79,11 @@ fn every_current_semantic_declaration_has_a_nonempty_source_span() {
         .chain(m.observables.iter().map(|x| x.span))
         .chain(m.invariants.iter().map(|x| x.span))
         .chain(m.verifications.iter().map(|x| x.span))
-        .chain(m.forms.iter().flat_map(|form| form.integrals.iter().map(|x| x.span)))
+        .chain(
+            m.forms
+                .iter()
+                .flat_map(|form| form.integrals.iter().map(|x| x.span)),
+        )
     {
         assert!(span.end > span.start, "empty declaration span: {span:?}");
     }
