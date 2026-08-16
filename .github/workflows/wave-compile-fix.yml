@@ -1,12 +1,12 @@
 name: wave-compile-fix
 on:
   push:
-    branches: [agent/r13-r20-wave-a-f]
+    branches:
+      - agent/r13-r20-wave-a-f
 permissions:
   contents: write
 jobs:
   fix:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,35 +16,14 @@ jobs:
         with:
           toolchain: 1.93.0
           components: rustfmt
-      - name: Fix ownership and clean diagnostics
+      - name: Fix ownership
         run: |
           python - <<'PY'
           from pathlib import Path
           p = Path('src/scientific.rs')
-          s = p.read_text()
-          s = s.replace('path: vec![name, eq.name.clone()],', 'path: vec![name.clone(), eq.name.clone()],')
-          old = '''    let derivatives = residual_blocks
-        .iter()
-        .flat_map(|r| {
-            field_names.iter().map(move |u| BlockDerivative {
-                residual: r.clone(),
-                unknown: u.clone(),
-                structurally_nonzero: edges.iter().any(|e| &e.to == r && &e.from == u),
-            })
-        })
-        .collect();'''
-          new = '''    let mut derivatives = Vec::new();
-    for residual in &residual_blocks {
-        for unknown in &field_names {
-            derivatives.push(BlockDerivative {
-                residual: residual.clone(),
-                unknown: unknown.clone(),
-                structurally_nonzero: edges
-                    .iter()
-                    .any(|edge| &edge.to == residual && &edge.from == unknown),
-            });
-        }
-    }'''
+          s = p.read_text().replace('path: vec![name, eq.name.clone()],', 'path: vec![name.clone(), eq.name.clone()],')
+          old = "    let derivatives = residual_blocks\n        .iter()\n        .flat_map(|r| {\n            field_names.iter().map(move |u| BlockDerivative {\n                residual: r.clone(),\n                unknown: u.clone(),\n                structurally_nonzero: edges.iter().any(|e| &e.to == r && &e.from == u),\n            })\n        })\n        .collect();"
+          new = "    let mut derivatives = Vec::new();\n    for residual in &residual_blocks {\n        for unknown in &field_names {\n            derivatives.push(BlockDerivative {\n                residual: residual.clone(),\n                unknown: unknown.clone(),\n                structurally_nonzero: edges\n                    .iter()\n                    .any(|edge| &edge.to == residual && &edge.from == unknown),\n            });\n        }\n    }"
           if old not in s:
               raise SystemExit('expected derivative closure not found')
           p.write_text(s.replace(old, new))
