@@ -140,7 +140,7 @@ struct Token {
 pub fn parse_model(source: &str) -> Result<ParsedModel, AuthorError> {
     let tokens = match lex(source) {
         Ok(t) => t,
-        Err(d) => return Err(AuthorError::Diagnostics(1, vec![d])),
+        Err(d) => return Err(AuthorError::Diagnostics(1, vec![*d])),
     };
     let mut parser = Parser {
         source,
@@ -905,7 +905,7 @@ fn render_token(token: &Token) -> String {
     }
 }
 
-fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
+fn lex(source: &str) -> Result<Vec<Token>, Box<Diagnostic>> {
     let mut out = Vec::new();
     let mut i = 0usize;
     while i < source.len() {
@@ -924,10 +924,10 @@ fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
             i += 3;
             let body = i;
             let Some(end_rel) = source[i..].find("\"\"\"") else {
-                return Err(
+                return Err(Box::new(
                     Diagnostic::error("RSL-L000", "lex", "unclosed triple-quoted string")
                         .at(SourceSpan::new(source, start, source.len()), "opened here"),
-                );
+                ));
             };
             let end = i + end_rel;
             let value = source[body..end].to_string();
@@ -945,8 +945,10 @@ fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                 i += source[i..].chars().next().unwrap().len_utf8();
             }
             if i >= source.len() {
-                return Err(Diagnostic::error("RSL-S000", "lex", "unclosed string")
-                    .at(SourceSpan::new(source, start, source.len()), "opened here"));
+                return Err(Box::new(
+                    Diagnostic::error("RSL-S000", "lex", "unclosed string")
+                        .at(SourceSpan::new(source, start, source.len()), "opened here"),
+                ));
             }
             let value = source[body..i].to_string();
             i += 1;
@@ -1029,14 +1031,12 @@ fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
                 Kind::Ident(source[start..i].to_string())
             }
             _ => {
-                return Err(Diagnostic::error(
-                    "RSL-X001",
-                    "lex",
-                    format!("unexpected character `{ch}`"),
-                )
-                .at(
-                    SourceSpan::new(source, start, start + width),
-                    "not valid RSL syntax",
+                return Err(Box::new(
+                    Diagnostic::error("RSL-X001", "lex", format!("unexpected character `{ch}`"))
+                        .at(
+                            SourceSpan::new(source, start, start + width),
+                            "not valid RSL syntax",
+                        ),
                 ));
             }
         };
