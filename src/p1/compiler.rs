@@ -348,11 +348,8 @@ fn operator_program(
         });
     }
 
-    let definiteness = if assembly.dof_map.constrained().is_empty() {
-        OperatorProperty::PositiveSemidefinite
-    } else {
-        OperatorProperty::PositiveDefinite
-    };
+    let mut properties = vec![OperatorProperty::Symmetric, OperatorProperty::UnitsConsistent];
+    properties.extend(diffusion_definiteness(request, assembly));
 
     OperatorProgram {
         name: "p1_scalar_elliptic".into(),
@@ -362,11 +359,7 @@ fn operator_program(
             DerivativeCapability::Jvp,
             DerivativeCapability::Vjp,
         ],
-        properties: vec![
-            OperatorProperty::Symmetric,
-            definiteness,
-            OperatorProperty::UnitsConsistent,
-        ],
+        properties,
         sparsity: Some(SparsityContract {
             rows: assembly.dof_map.n_free(),
             cols: assembly.dof_map.n_free(),
@@ -383,4 +376,75 @@ fn operator_program(
             ),
         ]),
     }
+}
+
+fn diffusion_definiteness(
+    request: &P1DiscretizationRequest,
+    assembly: &ScalarEllipticAssembly,
+) -> Vec<OperatorProperty> {
+    let coefficients: Vec<_> = request
+        .mesh
+        .cells
+        .iter()
+        .map(|cell| request.elliptic.diffusion.value(cell.region))
+        .collect();
+
+    if coefficients.iter().any(|value| !value.is_finite() || *value < 0.0) {
+        return Vec::new();
+    }
+
+    if coefficients.iter().any(|value| *value == 0.0) {
+        return vec![OperatorProperty::PositiveSemidefinite];
+    }
+
+    if every_mesh_component_is_constrained(&request.mesh, assembly) {
+        vec![OperatorProperty::PositiveDefinite]
+    } else {
+        vec![OperatorProperty::PositiveSemidefinite]
+    }
+}
+
+fn every_mesh_component_is_constrained(
+    mesh: &P1Mesh,
+    assembly: &ScalarEllipticAssembly,
+) -> bool {
+    if mesh.vertices.is_empty() {
+        return false;
+    }
+
+    let mut parent: Vec<usize> = (0..mesh.vertices.len()).collect();
+
+    fn root(parent: &mut [usize], mut vertex: usize) -> usize {
+        while parent[vertex] != vertex {
+            let grandparent = parent[parent[vertex]];
+            parent[vertex] = grandparent;
+            vertex = grandparent;
+        }
+        vertex
+    }
+
+    fn union(parent: &mut [usize], a: usize, b: usize) {
+        let root_a = root(parent, a);
+        let root_b = root(parent, b);
+        if root_a != root_b {
+            parent[root_b] = root_a;
+        }
+    }
+
+    for cell in &mesh.cells {
+        union(&mut parent, cell.vertices[0], cell.vertices[1]);
+        union(&mut parent, cell.vertices[1], cell.vertices[2]);
+    }
+
+    let mut component_has_constraint = BTreeMap::<usize, bool>::new();
+    for vertex in 0..mesh.vertices.len() {
+        let component = root(&mut parent, vertex);
+        component_has_constraint.entry(component).or_insert(false);
+    }
+    for &(vertex, _) in assembly.dof_map.constrained() {
+        let component = root(&mut parent, vertex);
+        component_has_constraint.insert(component, true);
+    }
+
+    component_has_constraint.values().all(|anchored| *anchored)
 }
