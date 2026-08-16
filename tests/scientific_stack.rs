@@ -24,11 +24,8 @@ fn expression_store_hash_conses_commutative_builders() {
 fn scope_broadening_requires_named_obligation() {
     let source = ArtifactRef::of(ArtifactKind::System, &"restricted").unwrap();
     let target = ArtifactRef::of(ArtifactKind::System, &"global").unwrap();
-    let mut refinement = RefinementRecord::new(
-        source,
-        target,
-        RefinementRelation::LogicalConsequence,
-    );
+    let mut refinement =
+        RefinementRecord::new(source, target, RefinementRelation::LogicalConsequence);
     refinement.scope_transition = ScopeTransition::Broadened {
         obligation: ObligationId(7),
         reason: "restricted orbit family -> full orbit space".into(),
@@ -92,8 +89,16 @@ fn structural_projection_uses_common_system_ir() {
         unknowns: vec![x, y],
         parameters: vec![],
         equations: vec![
-            Equation { lhs: ex, rhs: zero, label: None },
-            Equation { lhs: sum, rhs: zero, label: None },
+            Equation {
+                lhs: ex,
+                rhs: zero,
+                label: None,
+            },
+            Equation {
+                lhs: sum,
+                rhs: zero,
+                label: None,
+            },
         ],
         events: vec![],
         children: vec![],
