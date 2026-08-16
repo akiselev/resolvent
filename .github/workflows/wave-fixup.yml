@@ -1,15 +1,12 @@
 name: wave-fixup
-
 on:
   push:
-    branches: [agent/r13-r20-wave-a-f]
-
+    branches:
+      - agent/r13-r20-wave-a-f
 permissions:
   contents: write
-
 jobs:
   fixup:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,33 +14,17 @@ jobs:
           ref: agent/r13-r20-wave-a-f
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.93.0'
+          toolchain: 1.93.0
           components: rustfmt
-      - name: Apply targeted fix
-        shell: bash
+      - name: Fix lint and format
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('crates/resolvent-quantities/src/lib.rs')
-          s = p.read_text()
-          old = '''        if !is_interval {
-            if let Some(offset) = unit.offset_to_si {
-                value += offset.as_f64();
-            }
-        }'''
-          new = '''        if !is_interval && let Some(offset) = unit.offset_to_si {
-            value += offset.as_f64();
-        }'''
-          if old not in s:
-              raise SystemExit('expected nested offset block not found')
-          p.write_text(s.replace(old, new))
-          PY
+          perl -0pi -e 's/if !is_interval \{\n            if let Some\(offset\) = unit\.offset_to_si \{\n                value \+= offset\.as_f64\(\);\n            \}\n        \}/if !is_interval \&\& let Some(offset) = unit.offset_to_si {\n            value += offset.as_f64();\n        }/' crates/resolvent-quantities/src/lib.rs
           cargo fmt --all
           git rm .github/workflows/wave-fixup.yml
-      - name: Commit fix and remove temporary workflow
+      - name: Commit
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -u
-          git commit -m 'Fix quantity canonicalization lint'
+          git add -A
+          git commit -m 'Fix quantity lint and format Wave sources'
           git push origin HEAD:agent/r13-r20-wave-a-f
