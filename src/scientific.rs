@@ -2368,18 +2368,21 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
         .map(|law| (law.name.clone(), law.law.clone()))
         .collect();
 
+    struct TraceContext<'a> {
+        field_names: &'a BTreeSet<String>,
+        property_map: &'a BTreeMap<String, Expr>,
+        constitutive_map: &'a BTreeMap<String, Expr>,
+    }
     fn trace(
         symbol: &str,
         residual: &str,
-        field_names: &BTreeSet<String>,
-        property_map: &BTreeMap<String, Expr>,
-        constitutive_map: &BTreeMap<String, Expr>,
+        context: &TraceContext<'_>,
         path: &mut Vec<String>,
         seen: &mut BTreeSet<String>,
         reason: Option<CouplingReason>,
         out: &mut Vec<CouplingEdge>,
     ) {
-        if field_names.contains(symbol) {
+        if context.field_names.contains(symbol) {
             let mut full = vec![symbol.to_string()];
             full.extend(path.iter().cloned());
             full.push(residual.to_string());
@@ -2394,7 +2397,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
         if !seen.insert(symbol.to_string()) {
             return;
         }
-        if let Some(expr) = property_map.get(symbol) {
+        if let Some(expr) = context.property_map.get(symbol) {
             path.insert(0, symbol.to_string());
             let mut names = BTreeSet::new();
             expr.names(&mut names);
@@ -2402,9 +2405,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
                 trace(
                     &name,
                     residual,
-                    field_names,
-                    property_map,
-                    constitutive_map,
+                    context,
                     path,
                     seen,
                     Some(CouplingReason::PropertyDependency(symbol.to_string())),
@@ -2412,7 +2413,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
                 );
             }
             path.remove(0);
-        } else if let Some(expr) = constitutive_map.get(symbol) {
+        } else if let Some(expr) = context.constitutive_map.get(symbol) {
             path.insert(0, symbol.to_string());
             let mut names = BTreeSet::new();
             expr.names(&mut names);
@@ -2420,9 +2421,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
                 trace(
                     &name,
                     residual,
-                    field_names,
-                    property_map,
-                    constitutive_map,
+                    context,
                     path,
                     seen,
                     Some(CouplingReason::ConstitutiveDependency(symbol.to_string())),
@@ -2451,6 +2450,11 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
     residual_blocks.dedup();
 
     let mut edges = vec![];
+    let context = TraceContext {
+        field_names: &field_names,
+        property_map: &property_map,
+        constitutive_map: &constitutive_map,
+    };
     for equation in &model.equations {
         let mut names = BTreeSet::new();
         equation.lhs.names(&mut names);
@@ -2459,9 +2463,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
             trace(
                 &name,
                 &equation.name,
-                &field_names,
-                &property_map,
-                &constitutive_map,
+                &context,
                 &mut Vec::new(),
                 &mut BTreeSet::new(),
                 None,
@@ -2503,9 +2505,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
             trace(
                 &name,
                 &condition.target,
-                &field_names,
-                &property_map,
-                &constitutive_map,
+                &context,
                 &mut Vec::new(),
                 &mut BTreeSet::new(),
                 Some(CouplingReason::InterfaceTerm),
