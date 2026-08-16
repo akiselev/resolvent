@@ -67,9 +67,18 @@ pub enum FormExpr {
     Curl(Box<FormExpr>),
     TimeDerivative(Box<FormExpr>),
     Trace(Box<FormExpr>),
-    Inner { left: Box<FormExpr>, right: Box<FormExpr> },
-    Contract { left: Box<FormExpr>, right: Box<FormExpr> },
-    Custom { operator: String, args: Vec<FormExpr> },
+    Inner {
+        left: Box<FormExpr>,
+        right: Box<FormExpr>,
+    },
+    Contract {
+        left: Box<FormExpr>,
+        right: Box<FormExpr>,
+    },
+    Custom {
+        operator: String,
+        args: Vec<FormExpr>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
