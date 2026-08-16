@@ -1,3 +1,7 @@
+[workspace]
+resolver = "2"
+members = [".", "crates/resolvent-quantities", "tools/update-sirp"]
+
 [package]
 name = "resolvent"
 version = "0.1.0"
@@ -9,6 +13,7 @@ repository = "https://github.com/akiselev/resolvent"
 
 [dependencies]
 blake3 = "1"
+resolvent-quantities = { path = "crates/resolvent-quantities" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
