@@ -62,7 +62,7 @@ fn run() -> Result<(), String> {
                 "module":module.name,
                 "semantic_digest":semantic_digest(&module)
             }))
-            .map_err(|e|e.to_string())?
+            .map_err(|e| e.to_string())?
         ),
         "inspect" => {
             let models = module
@@ -114,9 +114,7 @@ fn run() -> Result<(), String> {
             let edges = graph
                 .edges
                 .iter()
-                .filter(|edge| {
-                    selector.is_none_or(|name| edge.from == name || edge.to == name)
-                })
+                .filter(|edge| selector.is_none_or(|name| edge.from == name || edge.to == name))
                 .collect::<Vec<_>>();
             println!(
                 "{}",
