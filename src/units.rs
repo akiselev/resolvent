@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::ops::{Div, Mul};
 use thiserror::Error;
 
 /// SI base-dimension exponents in the order length, mass, time, current,
@@ -18,18 +19,6 @@ impl Dimension {
     pub const TEMPERATURE: Self = Self([0, 0, 0, 0, 1, 0, 0]);
     pub const AMOUNT: Self = Self([0, 0, 0, 0, 0, 1, 0]);
     pub const LUMINOUS_INTENSITY: Self = Self([0, 0, 0, 0, 0, 0, 1]);
-
-    pub fn mul(self, rhs: Self) -> Self {
-        let mut out = [0; 7];
-        for (i, slot) in out.iter_mut().enumerate() {
-            *slot = self.0[i].saturating_add(rhs.0[i]);
-        }
-        Self(out)
-    }
-
-    pub fn div(self, rhs: Self) -> Self {
-        self.mul(rhs.powi(-1))
-    }
 
     pub fn powi(self, exponent: i8) -> Self {
         let mut out = [0; 7];
@@ -54,17 +43,37 @@ impl Dimension {
             "mol" => Some(Self::AMOUNT),
             "cd" => Some(Self::LUMINOUS_INTENSITY),
             "Hz" => Some(t.powi(-1)),
-            "N" => Some(m.mul(l).div(t.powi(2))),
-            "Pa" => Some(m.div(l).div(t.powi(2))),
-            "J" => Some(m.mul(l.powi(2)).div(t.powi(2))),
-            "W" => Some(m.mul(l.powi(2)).div(t.powi(3))),
-            "C" => Some(i.mul(t)),
-            "V" => Some(m.mul(l.powi(2)).div(t.powi(3)).div(i)),
-            "ohm" | "Ohm" | "Ω" => Some(m.mul(l.powi(2)).div(t.powi(3)).div(i.powi(2))),
-            "F" => Some(m.powi(-1).mul(l.powi(-2)).mul(t.powi(4)).mul(i.powi(2))),
-            "H" => Some(m.mul(l.powi(2)).div(t.powi(2)).div(i.powi(2))),
+            "N" => Some(m * l / t.powi(2)),
+            "Pa" => Some(m / l / t.powi(2)),
+            "J" => Some(m * l.powi(2) / t.powi(2)),
+            "W" => Some(m * l.powi(2) / t.powi(3)),
+            "C" => Some(i * t),
+            "V" => Some(m * l.powi(2) / t.powi(3) / i),
+            "ohm" | "Ohm" | "Ω" => Some(m * l.powi(2) / t.powi(3) / i.powi(2)),
+            "F" => Some(m.powi(-1) * l.powi(-2) * t.powi(4) * i.powi(2)),
+            "H" => Some(m * l.powi(2) / t.powi(2) / i.powi(2)),
             _ => None,
         }
+    }
+}
+
+impl Mul for Dimension {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let mut out = [0; 7];
+        for (i, slot) in out.iter_mut().enumerate() {
+            *slot = self.0[i].saturating_add(rhs.0[i]);
+        }
+        Self(out)
+    }
+}
+
+impl Div for Dimension {
+    type Output = Self;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        self * rhs.powi(-1)
     }
 }
 
@@ -200,13 +209,13 @@ impl UnitParser<'_> {
             match self.tokens.get(self.pos) {
                 Some(Tok::Mul) => {
                     self.pos += 1;
-                    value = value.mul(self.factor()?);
+                    value = value * self.factor()?;
                 }
                 Some(Tok::Div) => {
                     self.pos += 1;
-                    value = value.div(self.factor()?);
+                    value = value / self.factor()?;
                 }
-                Some(Tok::Name(_)) | Some(Tok::LParen) => value = value.mul(self.factor()?),
+                Some(Tok::Name(_)) | Some(Tok::LParen) => value = value * self.factor()?,
                 _ => break,
             }
         }
@@ -253,10 +262,7 @@ mod tests {
     #[test]
     fn parses_thermal_conductivity() {
         let got = parse_unit("W / (m K)").unwrap().dimension;
-        let want = Dimension::named("W")
-            .unwrap()
-            .div(Dimension::LENGTH)
-            .div(Dimension::TEMPERATURE);
+        let want = Dimension::named("W").unwrap() / Dimension::LENGTH / Dimension::TEMPERATURE;
         assert_eq!(got, want);
     }
 
@@ -265,10 +271,7 @@ mod tests {
         let got = parse_unit("J / (m^3 K)").unwrap().dimension;
         assert_eq!(
             got,
-            Dimension::named("J")
-                .unwrap()
-                .div(Dimension::LENGTH.powi(3))
-                .div(Dimension::TEMPERATURE)
+            Dimension::named("J").unwrap() / Dimension::LENGTH.powi(3) / Dimension::TEMPERATURE
         );
     }
 }

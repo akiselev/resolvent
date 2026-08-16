@@ -61,6 +61,8 @@ fn check_equation(
     }
 }
 
+// Keep dimension composition on the standard Mul/Div traits. That gives the compiler, parser and
+// downstream semantic checks one arithmetic surface instead of parallel inherent helpers.
 fn infer(
     expr: &MathExpr,
     dims: &BTreeMap<String, Dimension>,
@@ -92,12 +94,12 @@ fn infer(
             first
         }
         MathExpr::Mul(xs) => xs.iter().try_fold(Dimension::DIMENSIONLESS, |a, x| {
-            Ok::<_, String>(a.mul(infer(x, dims, functions)?))
+            Ok::<_, String>(a * infer(x, dims, functions)?)
         })?,
         MathExpr::Div {
             numerator,
             denominator,
-        } => infer(numerator, dims, functions)?.div(infer(denominator, dims, functions)?),
+        } => infer(numerator, dims, functions)? / infer(denominator, dims, functions)?,
         MathExpr::Pow { base, exponent } => infer(base, dims, functions)?.powi(
             (*exponent)
                 .try_into()
@@ -107,7 +109,26 @@ fn infer(
             if let Some(d) = functions.get(function) {
                 *d
             } else {
-                match function.as_str(){"sin"|"cos"|"tan"|"exp"|"log"=>{if let Some(arg)=args.first(){let d=infer(arg,dims,functions)?;if d!=Dimension::DIMENSIONLESS{return Err(format!("{function} requires a dimensionless argument, found `{d}`"));}}Dimension::DIMENSIONLESS},"sqrt"=>return Err("sqrt dimension inference requires even dimension exponents and is not implicit yet".into()),_=>Dimension::DIMENSIONLESS}
+                match function.as_str() {
+                    "sin" | "cos" | "tan" | "exp" | "log" => {
+                        if let Some(arg) = args.first() {
+                            let d = infer(arg, dims, functions)?;
+                            if d != Dimension::DIMENSIONLESS {
+                                return Err(format!(
+                                    "{function} requires a dimensionless argument, found `{d}`"
+                                ));
+                            }
+                        }
+                        Dimension::DIMENSIONLESS
+                    }
+                    "sqrt" => {
+                        return Err(
+                            "sqrt dimension inference requires even dimension exponents and is not implicit yet"
+                                .into(),
+                        );
+                    }
+                    _ => Dimension::DIMENSIONLESS,
+                }
             }
         }
         MathExpr::Derivative {
@@ -119,13 +140,13 @@ fn infer(
                 .get(with_respect_to)
                 .copied()
                 .ok_or_else(|| format!("unknown derivative coordinate `{with_respect_to}`"))?;
-            infer(expr, dims, functions)?.div(wrt.powi((*order).try_into().unwrap_or(i8::MAX)))
+            infer(expr, dims, functions)? / wrt.powi((*order).try_into().unwrap_or(i8::MAX))
         }
         MathExpr::Gradient(x) | MathExpr::Divergence(x) | MathExpr::Curl(x) => {
-            infer(x, dims, functions)?.div(Dimension::LENGTH)
+            infer(x, dims, functions)? / Dimension::LENGTH
         }
         MathExpr::Inner { left, right } => {
-            infer(left, dims, functions)?.mul(infer(right, dims, functions)?)
+            infer(left, dims, functions)? * infer(right, dims, functions)?
         }
     })
 }
