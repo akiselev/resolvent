@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+type TriangleGeometry = ([usize; 3], f64, [[f64; 2]; 3]);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlaneKinematics {
@@ -167,11 +169,11 @@ pub fn assemble_stokes_p1_p0(
                     });
                 }
             }
-            for component in 0..2 {
+            for (component, derivative) in gradients[i].iter().copied().enumerate() {
                 b_entries.push(SparseEntry {
                     row: cell_index,
                     col: 2 * vertices[i] + component,
-                    value: area * gradients[i][component],
+                    value: area * derivative,
                 });
             }
         }
@@ -365,17 +367,17 @@ fn require_positive(cell: usize, name: &str, value: f64) -> Result<(), Multiphys
 fn triangle_geometry(
     mesh: &TriangleMesh,
     cell_index: usize,
-) -> Result<([usize; 3], f64, [[f64; 2]; 3]), MultiphysicsReferenceError> {
+) -> Result<TriangleGeometry, MultiphysicsReferenceError> {
     let cell = mesh
         .cells
         .get(cell_index)
         .ok_or(MultiphysicsReferenceError::BadCell(cell_index))?;
     let mut points = [[0.0; 2]; 3];
-    for i in 0..3 {
-        points[i] = *mesh
+    for (point, &vertex) in points.iter_mut().zip(cell.vertices.iter()) {
+        *point = *mesh
             .vertices
-            .get(cell.vertices[i])
-            .ok_or(MultiphysicsReferenceError::BadVertex(cell.vertices[i]))?;
+            .get(vertex)
+            .ok_or(MultiphysicsReferenceError::BadVertex(vertex))?;
     }
     let det = (points[1][0] - points[0][0]) * (points[2][1] - points[0][1])
         - (points[2][0] - points[0][0]) * (points[1][1] - points[0][1]);
