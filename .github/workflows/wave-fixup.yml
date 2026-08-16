@@ -1,0 +1,33 @@
+name: wave-fixup
+
+on:
+  push:
+    branches: [agent/r13-r20-wave-a-f]
+
+permissions:
+  contents: write
+
+jobs:
+  fixup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.93.0'
+          components: rustfmt, clippy
+      - name: Apply compiler-suggested fixes
+        run: |
+          cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features -- -D warnings || true
+          cargo fmt --all
+      - name: Commit fixes
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -u
+          git commit -m 'Apply machine-applicable clippy fixes'
+          git push origin HEAD:agent/r13-r20-wave-a-f
