@@ -68,13 +68,14 @@ pub fn parse_scientific_latex(input: &str) -> Result<MathExpr, Vec<SourceDiagnos
 /// mechanical and intentionally fail-closed: arbitrary TeX macros never enter the compiler.
 fn normalize(input: &str) -> Result<String, Vec<SourceDiagnostic>> {
     let mut s = input.replace("\\left", "").replace("\\right", "");
-    s = s.replace("\\cdot", " @dot ");
-    s = s.replace("\\times", " * ");
+    // Recognize compound vector-calculus operators before their component TeX tokens.
     s = s.replace("\\nabla \\cdot", " @div ");
     s = s.replace("\\nabla\\cdot", " @div ");
     s = s.replace("\\nabla \\times", " @curl ");
     s = s.replace("\\nabla\\times", " @curl ");
     s = s.replace("\\nabla", " @grad ");
+    s = s.replace("\\cdot", " @dot ");
+    s = s.replace("\\times", " * ");
 
     // Common partial-time derivative spellings.
     while let Some(start) = s.find("\\frac{\\partial ") {
