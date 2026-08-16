@@ -67,9 +67,7 @@ pub use refinement::{
     RefinementRelation, ScopeTransition,
 };
 pub use structural::{IncidenceSystem, Matching, StructuralError, maximum_matching};
-pub use verify::{
-    CheckResult, CheckStatus, ValidationBundle, ValidationCheck, ValidationKind,
-};
+pub use verify::{CheckResult, CheckStatus, ValidationBundle, ValidationCheck, ValidationKind};
 
 /// Wire-level schema family for the unified scientific compiler surface.
 pub const SCIENTIFIC_SCHEMA_VERSION: &str = "resolvent-science/0.1";
