@@ -1,9 +1,9 @@
+use super::P1Error;
 use super::assembly::{
     EvolutionAssembly, EvolutionClass, MassAssembly, MassInput, ScalarEllipticAssembly,
     ScalarEllipticInput, assemble_mass, assemble_scalar_elliptic,
 };
 use super::mesh::P1Mesh;
-use super::P1Error;
 use crate::context::Context;
 use crate::discrete::{BasisEvaluation, DiscreteOp, DiscreteProgram, RestrictionDirection};
 use crate::form::{Continuity, Field, FieldRole, FormExpr, FormProgram, ValueShape};
@@ -12,9 +12,7 @@ use crate::operator::{
     DerivativeCapability, OperatorBlock, OperatorBlockKind, OperatorProgram, OperatorProperty,
     SparsityContract,
 };
-use crate::refinement::{
-    ArtifactKind, RefinementProvenance, RefinementRecord, RefinementRelation,
-};
+use crate::refinement::{ArtifactKind, RefinementProvenance, RefinementRecord, RefinementRelation};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -374,8 +372,7 @@ fn operator_program(
             cols: assembly.dof_map.n_free(),
             block_pattern: Vec::new(),
             note: Some(
-                "mesh-fixed P1 vertex adjacency; concrete CSR is in the numerical artifact"
-                    .into(),
+                "mesh-fixed P1 vertex adjacency; concrete CSR is in the numerical artifact".into(),
             ),
         }),
         metadata: BTreeMap::from([
