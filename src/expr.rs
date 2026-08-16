@@ -78,7 +78,7 @@ pub enum ExprNode {
     },
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct ExprStore {
     nodes: Vec<ExprNode>,
     #[serde(skip)]
@@ -140,8 +140,25 @@ impl ExprStore {
     }
 }
 
+impl<'de> Deserialize<'de> for ExprStore {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            nodes: Vec<ExprNode>,
+        }
+
+        let Wire { nodes } = Wire::deserialize(deserializer)?;
+        let mut store = Self {
+            nodes,
+            index: BTreeMap::new(),
+        };
+        store.rebuild_index();
+        Ok(store)
+    }
+}
+
 /// Caller-owned table. No process-global symbol interner is permitted.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct SymbolTable {
     symbols: Vec<Symbol>,
     #[serde(skip)]
@@ -168,5 +185,22 @@ impl SymbolTable {
         for (i, symbol) in self.symbols.iter().enumerate() {
             self.names.insert(symbol.name.clone(), SymbolId(i as u32));
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for SymbolTable {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            symbols: Vec<Symbol>,
+        }
+
+        let Wire { symbols } = Wire::deserialize(deserializer)?;
+        let mut table = Self {
+            symbols,
+            names: BTreeMap::new(),
+        };
+        table.rebuild_index();
+        Ok(table)
     }
 }
