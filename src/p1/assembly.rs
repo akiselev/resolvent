@@ -1,9 +1,9 @@
+use super::P1Error;
 use super::matrix::CsrMatrix;
 use super::mesh::{
     BoundaryFlux, DirichletBoundary, DofMap, P1Mesh, PiecewiseConstant, PiecewiseSource,
     p1_shape_gradients,
 };
-use super::P1Error;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
