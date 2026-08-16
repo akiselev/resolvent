@@ -164,11 +164,7 @@ fn evolution_residual_and_shifted_matrix_are_consistent() {
     let applied = shifted.apply(&direction).unwrap();
     let expected_mass = evolution.mass_jvp(&direction).unwrap();
     let expected_stiffness = evolution.static_jvp(&direction).unwrap();
-    for ((&actual, mass), stiffness) in applied
-        .iter()
-        .zip(expected_mass)
-        .zip(expected_stiffness)
-    {
+    for ((&actual, mass), stiffness) in applied.iter().zip(expected_mass).zip(expected_stiffness) {
         close(actual, 10.0 * mass + stiffness);
     }
 }
@@ -250,7 +246,11 @@ fn compiler_emits_discrete_operator_and_refinement_artifacts() {
     assert!(context.discrete(result.stiffness_program).is_some());
     assert!(context.discrete(result.mass_program.unwrap()).is_some());
     let operator = context.operator(result.operator).unwrap();
-    assert!(operator.properties.contains(&OperatorProperty::PositiveDefinite));
+    assert!(
+        operator
+            .properties
+            .contains(&OperatorProperty::PositiveDefinite)
+    );
     let refinement = context.refinement(result.refinement).unwrap();
     assert!(matches!(
         refinement.relation,
@@ -287,5 +287,9 @@ fn pure_neumann_diffusion_is_not_labeled_positive_definite() {
             .properties
             .contains(&OperatorProperty::PositiveSemidefinite)
     );
-    assert!(!operator.properties.contains(&OperatorProperty::PositiveDefinite));
+    assert!(
+        !operator
+            .properties
+            .contains(&OperatorProperty::PositiveDefinite)
+    );
 }
