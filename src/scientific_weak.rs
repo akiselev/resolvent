@@ -21,15 +21,9 @@ pub struct WeakResidualBlock {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum WeakTerm {
     /// `coefficient * dt(field) * test`
-    Mass {
-        field: String,
-        coefficient: Expr,
-    },
+    Mass { field: String, coefficient: Expr },
     /// `coefficient * grad(field) dot grad(test)`
-    Diffusion {
-        field: String,
-        coefficient: Expr,
-    },
+    Diffusion { field: String, coefficient: Expr },
     /// `expression * test`, after moving the equation to residual form.
     Pointwise { expression: Expr },
 }
@@ -49,13 +43,12 @@ pub enum WeakLoweringError {
     #[error("equation `{0}` does not contain a primary differential field")]
     MissingPrimaryField(String),
     #[error("unsupported differential expression in equation `{equation}`: {expression:?}")]
-    UnsupportedDifferential {
-        equation: String,
-        expression: Expr,
-    },
+    UnsupportedDifferential { equation: String, expression: Expr },
 }
 
-pub fn lower_scalar_h1_model(model: &ScientificModel) -> Result<WeakOperatorProgram, WeakLoweringError> {
+pub fn lower_scalar_h1_model(
+    model: &ScientificModel,
+) -> Result<WeakOperatorProgram, WeakLoweringError> {
     let blocks = model
         .equations
         .iter()
@@ -335,8 +328,10 @@ fn number(value: f64) -> Expr {
 fn contains_differential_operator(expression: &Expr) -> bool {
     match expression {
         Expr::Call { function, args } => {
-            matches!(function.as_str(), "dt" | "grad" | "div" | "curl" | "sym_grad")
-                || args.iter().any(contains_differential_operator)
+            matches!(
+                function.as_str(),
+                "dt" | "grad" | "div" | "curl" | "sym_grad"
+            ) || args.iter().any(contains_differential_operator)
         }
         Expr::Unary { arg, .. } => contains_differential_operator(arg),
         Expr::Binary { lhs, rhs, .. } => {
@@ -411,9 +406,11 @@ model ET {
         assert_eq!(program.blocks.len(), 2);
         assert_eq!(program.blocks[0].primary_field, "V");
         assert_eq!(program.blocks[1].primary_field, "T");
-        assert!(program.blocks[1]
-            .terms
-            .iter()
-            .any(|term| matches!(term, WeakTerm::Pointwise { .. })));
+        assert!(
+            program.blocks[1]
+                .terms
+                .iter()
+                .any(|term| matches!(term, WeakTerm::Pointwise { .. }))
+        );
     }
 }
