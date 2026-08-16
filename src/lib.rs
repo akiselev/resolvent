@@ -27,6 +27,7 @@ pub mod id;
 pub mod lean;
 pub mod model;
 pub mod operator;
+pub mod p1;
 pub mod refinement;
 pub mod structural;
 pub mod verify;
@@ -61,6 +62,12 @@ pub use model::{
 pub use operator::{
     DerivativeCapability, OperatorBlock, OperatorBlockKind, OperatorProgram, OperatorProperty,
     SparsityContract,
+};
+pub use p1::{
+    BoundaryEdge, BoundaryFlux, CsrMatrix, DirichletBoundary, DofMap, EvolutionAssembly,
+    EvolutionClass, MassAssembly, MassInput, MassLumping, P1DiscretizationRequest, P1Error,
+    P1LoweringResult, P1Mesh, PiecewiseConstant, PiecewiseSource, Point2, ScalarEllipticAssembly,
+    ScalarEllipticInput, Triangle, assemble_mass, assemble_scalar_elliptic, lower_p1,
 };
 pub use refinement::{
     ArtifactKind, ArtifactRef, RefinementError, RefinementProvenance, RefinementRecord,
