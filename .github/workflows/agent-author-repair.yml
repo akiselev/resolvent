@@ -1,0 +1,68 @@
+name: agent-author-repair
+
+on:
+  push:
+    branches:
+      - agent/resolvent-stack-r0-r9
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/resolvent-stack-r0-r9
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: rustfmt
+      - name: Box lexer diagnostics
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path("src/author.rs")
+          text = p.read_text()
+          replacements = [
+              (
+                  "Err(d) => return Err(AuthorError::Diagnostics(1, vec![d])),",
+                  "Err(d) => return Err(AuthorError::Diagnostics(1, vec![*d])),",
+              ),
+              (
+                  "fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {",
+                  "fn lex(source: &str) -> Result<Vec<Token>, Box<Diagnostic>> {",
+              ),
+              (
+                  '''return Err(\n                    Diagnostic::error("RSL-L000", "lex", "unclosed triple-quoted string")\n                        .at(SourceSpan::new(source, start, source.len()), "opened here"),\n                );''',
+                  '''return Err(Box::new(\n                    Diagnostic::error("RSL-L000", "lex", "unclosed triple-quoted string")\n                        .at(SourceSpan::new(source, start, source.len()), "opened here"),\n                ));''',
+              ),
+              (
+                  '''return Err(Diagnostic::error("RSL-S000", "lex", "unclosed string")\n                    .at(SourceSpan::new(source, start, source.len()), "opened here"));''',
+                  '''return Err(Box::new(\n                    Diagnostic::error("RSL-S000", "lex", "unclosed string")\n                        .at(SourceSpan::new(source, start, source.len()), "opened here"),\n                ));''',
+              ),
+              (
+                  '''return Err(Diagnostic::error(\n                    "RSL-X001",\n                    "lex",\n                    format!("unexpected character `{ch}`"),\n                )\n                .at(\n                    SourceSpan::new(source, start, start + width),\n                    "not valid RSL syntax",\n                ));''',
+                  '''return Err(Box::new(\n                    Diagnostic::error(\n                        "RSL-X001",\n                        "lex",\n                        format!("unexpected character `{ch}`"),\n                    )\n                    .at(\n                        SourceSpan::new(source, start, start + width),\n                        "not valid RSL syntax",\n                    ),\n                ));''',
+              ),
+          ]
+          changed = False
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new, 1)
+                  changed = True
+              elif new not in text:
+                  raise SystemExit(f"expected author.rs target not found: {old[:80]!r}")
+          if changed:
+              p.write_text(text)
+      - name: Format
+        run: cargo fmt --all
+      - name: Commit deterministic repair
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/author.rs src/units.rs
+          git commit -m "box lexer diagnostics and format unit traits"
+          git push origin HEAD:agent/resolvent-stack-r0-r9
