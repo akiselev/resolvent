@@ -29,7 +29,9 @@ pub enum RestrictionDirection {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DiscreteOp {
-    FieldInput { field: FieldId },
+    FieldInput {
+        field: FieldId,
+    },
     Restrict {
         input: DiscreteValueId,
         field: FieldId,
@@ -49,7 +51,9 @@ pub enum DiscreteOp {
         input: DiscreteValueId,
         rule: String,
     },
-    Sum { inputs: Vec<DiscreteValueId> },
+    Sum {
+        inputs: Vec<DiscreteValueId>,
+    },
     Custom {
         operator: String,
         inputs: Vec<DiscreteValueId>,
