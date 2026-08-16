@@ -1,0 +1,54 @@
+name: wave-fixup
+
+on:
+  push:
+    branches: [agent/r13-r20-wave-a-f]
+
+permissions:
+  contents: write
+
+jobs:
+  fixup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/r13-r20-wave-a-f
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.93'
+          components: rustfmt
+      - name: Apply mechanical fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('crates/resolvent-quantities/src/lib.rs')
+          s = p.read_text()
+          old = 'Some("si:degree-celsius-difference")'
+          new = 'Some("resolvent:degree-celsius-difference")'
+          assert old in s
+          p.write_text(s.replace(old, new))
+
+          p = Path('src/scientific.rs')
+          s = p.read_text()
+          old = "if c == '#' || (c == '/' && input[i+1.min(bytes.len()-i-1)..].starts_with('/')) {"
+          new = "if c == '#' || input[i..].starts_with(\"//\") {"
+          assert old in s
+          s = s.replace(old, new)
+          s = s.replace('si:ThermodynamicTemperature', 'ThermodynamicTemperature')
+          s = s.replace('resolvent:VolumetricHeatSource', 'VolumetricHeatSource')
+          p.write_text(s)
+          PY
+          cargo fmt --all
+      - name: Commit generated formatting
+        shell: bash
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/resolvent-quantities/src/lib.rs src/scientific.rs
+          git commit -m 'Format and normalize Wave A-F implementation'
+          git push origin HEAD:agent/r13-r20-wave-a-f
