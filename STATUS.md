@@ -21,7 +21,7 @@ Resolvent owns scientific authoring semantics, quantity/kind semantics, property
 
 ## Validation state
 
-Local rustup is blocked by sandbox DNS; GitHub-hosted Rust jobs are authoritative. This user-authored status update retriggers the normal format/clippy/all-feature workflow on the current R14/R15/R17/R18 implementation after bot-applied migrations.
+Local rustup is blocked by sandbox DNS; GitHub-hosted Rust jobs are authoritative. Normal CI reached the new R18 code and found only a clippy arity warning in its private recursive walker. The immutable dependency maps are now bundled into a trace context and rustfmt was applied. This user-authored update retriggers the complete format/clippy/test workflow on the corrected tree.
 
 ## Cross-repository contract
 
@@ -29,6 +29,6 @@ Malleus and Sinbad must pin the exact passing Resolvent Wave commit. Sinbad's `s
 
 ## Remaining before merge
 
-1. Resolve any normal-CI findings from the new acceptance tests.
+1. Resolve any findings from the complete current CI run.
 2. Synchronize Malleus/Sinbad to the final green Resolvent revision.
-3. Close remaining roadmap-level gaps called out by the cross-repo R13-R20 audit, then freeze the federation tuple.
+3. Close remaining roadmap-level gaps from the cross-repo R13-R20 audit, then freeze the federation tuple.
