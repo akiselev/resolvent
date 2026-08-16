@@ -27,8 +27,8 @@ pub use ids::{
     ArtifactHash, EquationId, ExprId, FormId, ModelId, ObservableId, OperatorId, ScopeId,
 };
 pub use refinement::{
-    Assumption, AssumptionSet, Obligation, ObligationKind, ObligationSet, Provenance,
-    Refinement, RefinementIssue, RefinementRelation, Stage,
+    Assumption, AssumptionSet, Obligation, ObligationKind, ObligationSet, Provenance, Refinement,
+    RefinementIssue, RefinementRelation, Stage,
 };
 pub use spec::{
     BoundaryCondition, InitialCondition, Law, Observable, Parameter, ScientificSpec, Scope,
