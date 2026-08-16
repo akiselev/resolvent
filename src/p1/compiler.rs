@@ -3,7 +3,7 @@ use super::assembly::{
     EvolutionAssembly, EvolutionClass, MassAssembly, MassInput, ScalarEllipticAssembly,
     ScalarEllipticInput, assemble_mass, assemble_scalar_elliptic,
 };
-use super::mesh::P1Mesh;
+use super::mesh::{DofMap, P1Mesh};
 use crate::context::Context;
 use crate::discrete::{BasisEvaluation, DiscreteOp, DiscreteProgram, RestrictionDirection};
 use crate::form::{Continuity, Field, FieldRole, FormExpr, FormProgram, ValueShape};
@@ -72,12 +72,15 @@ pub fn lower_p1(
         None
     };
 
-    let evolution = mass.as_ref().map(|mass| EvolutionAssembly {
-        stiffness: elliptic.stiffness_free.clone(),
-        mass: mass.mass_free.clone(),
-        rhs: elliptic.rhs.clone(),
-        class: EvolutionClass::Ode,
-    });
+    let evolution = match (&mass, &request.mass) {
+        (Some(mass), Some(input)) => Some(EvolutionAssembly {
+            stiffness: elliptic.stiffness_free.clone(),
+            mass: mass.mass_free.clone(),
+            rhs: elliptic.rhs.clone(),
+            class: classify_evolution(&request.mesh, &elliptic.dof_map, input),
+        }),
+        _ => None,
+    };
 
     let operator_program = operator_program(request, stiffness_program, mass_program, &elliptic);
     let operator = context.insert_operator(operator_program.clone());
@@ -407,6 +410,42 @@ fn diffusion_definiteness(
         vec![OperatorProperty::PositiveDefinite]
     } else {
         vec![OperatorProperty::PositiveSemidefinite]
+    }
+}
+
+fn classify_evolution(mesh: &P1Mesh, dof_map: &DofMap, input: &MassInput) -> EvolutionClass {
+    // A zero-dimensional free space is vacuously an ODE system. More importantly, no solver
+    // should be forced onto a DAE path merely because all unknowns were constrained away.
+    if dof_map.n_free() == 0 {
+        return EvolutionClass::Ode;
+    }
+
+    // For continuous P1 elements, strictly positive finite cell capacity makes the assembled
+    // mass bilinear form positive definite on every FE function represented by covered free
+    // vertices. Anything weaker is left unclassified instead of guessing a DAE index.
+    if mesh.cells.iter().any(|cell| {
+        let capacity = input.capacity.value(cell.region);
+        !capacity.is_finite() || capacity <= 0.0
+    }) {
+        return EvolutionClass::Unclassified;
+    }
+
+    let mut covered = vec![false; mesh.vertices.len()];
+    for cell in &mesh.cells {
+        for &vertex in &cell.vertices {
+            covered[vertex] = true;
+        }
+    }
+
+    if covered
+        .iter()
+        .enumerate()
+        .filter(|(vertex, _)| dof_map.dof(*vertex).is_some())
+        .all(|(_, covered)| *covered)
+    {
+        EvolutionClass::Ode
+    } else {
+        EvolutionClass::Unclassified
     }
 }
 
