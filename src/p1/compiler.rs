@@ -399,7 +399,7 @@ fn diffusion_definiteness(
         return Vec::new();
     }
 
-    if coefficients.iter().any(|value| *value == 0.0) {
+    if coefficients.contains(&0.0) {
         return vec![OperatorProperty::PositiveSemidefinite];
     }
 
