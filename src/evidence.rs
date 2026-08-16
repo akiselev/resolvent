@@ -13,7 +13,7 @@ pub enum EvidenceAxis {
     Empirical,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FormalGrade {
     Unchecked,
@@ -22,7 +22,7 @@ pub enum FormalGrade {
     KernelProved,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NumericalGrade {
     Untested,
@@ -32,7 +32,7 @@ pub enum NumericalGrade {
     ErrorBounded,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmpiricalGrade {
     NoData,
@@ -119,7 +119,9 @@ impl Obligation {
 }
 
 /// A compact summary for UI/reporting. It retains one optional grade per axis rather than
-/// collapsing the three axes to an attractive but meaningless scalar score.
+/// collapsing the three axes to an attractive but meaningless scalar score. Multiple items
+/// on one axis are summarized by their strongest grade, making the result independent of
+/// evidence insertion order.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,9 +135,15 @@ pub struct EvidenceProfile {
 impl EvidenceProfile {
     pub fn ingest(&mut self, grade: &EvidenceGrade) {
         match grade {
-            EvidenceGrade::Formal(g) => self.formal = Some(*g),
-            EvidenceGrade::Numerical(g) => self.numerical = Some(*g),
-            EvidenceGrade::Empirical(g) => self.empirical = Some(*g),
+            EvidenceGrade::Formal(g) => {
+                self.formal = Some(self.formal.map_or(*g, |current| current.max(*g)));
+            }
+            EvidenceGrade::Numerical(g) => {
+                self.numerical = Some(self.numerical.map_or(*g, |current| current.max(*g)));
+            }
+            EvidenceGrade::Empirical(g) => {
+                self.empirical = Some(self.empirical.map_or(*g, |current| current.max(*g)));
+            }
         }
     }
 
