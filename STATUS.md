@@ -57,7 +57,7 @@ Verified locally on 2026-08-20:
 ## Cross-repository contract
 
 - Quantitas path: `../quantitas`, validated at
-  `96c7bab566fcf5867b573f0ef5a6bb04f629ec08`; API types used directly include `Dimension`,
+  `734d78cd6ff516afee54201bc70cd59fd34e67e3`; API types used directly include `Dimension`,
   `Quantity`, `QuantityLiteral`, `QuantityKindId`, `UnitId`, and `UnitRegistry`.
 - Malleus path: `../malleus`, validated at
   `cd24813b29e5909a01b654477de99e9d4adde79b`; Resolvent constructs `StructuredKernel` and uses
