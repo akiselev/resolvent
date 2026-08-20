@@ -103,7 +103,7 @@ pub fn lower_scalar_h1_equation(
             });
             continue;
         }
-        if contains_differential_operator(&expression) {
+        if contains_unlowered_differential_operator(&expression) {
             return Err(WeakLoweringError::UnsupportedDifferential {
                 equation: equation.name.clone(),
                 expression,
@@ -325,23 +325,35 @@ fn number(value: f64) -> Expr {
     Expr::Number { value, unit: None }
 }
 
-fn contains_differential_operator(expression: &Expr) -> bool {
+fn contains_unlowered_differential_operator(expression: &Expr) -> bool {
     match expression {
-        Expr::Call { function, args } => {
-            matches!(
-                function.as_str(),
-                "dt" | "grad" | "div" | "curl" | "sym_grad"
-            ) || args.iter().any(contains_differential_operator)
+        // A simple field sample is legal in a pointwise term. This is required for
+        // cross-field sources such as Joule heating: sigma(T) * dot(grad(V), grad(V)).
+        Expr::Call { function, args } if matches!(function.as_str(), "dt" | "grad") => {
+            !matches!(args.as_slice(), [Expr::Name(_)])
         }
-        Expr::Unary { arg, .. } => contains_differential_operator(arg),
+        // These operators require a recognized weak-form lowering. Leaving one nested in
+        // a pointwise expression would defer unavailable differential semantics to runtime.
+        Expr::Call { function, .. }
+            if matches!(function.as_str(), "div" | "curl" | "sym_grad") =>
+        {
+            true
+        }
+        Expr::Call { args, .. } => args.iter().any(contains_unlowered_differential_operator),
+        Expr::Unary { arg, .. } => contains_unlowered_differential_operator(arg),
         Expr::Binary { lhs, rhs, .. } => {
-            contains_differential_operator(lhs) || contains_differential_operator(rhs)
+            contains_unlowered_differential_operator(lhs)
+                || contains_unlowered_differential_operator(rhs)
         }
         Expr::Index { value, indices } => {
-            contains_differential_operator(value)
-                || indices.iter().any(contains_differential_operator)
+            contains_unlowered_differential_operator(value)
+                || indices
+                    .iter()
+                    .any(contains_unlowered_differential_operator)
         }
-        Expr::Vector(values) => values.iter().any(contains_differential_operator),
+        Expr::Vector(values) => values
+            .iter()
+            .any(contains_unlowered_differential_operator),
         Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => false,
     }
 }
@@ -381,6 +393,23 @@ model Heat {
         assert!(matches!(block.terms[0], WeakTerm::Mass { .. }));
         assert!(matches!(block.terms[1], WeakTerm::Diffusion { .. }));
         assert!(matches!(block.terms[2], WeakTerm::Pointwise { .. }));
+    }
+
+    #[test]
+    fn pointwise_field_gradients_are_not_unlowered_higher_derivatives() {
+        let grad_v = Expr::Call {
+            function: "grad".into(),
+            args: vec![Expr::Name("V".into())],
+        };
+        let joule = Expr::Call {
+            function: "dot".into(),
+            args: vec![grad_v.clone(), grad_v.clone()],
+        };
+        assert!(!contains_unlowered_differential_operator(&joule));
+        assert!(contains_unlowered_differential_operator(&Expr::Call {
+            function: "div".into(),
+            args: vec![grad_v],
+        }));
     }
 
     #[test]
