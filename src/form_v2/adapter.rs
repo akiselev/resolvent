@@ -1,0 +1,336 @@
+pub fn adapt_scalar_h1_model_v2(
+    model: &ScientificModel,
+) -> Result<VariationalFormArtifactV2, FormV2Error> {
+    let weak = lower_scalar_h1_model(model).map_err(|error| FormV2Error::UnloweredTerm {
+        stage: "scientific_to_scalar_h1".into(),
+        detail: error.to_string(),
+    })?;
+    let source_digest = digest_serialized(&weak)?;
+
+    let mut frames = model
+        .domains
+        .iter()
+        .map(|domain| FrameV2 {
+            id: FrameIdV2::new(format!("frame::{}", domain.name)),
+            dimension: domain.dimension,
+        })
+        .collect::<Vec<_>>();
+    frames.sort_by(|left, right| left.id.cmp(&right.id));
+
+    let physical_fields = model
+        .fields
+        .iter()
+        .filter(|field| {
+            matches!(
+                field.role,
+                FieldRoleV1::State
+                    | FieldRoleV1::Unknown
+                    | FieldRoleV1::Trial
+                    | FieldRoleV1::Coefficient
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut spaces = Vec::new();
+    let mut coefficients = Vec::new();
+    for field in physical_fields {
+        if field.shape != ValueShapeV1::Scalar || field.space.family != SpaceFamily::H1 {
+            return Err(FormV2Error::UnsupportedCompatibility {
+                field: field.name.clone(),
+                detail: format!(
+                    "expected scalar H1, got {:?} {:?}",
+                    field.shape, field.space.family
+                ),
+            });
+        }
+        let frame = FrameIdV2::new(format!("frame::{}", field.domain));
+        let space = SpaceRequirementIdV2::new(format!("space::{}", field.name));
+        let value_type = TensorTypeV2::scalar(ScalarKindV2::Real64);
+        spaces.push(SpaceRequirementV2 {
+            id: space.clone(),
+            domain: field.domain.clone(),
+            spatial_frame: frame,
+            sobolev: SobolevSpaceV2::H1,
+            value_type: value_type.clone(),
+        });
+        coefficients.push(FormCoefficientV2 {
+            field: ScientificFieldIdV2::new(field.name.clone()),
+            name: field.name.clone(),
+            space,
+            time_level: TimeLevelV2::Current,
+            value_type,
+        });
+    }
+
+    let mut block_order = weak
+        .blocks
+        .iter()
+        .map(|block| block.name.clone())
+        .collect::<Vec<_>>();
+    block_order.sort();
+    let parts = block_order
+        .iter()
+        .enumerate()
+        .map(|(part, name)| (name.clone(), part as u16))
+        .collect::<BTreeMap<_, _>>();
+
+    let mixed = weak.blocks.len() > 1;
+    let mut arguments = Vec::new();
+    let mut integrals = Vec::new();
+    let mut generated_boundary_terms = Vec::new();
+    let mut obligations = Vec::new();
+    for block in &weak.blocks {
+        let field = model
+            .fields
+            .iter()
+            .find(|field| field.name == block.primary_field)
+            .ok_or_else(|| FormV2Error::MissingReference {
+                kind: "scientific_field".into(),
+                id: block.primary_field.clone(),
+            })?;
+        let argument_id = ArgumentIdV2::new(format!("test::{}", block.name));
+        let space_id = SpaceRequirementIdV2::new(format!("space::{}", field.name));
+        arguments.push(FormArgumentV2 {
+            id: argument_id.clone(),
+            name: format!("v_{}", block.primary_field),
+            number: 0,
+            part: mixed.then(|| parts[&block.name]),
+            space: space_id,
+            value_type: TensorTypeV2::scalar(ScalarKindV2::Real64),
+        });
+        let domain = block
+            .domain
+            .clone()
+            .unwrap_or_else(|| field.domain.clone());
+        let frame = FrameIdV2::new(format!("frame::{domain}"));
+        for (term_index, term) in block.terms.iter().enumerate() {
+            let integrand = match term {
+                WeakTerm::Mass { field, coefficient } => FormExprV2::Product {
+                    values: vec![
+                        lift_scientific_expr(model, coefficient)?,
+                        FormExprV2::TimeDerivative {
+                            value: Box::new(FormExprV2::Coefficient {
+                                field: ScientificFieldIdV2::new(field.clone()),
+                            }),
+                        },
+                        FormExprV2::Argument {
+                            id: argument_id.clone(),
+                        },
+                    ],
+                },
+                WeakTerm::Diffusion { field, coefficient } => {
+                    let boundary_id = format!("{}::natural::{term_index}", block.name);
+                    obligations.push(boundary_id.clone());
+                    generated_boundary_terms.push(GeneratedBoundaryTermV2 {
+                        id: boundary_id,
+                        equation: block.name.clone(),
+                        field: ScientificFieldIdV2::new(field.clone()),
+                        description: "boundary flux generated by integration by parts".into(),
+                        disposition: BoundaryTermDispositionV2::AssumedZeroByCompatibility {
+                            reason: "V1 scalar executor applies the homogeneous natural-boundary convention unless an explicit runtime condition overrides it".into(),
+                        },
+                    });
+                    FormExprV2::Product {
+                        values: vec![
+                            lift_scientific_expr(model, coefficient)?,
+                            FormExprV2::Inner {
+                                left: Box::new(FormExprV2::Gradient {
+                                    value: Box::new(FormExprV2::Coefficient {
+                                        field: ScientificFieldIdV2::new(field.clone()),
+                                    }),
+                                    frame: frame.clone(),
+                                }),
+                                right: Box::new(FormExprV2::Gradient {
+                                    value: Box::new(FormExprV2::Argument {
+                                        id: argument_id.clone(),
+                                    }),
+                                    frame: frame.clone(),
+                                }),
+                            },
+                        ],
+                    }
+                }
+                WeakTerm::Pointwise { expression } => FormExprV2::Product {
+                    values: vec![
+                        lift_scientific_expr(model, expression)?,
+                        FormExprV2::Argument {
+                            id: argument_id.clone(),
+                        },
+                    ],
+                },
+            };
+            integrals.push(IntegralV2 {
+                id: format!("{}::term::{term_index}", block.name),
+                measure: MeasureV2::Cell {
+                    domain: domain.clone(),
+                    region: RegionSelectorV2::All,
+                },
+                integrand,
+                label: Some(block.name.clone()),
+            });
+        }
+    }
+
+    let scalar_type = TensorTypeV2::scalar(ScalarKindV2::Real64);
+    let mut constants = model
+        .parameters
+        .iter()
+        .chain(model.constants.iter())
+        .chain(model.sources.iter())
+        .map(|value| ConstantRefV2 {
+            id: ConstantIdV2::new(value.name.clone()),
+            name: value.name.clone(),
+            value_type: scalar_type.clone(),
+        })
+        .collect::<Vec<_>>();
+    constants.sort_by(|left, right| left.id.cmp(&right.id));
+    constants.dedup_by(|left, right| left.id == right.id);
+
+    let derivation_id = FormulationDerivationIdV2::new(format!(
+        "formulation::{}::scalar_h1_v1_compatibility",
+        model.name
+    ));
+    let form = VariationalFormV2 {
+        schema: VARIATIONAL_FORM_V2_SCHEMA.into(),
+        name: format!("{}::residual", model.name),
+        arity: 1,
+        arguments: arguments.clone(),
+        coefficients,
+        constants,
+        integrals,
+        scalar_kind: ScalarKindV2::Real64,
+        derivation: derivation_id.clone(),
+        obligations,
+    };
+    let derivation = FormulationDerivationV2 {
+        id: derivation_id,
+        source_model: model.name.clone(),
+        method_family: "variational_fem".into(),
+        choices: vec![
+            "scalar_h1_galerkin".into(),
+            "integration_by_parts_for_div_grad".into(),
+            "retain_v1_scalar_program_as_differential_oracle".into(),
+        ],
+        introduced_arguments: arguments
+            .iter()
+            .map(|argument| argument.id.clone())
+            .collect(),
+        generated_boundary_terms,
+        assumptions: vec![
+            "compatibility artifact does not claim generated Jacobian, JVP, VJP, parameter-action, or operator-property evidence".into(),
+        ],
+    };
+    let payload = VariationalArtifactPayloadV2 {
+        form,
+        spaces,
+        frames,
+        index_sets: Vec::new(),
+        derivation,
+        receipt: FormulationReceiptV2 {
+            schema: FORMULATION_RECEIPT_V2_SCHEMA.into(),
+            source_schema: "resolvent-weak-operator/1".into(),
+            source_digest: source_digest.clone(),
+            target_semantic_digest: Digest::blake3(&[]),
+            relation: "compatibility_adapter".into(),
+            producer: "resolvent::adapt_scalar_h1_model_v2".into(),
+        },
+        derivatives: DerivativeArtifactsV2::default(),
+        operator_claims: Vec::new(),
+        provenance: ArtifactProvenanceV2 {
+            producer: "resolvent".into(),
+            producer_version: crate::SCIENTIFIC_SCHEMA_VERSION.into(),
+            parameters: BTreeMap::from([
+                ("source_model".into(), model.name.clone()),
+                ("adapter".into(), "scalar_h1_v1_to_variational_v2".into()),
+            ]),
+        },
+        scalar_h1_compatibility: Some(ScalarH1CompatibilityV2 {
+            schema: "resolvent-scalar-h1-compatibility/2".into(),
+            source_digest,
+            program: weak,
+        }),
+    };
+    VariationalFormArtifactV2::build(payload)
+}
+
+#[derive(Clone, Debug, Error, PartialEq)]
+pub enum FormV2Error {
+    #[error("[FORM-SCHEMA-001] expected schema `{expected}`, got `{got}`")]
+    Schema { expected: String, got: String },
+    #[error("[FORM-ID-001] duplicate {kind} id `{id}`")]
+    DuplicateId { kind: String, id: String },
+    #[error("[FORM-ARITY-004] declared arity {declared} does not match computed arity {computed}")]
+    ArityMismatch { declared: u16, computed: u16 },
+    #[error("[FORM-ARITY-002] duplicate argument number {number} part {part:?}")]
+    DuplicateArgumentPart { number: u16, part: Option<u16> },
+    #[error("[FORM-ARITY-003] argument numbering is missing number {number}")]
+    ArityGap { number: u16 },
+    #[error("[FORM-BLOCK-001] no argument exists for number {number}, part {part}")]
+    BlockSelection { number: u16, part: u16 },
+    #[error("[FORM-REF-001] missing {kind} `{id}`")]
+    MissingReference { kind: String, id: String },
+    #[error("[FORM-TYPE-001] incompatible types in {operation}")]
+    TypeMismatch { operation: String },
+    #[error("[FORM-TYPE-002] expected scalar kind {expected:?}, got {got:?}")]
+    ScalarKindMismatch {
+        expected: ScalarKindV2,
+        got: ScalarKindV2,
+    },
+    #[error("[FORM-TYPE-003] invalid zero extent for {kind} `{id}`")]
+    InvalidExtent { kind: String, id: String },
+    #[error("[FORM-ARITY-001] empty `{operation}` expression")]
+    EmptyOperation { operation: String },
+    #[error("[FORM-CONTRACT-001] invalid contraction: {operation}")]
+    InvalidContraction { operation: String },
+    #[error("[FORM-FRAME-001] incompatible frames `{left}` and `{right}`")]
+    FrameMismatch { left: String, right: String },
+    #[error("[FORM-SIDE-001] side {side:?} is invalid for {measure} measure")]
+    InvalidSide { measure: String, side: TraceSideV2 },
+    #[error("[FORM-SIDE-002] {measure} operand `{operand}` requires an explicit side")]
+    MissingSide { measure: String, operand: String },
+    #[error("[FORM-SCALAR-001] integral `{integral}` has {axes} uncontracted axes")]
+    NonScalarIntegrand { integral: String, axes: usize },
+    #[error("[FORM-COMPAT-001] scalar-H1 compatibility cannot represent field `{field}`: {detail}")]
+    UnsupportedCompatibility { field: String, detail: String },
+    #[error("[FORM-LOWER-001] unlowered term at stage `{stage}`: {detail}")]
+    UnloweredTerm { stage: String, detail: String },
+    #[error("[DERIV-EVIDENCE-001] generated claim `{claim}` has no evidence")]
+    UnevidencedClaim { claim: String },
+    #[error("[FORM-ARTIFACT-001] artifact payload is not canonical")]
+    NonCanonicalArtifact,
+    #[error("[FORM-DIGEST-001] {which} digest does not match payload")]
+    DigestMismatch { which: String },
+    #[error("[FORM-COMPAT-002] artifact has no scalar-H1 compatibility oracle")]
+    MissingCompatibilityOracle,
+    #[error("[FORM-SERIALIZE-001] artifact serialization failed: {0}")]
+    Serialization(String),
+}
+
+impl FormV2Error {
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Schema { .. } => "FORM-SCHEMA-001",
+            Self::DuplicateId { .. } => "FORM-ID-001",
+            Self::ArityMismatch { .. } => "FORM-ARITY-004",
+            Self::DuplicateArgumentPart { .. } => "FORM-ARITY-002",
+            Self::ArityGap { .. } => "FORM-ARITY-003",
+            Self::BlockSelection { .. } => "FORM-BLOCK-001",
+            Self::MissingReference { .. } => "FORM-REF-001",
+            Self::TypeMismatch { .. } => "FORM-TYPE-001",
+            Self::ScalarKindMismatch { .. } => "FORM-TYPE-002",
+            Self::InvalidExtent { .. } => "FORM-TYPE-003",
+            Self::EmptyOperation { .. } => "FORM-ARITY-001",
+            Self::InvalidContraction { .. } => "FORM-CONTRACT-001",
+            Self::FrameMismatch { .. } => "FORM-FRAME-001",
+            Self::InvalidSide { .. } => "FORM-SIDE-001",
+            Self::MissingSide { .. } => "FORM-SIDE-002",
+            Self::NonScalarIntegrand { .. } => "FORM-SCALAR-001",
+            Self::UnsupportedCompatibility { .. } => "FORM-COMPAT-001",
+            Self::UnloweredTerm { .. } => "FORM-LOWER-001",
+            Self::UnevidencedClaim { .. } => "DERIV-EVIDENCE-001",
+            Self::NonCanonicalArtifact => "FORM-ARTIFACT-001",
+            Self::DigestMismatch { .. } => "FORM-DIGEST-001",
+            Self::MissingCompatibilityOracle => "FORM-COMPAT-002",
+            Self::Serialization(_) => "FORM-SERIALIZE-001",
+        }
+    }
+}

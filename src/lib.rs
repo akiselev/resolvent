@@ -18,6 +18,7 @@ pub mod expr;
 pub mod field;
 pub mod form;
 pub mod form_compile;
+pub mod form_v2;
 pub mod generated_verify;
 pub mod id;
 pub mod latex;
@@ -69,6 +70,7 @@ pub use form::{
 pub use form_compile::{
     CompiledForm, FormCompileError, FormCompileOptions, RecognizedFormTerm, compile_form,
 };
+pub use form_v2::*;
 pub use generated_verify::{
     ConvergenceObservation, DerivativeGate, GeneratedVerifyError, ManufacturedSolution,
     adjoint_dot_gate, finite_difference_gate, infer_dimension, manufacture_forcing,
