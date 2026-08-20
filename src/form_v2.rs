@@ -19,8 +19,7 @@ use std::fmt;
 
 pub const VARIATIONAL_FORM_V2_SCHEMA: &str = "resolvent-variational-form/2";
 pub const FORMULATION_DERIVATION_V2_SCHEMA: &str = "resolvent-formulation-derivation/2";
-pub const COMPATIBILITY_WEAK_PROGRAM_V2_SCHEMA: &str =
-    "resolvent-scalar-weak-compatibility/2";
+pub const COMPATIBILITY_WEAK_PROGRAM_V2_SCHEMA: &str = "resolvent-scalar-weak-compatibility/2";
 pub const ARTIFACT_ENVELOPE_V2_SCHEMA: &str = "resolvent-compiler-artifact/2";
 pub const REFINEMENT_RECEIPT_V2_SCHEMA: &str = "resolvent-refinement-receipt/2";
 
@@ -59,9 +58,7 @@ impl IndexSetIdV2 {
     }
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ArtifactIdV2(pub Digest);
 
@@ -75,9 +72,7 @@ impl ArtifactIdV2 {
     }
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArtifactStageV2 {
     ScientificSystem,
@@ -91,9 +86,7 @@ pub enum ArtifactStageV2 {
     Executable,
 }
 
-#[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ArtifactRefV2 {
     pub schema: String,
     pub stage: ArtifactStageV2,
@@ -175,7 +168,10 @@ impl<T: Serialize> ArtifactEnvelopeV2<T> {
         self.verify()?;
         let mut summary = BTreeMap::new();
         summary.insert("payload_type".into(), std::any::type_name::<T>().into());
-        summary.insert("digest_algorithm".into(), self.artifact_id.0.algorithm.clone());
+        summary.insert(
+            "digest_algorithm".into(),
+            self.artifact_id.0.algorithm.clone(),
+        );
         Ok(ArtifactInspectionV2 {
             envelope_schema: self.envelope_schema.clone(),
             payload_schema: self.payload_schema.clone(),
@@ -279,13 +275,19 @@ pub struct FormValidationErrorV2 {
 
 impl FormValidationErrorV2 {
     pub fn has_code(&self, code: &str) -> bool {
-        self.diagnostics.iter().any(|diagnostic| diagnostic.code == code)
+        self.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == code)
     }
 }
 
 impl fmt::Display for FormValidationErrorV2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "variational form failed with {} diagnostic(s)", self.diagnostics.len())
+        write!(
+            f,
+            "variational form failed with {} diagnostic(s)",
+            self.diagnostics.len()
+        )
     }
 }
 
@@ -1102,7 +1104,10 @@ fn infer_type(
                 ));
                 return None;
             };
-            environment.spaces.get(&argument.space).map(|space| space.value_type.clone())
+            environment
+                .spaces
+                .get(&argument.space)
+                .map(|space| space.value_type.clone())
         }
         FormExprV2::Coefficient(id) => {
             let Some(coefficient) = environment.coefficients.get(id) else {
@@ -1212,12 +1217,8 @@ fn infer_type(
             frame,
             dimension,
         } => {
-            let mut value_type = infer_type(
-                value,
-                environment,
-                &format!("{path}.value"),
-                diagnostics,
-            )?;
+            let mut value_type =
+                infer_type(value, environment, &format!("{path}.value"), diagnostics)?;
             if *dimension == 0 {
                 diagnostics.push(FormDiagnosticV2::error(
                     "FORM-V2-GRADIENT-DIMENSION",
@@ -1234,18 +1235,8 @@ fn infer_type(
             Some(value_type)
         }
         FormExprV2::Dot { left, right } => {
-            let left_type = infer_type(
-                left,
-                environment,
-                &format!("{path}.left"),
-                diagnostics,
-            )?;
-            let right_type = infer_type(
-                right,
-                environment,
-                &format!("{path}.right"),
-                diagnostics,
-            )?;
+            let left_type = infer_type(left, environment, &format!("{path}.left"), diagnostics)?;
+            let right_type = infer_type(right, environment, &format!("{path}.right"), diagnostics)?;
             if left_type.scalar != right_type.scalar {
                 diagnostics.push(FormDiagnosticV2::error(
                     "FORM-V2-SCALAR-KIND-MISMATCH",
@@ -1265,18 +1256,8 @@ fn infer_type(
             Some(TensorTypeV2::scalar(left_type.scalar))
         }
         FormExprV2::Inner { left, right } => {
-            let left_type = infer_type(
-                left,
-                environment,
-                &format!("{path}.left"),
-                diagnostics,
-            )?;
-            let right_type = infer_type(
-                right,
-                environment,
-                &format!("{path}.right"),
-                diagnostics,
-            )?;
+            let left_type = infer_type(left, environment, &format!("{path}.left"), diagnostics)?;
+            let right_type = infer_type(right, environment, &format!("{path}.right"), diagnostics)?;
             if left_type.scalar != right_type.scalar {
                 diagnostics.push(FormDiagnosticV2::error(
                     "FORM-V2-SCALAR-KIND-MISMATCH",
@@ -1291,11 +1272,8 @@ fn infer_type(
                     "inner operands must have identical ranks",
                 ));
             } else {
-                for (index, (left_axis, right_axis)) in left_type
-                    .axes
-                    .iter()
-                    .zip(&right_type.axes)
-                    .enumerate()
+                for (index, (left_axis, right_axis)) in
+                    left_type.axes.iter().zip(&right_type.axes).enumerate()
                 {
                     if !left_axis.metric_compatible(right_axis) {
                         push_axis_mismatch(
@@ -1310,18 +1288,8 @@ fn infer_type(
             Some(TensorTypeV2::scalar(left_type.scalar))
         }
         FormExprV2::Contract { left, right, pairs } => {
-            let left_type = infer_type(
-                left,
-                environment,
-                &format!("{path}.left"),
-                diagnostics,
-            )?;
-            let right_type = infer_type(
-                right,
-                environment,
-                &format!("{path}.right"),
-                diagnostics,
-            )?;
+            let left_type = infer_type(left, environment, &format!("{path}.left"), diagnostics)?;
+            let right_type = infer_type(right, environment, &format!("{path}.right"), diagnostics)?;
             if left_type.scalar != right_type.scalar {
                 diagnostics.push(FormDiagnosticV2::error(
                     "FORM-V2-SCALAR-KIND-MISMATCH",
@@ -1349,9 +1317,7 @@ fn infer_type(
                         "a tensor axis can be contracted at most once",
                     ));
                 }
-                if !left_type.axes[left_index]
-                    .dual_compatible(&right_type.axes[right_index])
-                {
+                if !left_type.axes[left_index].dual_compatible(&right_type.axes[right_index]) {
                     push_axis_mismatch(
                         &format!("{path}.pairs[{index}]"),
                         &left_type.axes[left_index],
@@ -1386,12 +1352,7 @@ fn infer_type(
             permutation,
             kind: _,
         } => {
-            let value_type = infer_type(
-                value,
-                environment,
-                &format!("{path}.value"),
-                diagnostics,
-            )?;
+            let value_type = infer_type(value, environment, &format!("{path}.value"), diagnostics)?;
             if permutation.len() != value_type.rank() {
                 diagnostics.push(FormDiagnosticV2::error(
                     "FORM-V2-ADJOINT-PERMUTATION",
@@ -1432,12 +1393,10 @@ fn push_axis_mismatch(
     let code = match (left, right) {
         (
             AxisKindV2::Spatial {
-                frame: left_frame,
-                ..
+                frame: left_frame, ..
             },
             AxisKindV2::Spatial {
-                frame: right_frame,
-                ..
+                frame: right_frame, ..
             },
         ) if left_frame != right_frame => "FORM-V2-AXIS-FRAME-MISMATCH",
         _ if left.extent() != right.extent() => "FORM-V2-AXIS-EXTENT-MISMATCH",
@@ -1478,7 +1437,10 @@ fn validate_measure_sides(
             diagnostics.push(FormDiagnosticV2::error(
                 "FORM-V2-TRACE-SIDE",
                 format!("{path}.integrand"),
-                format!("trace side {side:?} is invalid for measure {:?}", integral.measure),
+                format!(
+                    "trace side {side:?} is invalid for measure {:?}",
+                    integral.measure
+                ),
             ));
         }
     }
@@ -1651,8 +1613,7 @@ impl ScalarFormCompatibilityBundleV2 {
                 )));
             }
             for generated in &derivation.payload.generated_boundary_terms {
-                if let BoundaryTermDispositionV2::Deferred { obligation } =
-                    &generated.disposition
+                if let BoundaryTermDispositionV2::Deferred { obligation } = &generated.disposition
                     && !derivation.payload.obligations.contains(obligation)
                 {
                     return Err(ArtifactCodecErrorV2::InvalidArtifact(format!(
@@ -1673,9 +1634,9 @@ impl ScalarFormCompatibilityBundleV2 {
                     form.artifact_id.hex()
                 )));
             }
-            form.payload.validate().map_err(|error| {
-                ArtifactCodecErrorV2::InvalidArtifact(error.to_string())
-            })?;
+            form.payload
+                .validate()
+                .map_err(|error| ArtifactCodecErrorV2::InvalidArtifact(error.to_string()))?;
             let derivation = self
                 .derivations
                 .iter()
@@ -1759,9 +1720,8 @@ pub fn adapt_scalar_h1_model_v2_with_options(
     options: &ScalarAdapterOptionsV2,
 ) -> Result<ScalarFormCompatibilityBundleV2, ScalarFormAdapterErrorV2> {
     let weak = lower_scalar_h1_model(model).map_err(map_weak_error)?;
-    let model_id = semantic_model_id(model).map_err(|error| {
-        adapter_error("FORM-V2-MODEL-DIGEST", "model", error.to_string())
-    })?;
+    let model_id = semantic_model_id(model)
+        .map_err(|error| adapter_error("FORM-V2-MODEL-DIGEST", "model", error.to_string()))?;
     let model_ref = ArtifactRefV2 {
         schema: "resolvent-scientific-v1/model-semantic".into(),
         stage: ArtifactStageV2::ScientificSystem,
@@ -1772,7 +1732,10 @@ pub fn adapt_scalar_h1_model_v2_with_options(
         .fields
         .iter()
         .filter(|field| {
-            !matches!(field.role, FieldRoleV1::Test | FieldRoleV1::Trial | FieldRoleV1::Parameter)
+            !matches!(
+                field.role,
+                FieldRoleV1::Test | FieldRoleV1::Trial | FieldRoleV1::Parameter
+            )
         })
         .collect::<Vec<_>>();
     for field in &physical_fields {
@@ -1803,7 +1766,10 @@ pub fn adapt_scalar_h1_model_v2_with_options(
                     format!("primary field `{}` is not declared", block.primary_field),
                 )
             })?;
-        let domain = block.domain.clone().unwrap_or_else(|| primary.domain.clone());
+        let domain = block
+            .domain
+            .clone()
+            .unwrap_or_else(|| primary.domain.clone());
         let domain_decl = model
             .domains
             .iter()
@@ -1860,7 +1826,10 @@ pub fn adapt_scalar_h1_model_v2_with_options(
                 adapter_error(
                     "FORM-V2-PRIMARY-COEFFICIENT",
                     format!("equations.{}", block.name),
-                    format!("primary field `{}` is not a physical coefficient", block.primary_field),
+                    format!(
+                        "primary field `{}` is not a physical coefficient",
+                        block.primary_field
+                    ),
                 )
             })?;
         let test_id = FormArgumentIdV2(0);
@@ -2062,8 +2031,7 @@ pub fn adapt_scalar_h1_model_v2_with_options(
         )
         .map_err(|error| adapter_error("FORM-V2-RECEIPT", "receipts", error.to_string()))?;
         receipt.assumptions.push(
-            "projection is admitted only for the scalar H1 mass/diffusion/pointwise subset"
-                .into(),
+            "projection is admitted only for the scalar H1 mass/diffusion/pointwise subset".into(),
         );
         receipts.push(receipt);
     }
@@ -2138,10 +2106,11 @@ fn canonicalize_semantic_value(value: &mut serde_json::Value) {
             for child in items.iter_mut() {
                 canonicalize_semantic_value(child);
             }
-            if items
-                .iter()
-                .all(|item| item.get("name").and_then(serde_json::Value::as_str).is_some())
-            {
+            if items.iter().all(|item| {
+                item.get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+            }) {
                 items.sort_by(|left, right| {
                     left.get("name")
                         .and_then(serde_json::Value::as_str)
@@ -2202,8 +2171,18 @@ model Heat {
         assert!(form.payload.capabilities.derivative_artifacts.is_empty());
         assert!(form.payload.capabilities.operator_claims.is_empty());
         assert_eq!(form.payload.arguments.len(), 1);
-        assert!(form.payload.coefficients.iter().any(|field| field.field == "T"));
-        assert!(form.payload.obligations.iter().any(|value| value.starts_with("boundary-term:")));
+        assert!(
+            form.payload
+                .coefficients
+                .iter()
+                .any(|field| field.field == "T")
+        );
+        assert!(
+            form.payload
+                .obligations
+                .iter()
+                .any(|value| value.starts_with("boundary-term:"))
+        );
         let json = form.to_json_pretty().unwrap();
         let decoded = ArtifactEnvelopeV2::<VariationalFormV2>::from_json(&json).unwrap();
         assert_eq!(decoded.artifact_id, form.artifact_id);
@@ -2211,7 +2190,10 @@ model Heat {
             decoded.payload.semantic_digest().unwrap(),
             form.payload.semantic_digest().unwrap()
         );
-        assert_eq!(form.inspect().unwrap().stage, ArtifactStageV2::VariationalForm);
+        assert_eq!(
+            form.inspect().unwrap().stage,
+            ArtifactStageV2::VariationalForm
+        );
         let mut tampered = form.clone();
         tampered.envelope_schema = "resolvent-compiler-artifact/1".into();
         assert!(matches!(
