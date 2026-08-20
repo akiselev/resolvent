@@ -1,20 +1,20 @@
-use crate::expr::{ExprNode, ExprStore};
-use crate::id::{ExprId, SymbolId};
-use crate::model::System;
-use crate::structural::{IncidenceSystem, StructuralError, maximum_matching};
+//! Alias and differential-algebraic structure derived from scientific expressions.
+
+use crate::scientific::{Expr, ScientificModel};
+use crate::structural::{IncidenceSystem, StructuralError, collect_names, maximum_matching};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct DerivativeVariable {
-    pub symbol: SymbolId,
+    pub field: String,
     pub order: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AliasClass {
-    pub representative: SymbolId,
-    pub members: Vec<SymbolId>,
+    pub representative: String,
+    pub members: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,25 +23,39 @@ pub struct AliasAnalysis {
     pub eliminated_equations: Vec<usize>,
 }
 
-/// Detect direct aliases `x = y` in the semantic System. The compiler reports classes first;
-/// a later rewrite may substitute them while preserving a refinement receipt.
-pub fn analyze_aliases(system: &System, exprs: &ExprStore) -> AliasAnalysis {
-    let mut parent: BTreeMap<SymbolId, SymbolId> =
-        system.unknowns.iter().copied().map(|s| (s, s)).collect();
-    let mut eliminated = vec![];
-    for (i, e) in system.equations.iter().enumerate() {
-        if let (Some(a), Some(b)) = (as_symbol(exprs, e.lhs), as_symbol(exprs, e.rhs))
-            && parent.contains_key(&a)
-            && parent.contains_key(&b)
+/// Detect direct aliases such as `x = y`. This pass reports candidates; it does not rewrite
+/// the authored equations or hide the transformation from later evidence.
+pub fn analyze_aliases(model: &ScientificModel) -> AliasAnalysis {
+    let variables: Vec<_> = model
+        .fields
+        .iter()
+        .filter(|field| {
+            matches!(
+                field.role,
+                crate::scientific::FieldRole::State | crate::scientific::FieldRole::Unknown
+            )
+        })
+        .map(|field| field.name.clone())
+        .collect();
+    let mut parent: BTreeMap<String, String> = variables
+        .iter()
+        .map(|name| (name.clone(), name.clone()))
+        .collect();
+    let mut eliminated_equations = Vec::new();
+    for (index, equation) in model.equations.iter().enumerate() {
+        if let (Some(left), Some(right)) = (as_name(&equation.lhs), as_name(&equation.rhs))
+            && parent.contains_key(left)
+            && parent.contains_key(right)
         {
-            union(&mut parent, a, b);
-            eliminated.push(i)
+            union(&mut parent, left, right);
+            eliminated_equations.push(index);
         }
     }
-    let mut groups: BTreeMap<SymbolId, Vec<SymbolId>> = BTreeMap::new();
-    for s in system.unknowns.iter().copied() {
-        let r = find(&mut parent, s);
-        groups.entry(r).or_default().push(s)
+
+    let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for variable in variables {
+        let representative = find(&mut parent, &variable);
+        groups.entry(representative).or_default().push(variable);
     }
     AliasAnalysis {
         classes: groups
@@ -53,31 +67,41 @@ pub fn analyze_aliases(system: &System, exprs: &ExprStore) -> AliasAnalysis {
                 })
             })
             .collect(),
-        eliminated_equations: eliminated,
+        eliminated_equations,
     }
 }
-fn as_symbol(exprs: &ExprStore, id: ExprId) -> Option<SymbolId> {
-    match exprs.get(id)? {
-        ExprNode::Symbol(s) => Some(*s),
+
+fn as_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(name) => Some(name),
         _ => None,
     }
 }
-fn find(parent: &mut BTreeMap<SymbolId, SymbolId>, x: SymbolId) -> SymbolId {
-    let p = *parent.get(&x).unwrap_or(&x);
-    if p == x {
-        x
+
+fn find(parent: &mut BTreeMap<String, String>, value: &str) -> String {
+    let next = parent
+        .get(value)
+        .cloned()
+        .unwrap_or_else(|| value.to_owned());
+    if next == value {
+        next
     } else {
-        let r = find(parent, p);
-        parent.insert(x, r);
-        r
+        let representative = find(parent, &next);
+        parent.insert(value.to_owned(), representative.clone());
+        representative
     }
 }
-fn union(parent: &mut BTreeMap<SymbolId, SymbolId>, a: SymbolId, b: SymbolId) {
-    let ra = find(parent, a);
-    let rb = find(parent, b);
-    if ra != rb {
-        let (lo, hi) = if ra < rb { (ra, rb) } else { (rb, ra) };
-        parent.insert(hi, lo);
+
+fn union(parent: &mut BTreeMap<String, String>, left: &str, right: &str) {
+    let left = find(parent, left);
+    let right = find(parent, right);
+    if left != right {
+        let (first, second) = if left < right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        parent.insert(second, first);
     }
 }
 
@@ -87,72 +111,66 @@ pub struct EquationDerivativeProfile {
     pub derivatives: Vec<DerivativeVariable>,
 }
 
-pub fn derivative_profile(
-    system: &System,
-    exprs: &ExprStore,
-    time: SymbolId,
-) -> Result<Vec<EquationDerivativeProfile>, StructuralError> {
-    system
+pub fn derivative_profile(model: &ScientificModel) -> Vec<EquationDerivativeProfile> {
+    model
         .equations
         .iter()
         .enumerate()
-        .map(|(i, e)| {
-            let mut set = BTreeSet::new();
-            collect_derivatives(e.lhs, exprs, time, &mut set)?;
-            collect_derivatives(e.rhs, exprs, time, &mut set)?;
-            Ok(EquationDerivativeProfile {
-                equation: i,
-                derivatives: set.into_iter().collect(),
-            })
+        .map(|(equation, declaration)| {
+            let mut derivatives = BTreeSet::new();
+            collect_derivatives(&declaration.lhs, &mut derivatives);
+            collect_derivatives(&declaration.rhs, &mut derivatives);
+            EquationDerivativeProfile {
+                equation,
+                derivatives: derivatives.into_iter().collect(),
+            }
         })
         .collect()
 }
-fn collect_derivatives(
-    root: ExprId,
-    exprs: &ExprStore,
-    time: SymbolId,
-    out: &mut BTreeSet<DerivativeVariable>,
-) -> Result<(), StructuralError> {
-    let mut stack = vec![root];
-    let mut seen = BTreeSet::new();
-    while let Some(id) = stack.pop() {
-        if !seen.insert(id) {
-            continue;
-        }
-        let node = exprs
-            .get(id)
-            .ok_or(StructuralError::MissingExpression(id.0))?;
-        match node {
-            ExprNode::Literal(_) | ExprNode::Symbol(_) => {}
-            ExprNode::Neg(x) => stack.push(*x),
-            ExprNode::Add(xs) | ExprNode::Mul(xs) => stack.extend(xs.iter().copied()),
-            ExprNode::Div {
-                numerator,
-                denominator,
-            } => {
-                stack.push(*numerator);
-                stack.push(*denominator)
-            }
-            ExprNode::PowI { base, .. } => stack.push(*base),
-            ExprNode::Apply { args, .. } => stack.extend(args.iter().copied()),
-            ExprNode::Derivative {
-                expr,
-                with_respect_to,
-                order,
-            } => {
-                if *with_respect_to == time
-                    && let Some(s) = as_symbol(exprs, *expr)
-                {
-                    out.insert(DerivativeVariable {
-                        symbol: s,
-                        order: *order,
-                    });
-                }
-                stack.push(*expr)
-            }
-        }
+
+fn collect_derivatives(expr: &Expr, out: &mut BTreeSet<DerivativeVariable>) {
+    if let Some((field, order)) = derivative_target(expr) {
+        out.insert(DerivativeVariable {
+            field: field.to_owned(),
+            order,
+        });
+        return;
     }
-    Ok(())
+    match expr {
+        Expr::Unary { arg, .. } => collect_derivatives(arg, out),
+        Expr::Binary { lhs, rhs, .. } => {
+            collect_derivatives(lhs, out);
+            collect_derivatives(rhs, out);
+        }
+        Expr::Call { args, .. } | Expr::Vector(args) => {
+            for arg in args {
+                collect_derivatives(arg, out);
+            }
+        }
+        Expr::Index { value, indices } => {
+            collect_derivatives(value, out);
+            for index in indices {
+                collect_derivatives(index, out);
+            }
+        }
+        Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => {}
+    }
+}
+
+fn derivative_target(mut expr: &Expr) -> Option<(&str, u8)> {
+    let mut order = 0_u8;
+    while let Expr::Call { function, args } = expr {
+        if function != "dt" || args.len() != 1 {
+            break;
+        }
+        order = order.saturating_add(1);
+        expr = &args[0];
+    }
+    match (order, expr) {
+        (0, _) => None,
+        (_, Expr::Name(field)) => Some((field, order)),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,6 +179,7 @@ pub struct DifferentiationStep {
     pub new_order: u8,
     pub reason: String,
 }
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IndexReductionPlan {
     pub structural_index_lower_bound: u8,
@@ -170,146 +189,98 @@ pub struct IndexReductionPlan {
     pub consistent_initialization_required: bool,
 }
 
-/// A deterministic Pantelides-style planning pass. It does not silently mutate the source
-/// System: it identifies structurally unmatched equations and the differentiation order that
-/// must be introduced. A later semantic pass materializes the differentiated equations and
-/// records the exact refinement relation.
+/// Plan deterministic Pantelides-style differentiation without mutating the source model.
 pub fn pantelides_plan(
-    system: &System,
-    exprs: &ExprStore,
-    time: SymbolId,
+    model: &ScientificModel,
     max_order: u8,
 ) -> Result<IndexReductionPlan, StructuralError> {
-    let incidence = IncidenceSystem::from_system(system, exprs)?;
+    let incidence = IncidenceSystem::from_model(model)?;
     let matching = maximum_matching(&incidence);
-    let profiles = derivative_profile(system, exprs, time)?;
-    let unmatched_eq = matching.unmatched_equations();
-    let unmatched_var = matching.unmatched_variables();
-    let mut steps = vec![];
-    let mut index = if unmatched_eq.is_empty() { 1 } else { 2 };
-    for eq in &unmatched_eq {
+    let profiles = derivative_profile(model);
+    let unmatched_equations = matching.unmatched_equations();
+    let unmatched_variables = matching.unmatched_variables();
+    let mut steps = Vec::new();
+    let mut index = if unmatched_equations.is_empty() { 1 } else { 2 };
+
+    for equation in &unmatched_equations {
         let existing = profiles
-            .get(*eq)
-            .and_then(|p| p.derivatives.iter().map(|d| d.order).max())
+            .get(*equation)
+            .and_then(|profile| profile.derivatives.iter().map(|item| item.order).max())
             .unwrap_or(0);
-        let target = (existing + 1).min(max_order.max(1));
+        let target = existing.saturating_add(1).min(max_order.max(1));
         index = index.max(target.saturating_add(1));
-        steps.push(DifferentiationStep{equation:*eq,new_order:target,reason:"equation is structurally unmatched; expose derivative incidence before causalization".into()});
+        steps.push(DifferentiationStep {
+            equation: *equation,
+            new_order: target,
+            reason: "equation is structurally unmatched; expose derivative incidence before causalization"
+                .into(),
+        });
     }
-    // Square systems can still be higher-index if an algebraic equation constrains a state
-    // that appears differentiated elsewhere. Mark those constraints for one derivative.
-    if unmatched_eq.is_empty() {
+
+    // A square system can still hide an algebraic constraint on a differentiated state.
+    if unmatched_equations.is_empty() {
         let differentiated: BTreeSet<_> = profiles
             .iter()
-            .flat_map(|p| p.derivatives.iter().map(|d| d.symbol))
+            .flat_map(|profile| profile.derivatives.iter().map(|item| item.field.as_str()))
             .collect();
-        for (i, e) in system.equations.iter().enumerate() {
-            let mut syms = BTreeSet::new();
-            super::collect_symbols_for_dae(e.lhs, exprs, &mut syms)?;
-            super::collect_symbols_for_dae(e.rhs, exprs, &mut syms)?;
-            if profiles[i].derivatives.is_empty() && syms.iter().any(|s| differentiated.contains(s))
+        for (equation, declaration) in model.equations.iter().enumerate() {
+            let mut names = BTreeSet::new();
+            collect_names(&declaration.lhs, &mut names);
+            collect_names(&declaration.rhs, &mut names);
+            if profiles[equation].derivatives.is_empty()
+                && names.iter().any(|name| differentiated.contains(name))
             {
-                steps.push(DifferentiationStep{equation:i,new_order:1,reason:"algebraic constraint closes a differentiated state; candidate hidden constraint".into()});
+                steps.push(DifferentiationStep {
+                    equation,
+                    new_order: 1,
+                    reason: "algebraic constraint closes a differentiated state; candidate hidden constraint"
+                        .into(),
+                });
                 index = index.max(2);
             }
         }
     }
-    steps.sort_by_key(|s| (s.equation, s.new_order));
-    steps.dedup_by_key(|s| (s.equation, s.new_order));
+
+    steps.sort_by_key(|step| (step.equation, step.new_order));
+    steps.dedup_by_key(|step| (step.equation, step.new_order));
     Ok(IndexReductionPlan {
         structural_index_lower_bound: index,
         consistent_initialization_required: !steps.is_empty(),
         steps,
-        unmatched_equations: unmatched_eq,
-        unmatched_variables: unmatched_var,
+        unmatched_equations,
+        unmatched_variables,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Context;
-    use crate::expr::{ScalarLiteral, Symbol, SymbolRole};
-    use crate::model::Equation;
+    use crate::parse_scientific_module;
+
+    fn model(body: &str) -> ScientificModel {
+        let source = format!(
+            "module structural.test;\nmodel Test {{\n  domain D {{ dimension = 1; coordinates = cartesian; }}\n{body}\n}}\n"
+        );
+        parse_scientific_module(&source).unwrap().models.remove(0)
+    }
+
     #[test]
     fn detects_alias_class() {
-        let mut c = Context::new();
-        let x = c.declare_symbol(Symbol {
-            name: "x".into(),
-            role: SymbolRole::Algebraic,
-            dimension: None,
-        });
-        let y = c.declare_symbol(Symbol {
-            name: "y".into(),
-            role: SymbolRole::Algebraic,
-            dimension: None,
-        });
-        let ex = c.exprs.symbol(x);
-        let ey = c.exprs.symbol(y);
-        let s = System {
-            name: "a".into(),
-            unknowns: vec![x, y],
-            parameters: vec![],
-            equations: vec![Equation {
-                lhs: ex,
-                rhs: ey,
-                label: None,
-            }],
-            events: vec![],
-            children: vec![],
-            metadata: Default::default(),
-        };
-        let a = analyze_aliases(&s, &c.exprs);
-        assert_eq!(a.classes.len(), 1);
+        let model = model(
+            "  field x: unknown scalar H1(order=1) on D;\n  field y: unknown scalar H1(order=1) on D;\n  equation alias on D { x = y; }",
+        );
+        let analysis = analyze_aliases(&model);
+        assert_eq!(analysis.classes.len(), 1);
+        assert_eq!(analysis.classes[0].members, ["x", "y"]);
     }
+
     #[test]
     fn hidden_constraint_requests_differentiation() {
-        let mut c = Context::new();
-        let t = c.declare_symbol(Symbol {
-            name: "t".into(),
-            role: SymbolRole::Independent,
-            dimension: None,
-        });
-        let x = c.declare_symbol(Symbol {
-            name: "x".into(),
-            role: SymbolRole::State,
-            dimension: None,
-        });
-        let y = c.declare_symbol(Symbol {
-            name: "y".into(),
-            role: SymbolRole::State,
-            dimension: None,
-        });
-        let ex = c.exprs.symbol(x);
-        let ey = c.exprs.symbol(y);
-        let dx = c.exprs.intern(ExprNode::Derivative {
-            expr: ex,
-            with_respect_to: t,
-            order: 1,
-        });
-        let zero = c.exprs.literal(ScalarLiteral::integer(0));
-        let s = System {
-            name: "dae".into(),
-            unknowns: vec![x, y],
-            parameters: vec![],
-            equations: vec![
-                Equation {
-                    lhs: dx,
-                    rhs: ey,
-                    label: None,
-                },
-                Equation {
-                    lhs: ex,
-                    rhs: zero,
-                    label: None,
-                },
-            ],
-            events: vec![],
-            children: vec![],
-            metadata: Default::default(),
-        };
-        let p = pantelides_plan(&s, &c.exprs, t, 3).unwrap();
-        assert!(p.steps.iter().any(|s| s.equation == 1));
-        assert!(p.consistent_initialization_required);
+        let model = model(
+            "  field x: state scalar H1(order=1) on D;\n  field y: state scalar H1(order=1) on D;\n  equation dynamic on D { dt(x) = y; }\n  equation constraint on D { x = 0; }",
+        );
+        let plan = pantelides_plan(&model, 3).unwrap();
+        assert!(plan.steps.iter().any(|step| step.equation == 1));
+        assert!(plan.consistent_initialization_required);
     }
 }

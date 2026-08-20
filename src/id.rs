@@ -33,16 +33,7 @@ macro_rules! id_type {
     };
 }
 
-id_type!(SymbolId);
-id_type!(ExprId);
-id_type!(SystemId);
-id_type!(FieldId);
-id_type!(FormId);
-id_type!(DiscreteProgramId);
-id_type!(OperatorId);
-id_type!(RefinementId);
 id_type!(ObligationId);
-id_type!(ObservableId);
 
 /// Stable digest used at repository boundaries. The wire format deliberately carries
 /// the algorithm so a future digest migration cannot silently reinterpret old records.

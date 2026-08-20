@@ -17,7 +17,7 @@ model M{index} {{
 }
 
 #[test]
-fn r14_corpus_has_fifty_valid_modules() {
+fn generated_corpus_has_fifty_valid_modules() {
     for index in 0..50 {
         let source = valid_module(index);
         let module = parse_scientific_module(&source)
@@ -27,7 +27,7 @@ fn r14_corpus_has_fifty_valid_modules() {
 }
 
 #[test]
-fn r14_corpus_has_fifty_invalid_modules() {
+fn generated_corpus_has_fifty_invalid_modules() {
     for index in 0..50 {
         let source = format!(
             "module corpus.invalid_{index};\nmodel Bad{index} {{\n  nonsense alpha;\n  nonsense beta;\n}}\n"

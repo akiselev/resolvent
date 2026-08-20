@@ -1,34 +1,74 @@
 # Resolvent status
 
-Updated: 2026-08-16
-Branch: `agent/r13-r20-wave-a-f`
-Milestone: Waves A-F / R13-R20
+Updated: 2026-08-20
 
-## Current role
+Branch: `master`
 
-Resolvent owns scientific authoring semantics, quantity/kind semantics, property and constitutive IR, variational/discrete meaning, coupling dependency semantics, and time/state meaning. It does not own finite-precision kernel compilation, global field runtime, or numerical solve strategy.
+Milestone: compiler federation reset
 
-## Implemented on this branch
+## Role
 
-- R13: canonical nonlinear transient heat MMS plus generic scalar-H1 weak lowering into mass/diffusion/pointwise terms, with an explicit execution plan and no named heat opcode.
-- R14: scientific-v1 parser/IR, source spans including weak-form integrals, recovery, canonical formatting, semantic digest independent of spans/whitespace and declaration ordering, and CLI `check|fmt|parse|elaborate|inspect|freeze|explain|coupling|plan` surfaces.
-- R14 acceptance: generated valid/invalid corpus, multi-error recovery, formatting idempotence/semantic preservation, nonempty declaration spans, and ordering-invariant semantics.
-- R15: `resolvent-quantities` dimension/kind/unit semantics, affine point-vs-interval handling, exact scales, offline SIRP snapshot tooling, scalar/table property IR, bounds/validity/evidence/uncertainty/derivative contracts, and 2-D symmetric tensor frame transforms.
-- R16: stateless/stateful constitutive semantic contracts and standard law identities.
-- R17: H1/L2/H(curl)/H(div) element semantics plus executable P1 scalar/vector, mixed Stokes, Nedelec H(curl), and Raviart-Thomas H(div) reference paths with orientation tests.
-- R18: recursively derived coupling through nested properties and constitutive aliases, form/condition dependencies, explanation paths, and structurally nonzero Jacobian-block structure; declaration reordering is tested to preserve the graph.
-- R20: differential/algebraic field roles, initial-state semantics, event/history schemas, and canonical `F(t,y,ydot,p)=0` representation.
+Resolvent owns `.res` source and scientific/form semantics. It parses and resolves modules,
+maintains one canonical model, performs semantic and structural analysis, derives variational and
+local mathematical artifacts, and lowers local work into Malleus-owned structured kernel types.
 
-## Validation state
+Quantitas owns dimensions, quantity kinds, units, and registries. Malleus owns local kernel IR and
+execution. Finitum owns concrete discretization/global operators. Krasis owns coupled runtime
+state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
 
-Local rustup is blocked by sandbox DNS; GitHub-hosted Rust jobs are authoritative. Normal CI reached the new R18 code and found only a clippy arity warning in its private recursive walker. The immutable dependency maps are now bundled into a trace context and rustfmt was applied. This user-authored update retriggers the complete format/clippy/test workflow on the corrected tree.
+## Implemented
+
+- Recovering `.res` parser, canonical formatter, source spans, module resolution, and stable
+  semantic digest.
+- Canonical `ScientificModule`, `ScientificModel`, and `Expr` used by every active compiler pass.
+- Direct Quantitas quantity/unit types and validation; the internal quantity crate is removed.
+- Property tables/expressions, derivative contracts, constitutive semantics, coupling graphs,
+  time/state semantics, and evidence profiles.
+- Structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning projected directly
+  from `ScientificModel`.
+- `VariationalForm` compilation for authored forms.
+- Realization-neutral `LocalFormProgram` factorization and direct lowering into
+  `malleus::StructuredKernel` for scalar pointwise arithmetic.
+- One `resolvent` CLI for check, format, parse, inspect, freeze, explain, coupling, structural
+  analysis, and form output.
+
+## Removed
+
+- The pre-form expression/context/system pipeline and its RSL, LaTeX, and Lean frontends.
+- Form/discrete/operator/backend types that duplicated the new compiler direction.
+- Reference FEM implementations and scientific bridge layers.
+- Old comparison tooling, runtime plans, diagnostic logs, and the internal quantity crate.
+- The exact-CAS roadmap/research/ADR corpus that no longer described this product.
+
+Git history is the archive. None of the removed implementation is an acceptance oracle.
+
+## Validation
+
+Verified locally on 2026-08-20:
+
+- `cargo fmt --all -- --check` -- passed.
+- `cargo check --all-targets` -- passed.
+- `cargo clippy --all-targets -- -D warnings` -- passed.
+- `cargo test --all-targets` -- passed: 31 tests, 0 failed.
+- `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
+- `cargo run --quiet --bin resolvent -- structural examples/nonlinear_heat.res` -- passed with
+  one explicit structural block.
 
 ## Cross-repository contract
 
-Malleus and Sinbad must pin the exact passing Resolvent Wave commit. Sinbad's `scientific-stack.lock` records the final passing federation tuple.
+- Quantitas path: `../quantitas`, validated at
+  `96c7bab566fcf5867b573f0ef5a6bb04f629ec08`; API types used directly include `Dimension`,
+  `Quantity`, `QuantityLiteral`, `QuantityKindId`, `UnitId`, and `UnitRegistry`.
+- Malleus path: `../malleus`, validated at
+  `cd24813b29e5909a01b654477de99e9d4adde79b`; Resolvent constructs `StructuredKernel` and uses
+  Malleus operands, indexing maps, scalar expressions, statements, and numeric policy directly.
+- Public downstream sequence: `compile_variational_form` -> `factor_local_integral` ->
+  `lower_local_program`.
 
-## Remaining before merge
+## Next compiler work
 
-1. Resolve any findings from the complete current CI run.
-2. Synchronize Malleus/Sinbad to the final green Resolvent revision.
-3. Close remaining roadmap-level gaps from the cross-repo R13-R20 audit, then freeze the federation tuple.
+1. Elaborate expression dimensions, shapes, field roles, and diagnostics across every declaration.
+2. Derive variational forms from strong equations with integration-by-parts and boundary receipts.
+3. Add indexed tensor/QFunction factorization and basis/transformation requirements.
+4. Lower Poisson completely through Malleus and bind it to a Finitum realization.
+5. Add primal/JVP/VJP/parameter kernel products and verify them independently.

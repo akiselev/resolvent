@@ -1,11 +1,11 @@
 use resolvent::{
-    BlockKind, IncidenceSystem, SymbolId, compile_schedule, compile_schedule_without_tearing,
+    BlockKind, IncidenceSystem, compile_schedule, compile_schedule_without_tearing,
     maximum_matching,
 };
 
 fn system(n_vars: usize, rows: &[&[usize]]) -> IncidenceSystem {
     IncidenceSystem {
-        variables: (0..n_vars).map(|i| SymbolId(i as u32)).collect(),
+        variables: (0..n_vars).map(|i| format!("x{i}")).collect(),
         rows: rows.iter().map(|r| r.to_vec()).collect(),
     }
 }
@@ -32,8 +32,7 @@ fn brute_max(rows: &[Vec<usize>], n_vars: usize) -> usize {
 
 #[test]
 fn matching_agrees_with_exhaustive_reference_on_all_three_by_three_graphs() {
-    // 2^(3*3) = 512 systems: cheap, deterministic replacement for the legacy property
-    // oracle and strong enough to catch augmenting-path mistakes.
+    // 2^(3*3) = 512 systems: an exhaustive independent oracle for this problem size.
     for mask in 0u16..512 {
         let mut rows = vec![vec![], vec![], vec![]];
         for (eq, row) in rows.iter_mut().enumerate() {
@@ -44,7 +43,7 @@ fn matching_agrees_with_exhaustive_reference_on_all_three_by_three_graphs() {
             }
         }
         let sys = IncidenceSystem {
-            variables: (0..3).map(SymbolId).collect(),
+            variables: (0..3).map(|i| format!("x{i}")).collect(),
             rows,
         };
         assert_eq!(

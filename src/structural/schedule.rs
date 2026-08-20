@@ -1,8 +1,8 @@
 //! Causalization pipeline over [`IncidenceSystem`](super::IncidenceSystem): maximum matching,
 //! equation dependency graph, SCC/BLT decomposition and deterministic greedy tearing.
 //!
-//! This is intentionally a projection/pass over Resolvent's common `System` representation;
-//! it does not introduce a second equation AST.
+//! This is intentionally a projection of Resolvent's canonical scientific model; it does not
+//! introduce a second equation AST.
 
 use super::scc::{Digraph, tarjan_scc};
 use super::{IncidenceSystem, Matching, maximum_matching};
@@ -332,11 +332,10 @@ impl std::error::Error for StructuralCompileError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::SymbolId;
 
     fn incidence(n_variables: usize, rows: &[&[usize]]) -> IncidenceSystem {
         IncidenceSystem {
-            variables: (0..n_variables).map(|i| SymbolId(i as u32)).collect(),
+            variables: (0..n_variables).map(|i| format!("x{i}")).collect(),
             rows: rows.iter().map(|row| row.to_vec()).collect(),
         }
     }

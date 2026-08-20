@@ -25,7 +25,7 @@ fn source(reordered: bool) -> String {
 "#
     };
     format!(
-        r#"module acceptance.r18;
+        r#"module acceptance.coupling;
 model Coupled {{
   domain Omega {{ dimension = 2; coordinates = cartesian; }}
 {fields}

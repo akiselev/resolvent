@@ -1,11 +1,14 @@
-use resolvent::{IncidenceSystem, compile_schedule, parse_and_elaborate, parse_rsl};
+use resolvent::{
+    IncidenceSystem, compile_schedule, compile_variational_form, derive_coupling_graph,
+    format_scientific_module, parse_scientific_module, semantic_digest,
+};
 use std::{env, fs, process::ExitCode};
 
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(message) => {
-            eprintln!("{message}");
+        Err(e) => {
+            eprintln!("{e}");
             ExitCode::from(2)
         }
     }
@@ -14,169 +17,149 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let mut args = env::args().skip(1);
     let command = args.next().ok_or_else(usage)?;
-    let file = args.next().ok_or_else(usage)?;
-    let json = args.any(|a| a == "--format=json" || a == "--json");
-    let source = fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
+    let rest = args.collect::<Vec<_>>();
+    let json = rest.iter().any(|arg| arg == "--json");
+    let mut positional = rest.iter().filter(|arg| arg.as_str() != "--json");
+    let file = positional.next().ok_or_else(usage)?;
+    let selector = positional.next().map(String::as_str);
+    let source = fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let module = parse_scientific_module(&source).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
     match command.as_str() {
-        "check" => match parse_and_elaborate(&source) {
-            Ok((_ctx, model, out)) => {
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({"ok":true,"model":model.name,"equations":out.system.equations.len(),"fields":out.fields.len()})
-                    )
-                } else {
-                    println!(
-                        "ok: {} ({} equation(s), {} field(s))",
-                        model.name,
-                        out.system.equations.len(),
-                        out.fields.len()
-                    )
-                }
-                Ok(())
-            }
-            Err(e) => emit_error(e, json),
-        },
-        "inspect" => {
-            let (_ctx, model, out) =
-                parse_and_elaborate(&source).map_err(|e| physics_error(e, json))?;
+        "check" => {
             if json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(
-                        &serde_json::json!({"source":model,"semantic":out})
-                    )
-                    .unwrap()
-                )
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "ok": true,
+                        "models": module.models.len(),
+                        "semantic_digest": semantic_digest(&module),
+                    }))
+                    .map_err(|e| e.to_string())?
+                );
             } else {
                 println!(
-                    "model {}\ndomains: {}\nfields: {}\nequations: {}\nproperties: {}",
-                    model.name,
-                    model.domains.len(),
-                    model.fields.len(),
-                    model.equations.len(),
-                    model.properties.len()
-                )
+                    "ok: {} model(s), digest {}",
+                    module.models.len(),
+                    semantic_digest(&module)
+                );
             }
-            Ok(())
         }
-        "lower" => {
-            let (ctx, _model, out) =
-                parse_and_elaborate(&source).map_err(|e| physics_error(e, json))?;
-            let target = env::args()
-                .find_map(|a| a.strip_prefix("--to=").map(str::to_owned))
-                .unwrap_or_else(|| "system".into());
-            match target.as_str() {
-                "system" => println!("{}", serde_json::to_string_pretty(&out.system).unwrap()),
-                "spec" => println!("{}", serde_json::to_string_pretty(&out.spec).unwrap()),
-                "context" => println!("{}", serde_json::to_string_pretty(&ctx).unwrap()),
-                _ => {
-                    return Err(format!(
-                        "lowering target `{target}` requires a method/discretization declaration; supported source-level targets: system, spec, context"
-                    ));
-                }
-            }
-            Ok(())
+        "parse" => println!(
+            "{}",
+            serde_json::to_string_pretty(&module).map_err(|e| e.to_string())?
+        ),
+        "fmt" => print!("{}", format_scientific_module(&module)),
+        "freeze" => println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "schema":"resolvent-scientific-lock/1",
+                "module":module.name,
+                "semantic_digest":semantic_digest(&module)
+            }))
+            .map_err(|e| e.to_string())?
+        ),
+        "inspect" => {
+            let models = module
+                .models
+                .iter()
+                .map(|model| {
+                    serde_json::json!({
+                        "name": model.name,
+                        "domains": model.domains.len(),
+                        "fields": model.fields,
+                        "parameters": model.parameters,
+                        "constants": model.constants,
+                        "sources": model.sources,
+                        "properties": model.properties,
+                        "constitutive_laws": model.constitutive_laws,
+                        "equations": model.equations,
+                        "forms": model.forms,
+                        "initial_conditions": model.initial_conditions,
+                        "boundary_conditions": model.boundary_conditions,
+                        "interface_conditions": model.interface_conditions,
+                        "observables": model.observables,
+                        "invariants": model.invariants,
+                        "verifications": model.verifications,
+                    })
+                })
+                .collect::<Vec<_>>();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schema": "resolvent-scientific-inspect/1",
+                    "module": module.name,
+                    "semantic_digest": semantic_digest(&module),
+                    "models": models,
+                }))
+                .map_err(|e| e.to_string())?
+            );
+        }
+        "coupling" => {
+            let model = module.models.first().ok_or("module has no model")?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&derive_coupling_graph(model))
+                    .map_err(|e| e.to_string())?
+            );
         }
         "structural" => {
-            let (ctx, _model, out) =
-                parse_and_elaborate(&source).map_err(|e| physics_error(e, json))?;
-            let incidence =
-                IncidenceSystem::from_system(&out.system, &ctx.exprs).map_err(|e| e.to_string())?;
-            let schedule = compile_schedule(&incidence);
-            if json {
-                println!("{}",serde_json::to_string_pretty(&serde_json::json!({"incidence":incidence,"schedule":schedule.as_ref().ok().map(|s|&s.blocks),"error":schedule.as_ref().err().map(ToString::to_string)})).unwrap())
-            } else {
-                println!(
-                    "{} equations / {} variables",
-                    incidence.n_equations(),
-                    incidence.n_variables()
-                );
-                match schedule {
-                    Ok(s) => {
-                        for (i, b) in s.blocks.iter().enumerate() {
-                            println!(
-                                "block {i}: {:?} equations={:?} solved={:?} tearing={:?}",
-                                b.kind, b.equations, b.solved_vars, b.tearing_vars
-                            )
-                        }
-                    }
-                    Err(e) => println!("not causalized: {e}"),
-                }
-            }
-            Ok(())
+            let model = module.models.first().ok_or("module has no model")?;
+            let incidence = IncidenceSystem::from_model(model).map_err(|e| e.to_string())?;
+            let output = match compile_schedule(&incidence) {
+                Ok(schedule) => serde_json::json!({
+                    "incidence": incidence,
+                    "schedule": schedule,
+                }),
+                Err(error) => serde_json::json!({
+                    "incidence": incidence,
+                    "schedule_error": error.to_string(),
+                }),
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&output).map_err(|e| e.to_string())?
+            );
         }
-        "freeze" => {
-            let lock = resolvent::physics::freeze(&source).map_err(|e| physics_error(e, json))?;
-            println!("{}", serde_json::to_string_pretty(&lock).unwrap());
-            Ok(())
+        "explain" => {
+            let model = module.models.first().ok_or("module has no model")?;
+            let graph = derive_coupling_graph(model);
+            let edges = graph
+                .edges
+                .iter()
+                .filter(|edge| selector.is_none_or(|name| edge.from == name || edge.to == name))
+                .collect::<Vec<_>>();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schema": "resolvent-scientific-explain/1",
+                    "selector": selector,
+                    "edges": edges,
+                }))
+                .map_err(|e| e.to_string())?
+            );
         }
-        "trace" => {
-            let (_ctx, _model, out) =
-                parse_and_elaborate(&source).map_err(|e| physics_error(e, json))?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&out.source_map).unwrap())
-            } else {
-                for (name, span) in out.source_map {
-                    println!("{name}: {}..{}", span.start, span.end)
-                }
-            }
-            Ok(())
+        "form" => {
+            let model = module.models.first().ok_or("module has no model")?;
+            let form_name = selector.ok_or("form command requires a form name")?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &compile_variational_form(model, form_name).map_err(|e| e.to_string())?
+                )
+                .map_err(|e| e.to_string())?
+            );
         }
-        "parse" => match parse_rsl(&source) {
-            Ok(m) => {
-                println!("{}", serde_json::to_string_pretty(&m).unwrap());
-                Ok(())
-            }
-            Err(d) => {
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&d).unwrap())
-                } else {
-                    for x in d {
-                        eprintln!(
-                            "{} [{}..{}] {}",
-                            x.code, x.span.start, x.span.end, x.message
-                        )
-                    }
-                }
-                Err("source contains diagnostics".into())
-            }
-        },
-        _ => Err(usage()),
+        _ => return Err(usage()),
     }
+    Ok(())
 }
+
 fn usage() -> String {
-    "usage: resolvent <check|parse|inspect|lower|structural|trace|freeze> <model.res> [--json] [--to=system]".into()
-}
-fn emit_error(e: resolvent::physics::PhysicsError, json: bool) -> Result<(), String> {
-    Err(physics_error(e, json))
-}
-fn physics_error(e: resolvent::physics::PhysicsError, json: bool) -> String {
-    match e {
-        resolvent::physics::PhysicsError::Diagnostics(d) => {
-            if json {
-                serde_json::to_string_pretty(&d)
-                    .unwrap_or_else(|_| "diagnostics could not be serialized".into())
-            } else {
-                d.into_iter()
-                    .map(|x| {
-                        format!(
-                            "{} [{}..{}] {}{}",
-                            x.code,
-                            x.span.start,
-                            x.span.end,
-                            x.message,
-                            if x.hints.is_empty() {
-                                String::new()
-                            } else {
-                                format!("\n  hint: {}", x.hints.join("; "))
-                            }
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
-        }
-        other => other.to_string(),
-    }
+    "usage: resolvent <check|fmt|parse|inspect|freeze|explain|coupling|structural|form> [--json] <model.res> [selector]".into()
 }

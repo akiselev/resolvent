@@ -1,7 +1,7 @@
 use resolvent::{format_scientific_module, parse_scientific_module, semantic_digest};
 
 const SOURCE: &str = r#"
-module acceptance.r14;
+module acceptance.source;
 use physics.thermal;
 model Complete {
   domain Omega { dimension = 2; coordinates = cartesian; }
@@ -47,7 +47,7 @@ fn whitespace_and_comments_do_not_change_semantic_digest() {
 }
 
 #[test]
-fn format_roundtrip_preserves_all_current_scientific_v1_semantics() {
+fn format_roundtrip_preserves_all_current_scientific_semantics() {
     let a = parse_scientific_module(SOURCE).unwrap();
     let formatted = format_scientific_module(&a);
     let b = parse_scientific_module(&formatted).unwrap();

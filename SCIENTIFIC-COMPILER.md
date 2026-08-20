@@ -1,157 +1,124 @@
 # Resolvent scientific compiler
 
-This document is the operational architecture introduced by ADR-035. The older algebra
-DESIGN/API documents remain authoritative for their exact-algebra decisions; this document
-owns the new cross-stack pipeline.
+## Purpose
 
-## The loop, not merely the stack
+Resolvent turns authored scientific meaning into inspectable mathematical artifacts. It stops at
+the local structured-kernel boundary. Concrete discretization, coupled runtime state, and solver
+policy are separate concerns with separate owners.
 
-```text
-literature / theory / experiment
-           |
-        Pi Lab
-           |
-   Ferris-Howard syntax
-           |
-         Lean  <---------------- Lean Atlas
-           |
-   checked reification theorem
-           |
-       Resolvent ScientificSpec
-           |
-   +-------+-------------------------------+
-   | exact/symbolic  structural  forms     |
-   | algebra          passes      (PDE)    |
-   +--------------------+------------------+
-                        |
-                  refinement chain
-                        |
-                 Discrete / Operator
-                   /             \
-                Anvil          Solverang
-                   \             /
-                       Sinbad
-                         |
-                    observables
-                         |
-                     Validator
-                    /         \
-                formal       empirical
-                  |             |
-                  +---- Pi Lab -+
-```
-
-The same architecture also supports exact campaigns that never need Sinbad:
+The intended artifact flow is:
 
 ```text
-Lean claim -> Resolvent polynomial/semialgebraic problem -> certificate/counterexample
-          -> Lean checker -> promoted Pi Lab evidence
+.res source
+  -> ScientificModule / ScientificModel
+  -> formulation and structural analysis
+  -> VariationalForm
+  -> indexed tensor and local-operator factorization
+  -> Malleus StructuredKernel
 ```
 
-## Dialects
+Each arrow is a compiler pass with diagnostics, source provenance, and an evidence receipt when it
+changes mathematical form. These are successive artifacts, not interchangeable frontends or
+temporary representations.
 
-### `expr`
+## Repository boundaries
 
-Generic mathematical terms, exact literals, symbols, functions and semantic derivatives.
-No mesh, solver or physics vocabulary belongs here.
+### Quantitas
 
-### `model`
+Owns exact dimensions, rational exponents, quantity-kind identity, units, registry provenance, and
+canonical quantities. `.res` declarations carry Quantitas types directly. Resolvent does not wrap
+or mirror them.
 
-Equations, variables, parameters, events, hierarchical systems, assumptions, scope,
-observables and theorem/property contracts. This is the common language for acausal DAEs,
-circuits, algebraic constraints and continuum models.
+### Resolvent
 
-### `structural`
+Owns:
 
-Read-only projections of `model::System`: incidence, matching and eventually the full
-BLT/tearing/Pantelides/dummy-derivative pipeline. Structural analysis does not own a second
-equation AST.
+- the `.res` grammar, source spans, diagnostics, formatting, module resolution, and semantic hash;
+- fields, equations, authored forms, measures, properties, constitutive laws, events, observables,
+  and verification annotations;
+- dimension/kind checking using Quantitas;
+- formulation derivation and variational semantics;
+- dependency/coupling, incidence, alias, matching, SCC/BLT, tearing, and DAE analysis;
+- tensor/QFunction/local-operator factorization; and
+- evidence for symbolic and semantic transformations.
 
-### `form`
+Resolvent does not own meshes, global degrees of freedom, finite-element tables, assembly, time
+integration, nonlinear solves, device code generation, or product orchestration.
 
-The continuum/variational dialect: fields, function spaces, grad/div/curl, traces, trial/test
-roles, measures and integrals. Only models that need continuum discretization visit it.
+### Malleus
 
-### `discrete`
+Owns the schedule-independent local kernel IR, validation, derivative products, schedule choices,
+and executable backends. Resolvent constructs Malleus types directly; Malleus never imports
+Resolvent and has no scientific vocabulary.
 
-A structured finite-dimensional dialect inspired by the restriction/basis/pointwise/integrate
-factorization: element restriction, basis interpolation/derivatives, quadrature-point
-physics, transpose basis action and scatter. Keeping these pieces explicit permits assembled,
-partial-assembly and matrix-free realizations of one discretization.
+### Downstream
 
-### `operator`
+Finitum binds form requirements and kernels to concrete meshes, spaces, basis data, quadrature,
+constraints, and global operators. Krasis combines those operators with transactional coupled
+state. Solverang consumes physics-neutral residual/operator traits. Sinbad selects cases, runs,
+policies, and artifacts.
 
-Solver-facing residual/mass/damping/stiffness/constraint blocks; derivative capabilities;
-sparsity; nullspaces; conservation/symmetry declarations. Solver strategy is intentionally
-absent.
+## Canonical semantic model
 
-### Anvil (external)
+`ScientificModule` and `ScientificModel` are the only source/semantic model. The same `Expr` nodes
+are referenced by equations, properties, forms, conditions, coupling analysis, differentiation,
+and form compilation. Structural passes project incidence from this model; they do not translate
+through a graph-compiler model.
 
-Machine computation: `f32/f64`, memory, target instructions, FMA choices, vectorization,
-scheduling, executable JVP/VJP. Exact mathematical rewriting and floating-point performance
-rewriting remain different systems.
+Authored forms compile to `VariationalForm`, which retains canonical expressions and adds only
+form-specific organization:
 
-## The differentiation ladder
+- the selected model and form identity;
+- fields actually referenced by the form;
+- other referenced symbols;
+- measures, integrands, and their source spans.
 
-Resolvent deliberately has several derivative meanings:
+Strong-form derivation will target the same artifact. It must emit explicit integration-by-parts,
+boundary-term, sign, and assumption receipts. Until that pass exists, the compiler rejects requests
+to infer a weak form rather than guessing.
 
-1. expression differentiation: `df/dx`;
-2. system differentiation: semantic `d/dt`, derivative variables, index reduction;
-3. form differentiation: Gateaux/variational derivative and weak-form linearization;
-4. discrete differentiation: Jacobian/JVP/VJP of the finite-dimensional operator;
-5. Anvil AD: executable computational derivative.
+## Malleus boundary
 
-Adjacent levels should be cross-checked rather than collapsed.
+`factor_local_integral` produces a realization-neutral `LocalFormProgram`; `lower_local_program`
+is the first narrow implementation of the Malleus boundary. It accepts scalar pointwise arithmetic
+and common scalar functions, then constructs `malleus::StructuredKernel` directly. It rejects
+`grad`, `div`, `curl`, `dot`, indexed tensors, and vector expressions.
 
-## Scientific specification
+Those operations belong to the next compiler layer:
 
-A `ScientificSpec` contains the system plus its assumptions, declared scope, observables and
-property contracts. It is deliberately larger than a PDE or an equation list. In particular,
-experimental validation occurs against an `Observable` and its measurement model, not an
-arbitrary internal field.
+1. classify arguments, coefficients, domains, measures, sides, and traces;
+2. expand differential operators into typed indexed tensor expressions;
+3. select transformations and basis evaluation requirements;
+4. factor restriction, basis, geometry, pointwise QFunction, and accumulation work;
+5. lower only the local numerical regions to Malleus.
 
-## Evidence and promotion
+No named-physics opcode is permitted. A heat, elasticity, Maxwell, or flow form must decompose into
+general mathematical operations and explicit data dependencies.
 
-Formal, numerical and empirical evidence are orthogonal:
+## Evidence and validation
 
-- formal: unchecked -> asserted -> certificate checked -> kernel proved;
-- numerical: untested -> replayed -> differential -> convergence -> bounded;
-- empirical: no data -> retrospective -> independently replicated -> prospective.
+The compiler treats these as different claims:
 
-The enums are deliberately not one ordered type. Consumers may impose campaign-specific
-promotion policies, but cannot claim that one axis substitutes for another.
+- source accepted and resolved;
+- semantic model internally valid;
+- quantity and kind constraints satisfied;
+- structural schedule valid;
+- mathematical transformation justified;
+- local kernel structurally valid;
+- numerical realization verified downstream.
 
-## Compatibility migration
+An earlier implementation is not an oracle. Compiler tests use grammar invariants, independent
+small exhaustive oracles, analytical identities, manufactured solutions, and external fixtures as
+appropriate. Removed code remains available in Git history but has no active runtime or acceptance
+role.
 
-### Residua
+## Immediate work
 
-Current Residua assembly/evolution/adjoint code remains Sinbad's reference backend while the
-`form -> discrete -> operator` compiler matures. First migration target: scalar elliptic +
-mass/evolution, differential-tested bit-for-bit against current P1 behavior.
-
-### Plexus
-
-Current Plexus matching/SCC/BLT/tearing remains the reference implementation. Resolvent now
-derives incidence directly from its common `System` IR and has deterministic maximum
-matching. SCC/BLT/tearing migrate next, followed by symbolic `d/dt`, Pantelides and dummy
-derivatives. Sinbad only becomes a compatibility facade after differential tests pass.
-
-### Solverang
-
-Solverang remains a high-level product. A dependency-neutral symbolic sink/diagnostic seam
-lets an optional Resolvent adapter expose symbolic residuals and exact generic-rank/
-certificate capabilities without forcing every Solverang user to compile the CAS.
-
-## Required vertical falsification cases
-
-The architecture is not frozen merely because the types compile. It must survive:
-
-1. nonlinear transient heat;
-2. incompressible Stokes/Navier-Stokes;
-3. high-index RLC/mechanical DAE;
-4. Solverang geometric constraint cluster;
-5. Maxwell H(curl) immediately after the first four;
-6. an exact algebraic campaign such as 3HDM BFB that never enters the simulator.
-
-A new domain-specific lower-level escape hatch is evidence that the architecture needs
-revision, not a reason to add a permanent special case.
+1. Split the large semantic module into coherent parser, model, property, and analysis modules
+   without duplicating types.
+2. Add typed expression elaboration with dimensions, value shapes, field roles, and source-rich
+   diagnostics.
+3. Derive variational forms from strong equations with explicit transformation receipts.
+4. Define indexed tensor/QFunction IR and basis/transformation requirements.
+5. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
+6. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.

@@ -1,19 +1,16 @@
-//! R13-R20 scientific authoring and semantic infrastructure.
+//! Scientific authoring and semantic infrastructure.
 //!
 //! This module is deliberately compiler-oriented: source declarations become typed data,
 //! expressions remain structured, coupling is derived from use, and solver strategy never
 //! enters the model semantics.
 
 use crate::source::SourceSpan;
-use resolvent_quantities::{
-    Bound, CanonicalQuantity, Dimension, DisplayUnit, KindStrictness, QuantityKindId,
-    QuantityLiteral, UnitId, UnitRegistry,
-};
+use quantitas::{Dimension, Quantity, QuantityKindId, QuantityLiteral, UnitId, UnitRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
-pub const SCIENTIFIC_V1_SCHEMA: &str = "resolvent-scientific-v1/1";
+pub const SCIENTIFIC_SCHEMA: &str = "resolvent-scientific/1";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ScientificModule {
@@ -64,7 +61,7 @@ pub enum CoordinateSystem {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum FieldRoleV1 {
+pub enum FieldRole {
     State,
     Unknown,
     Test,
@@ -76,7 +73,7 @@ pub enum FieldRoleV1 {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ValueShapeV1 {
+pub enum ValueShape {
     Scalar,
     Vector(u8),
     Tensor { rows: u8, cols: u8 },
@@ -87,7 +84,7 @@ pub enum ValueShapeV1 {
 pub struct SpaceSpec {
     pub family: SpaceFamily,
     pub order: u8,
-    pub continuity: ContinuityV1,
+    pub continuity: Continuity,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -102,7 +99,7 @@ pub enum SpaceFamily {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ContinuityV1 {
+pub enum Continuity {
     Continuous,
     Discontinuous,
     Tangential,
@@ -112,8 +109,8 @@ pub enum ContinuityV1 {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FieldDecl {
     pub name: String,
-    pub role: FieldRoleV1,
-    pub shape: ValueShapeV1,
+    pub role: FieldRole,
+    pub shape: ValueShape,
     pub space: SpaceSpec,
     pub domain: String,
     pub quantity_kind: Option<QuantityKindId>,
@@ -165,13 +162,13 @@ pub struct FormDecl {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IntegralDecl {
-    pub measure: MeasureV1,
+    pub measure: Measure,
     pub integrand: Expr,
     pub span: SourceSpan,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MeasureV1 {
+pub enum Measure {
     Cell(String),
     Boundary(String),
     InteriorFacet(String),
@@ -307,7 +304,7 @@ pub enum ScientificError {
     Property(String),
 }
 
-// ---------------- R14 lexer/parser ----------------
+// ---------------- lexer/parser ----------------
 
 #[derive(Clone, Debug, PartialEq)]
 enum TokenKind {
@@ -580,7 +577,7 @@ impl Parser {
             }
         }
         ScientificModule {
-            schema: SCIENTIFIC_V1_SCHEMA.into(),
+            schema: SCIENTIFIC_SCHEMA.into(),
             name,
             imports,
             models,
@@ -719,33 +716,33 @@ impl Parser {
         self.expect_punct(':');
         let role_name = self.expect_ident_value()?.0;
         let role = match role_name.as_str() {
-            "state" => FieldRoleV1::State,
-            "unknown" => FieldRoleV1::Unknown,
-            "test" => FieldRoleV1::Test,
-            "trial" => FieldRoleV1::Trial,
-            "coefficient" => FieldRoleV1::Coefficient,
-            "parameter" => FieldRoleV1::Parameter,
-            "derived" => FieldRoleV1::Derived,
+            "state" => FieldRole::State,
+            "unknown" => FieldRole::Unknown,
+            "test" => FieldRole::Test,
+            "trial" => FieldRole::Trial,
+            "coefficient" => FieldRole::Coefficient,
+            "parameter" => FieldRole::Parameter,
+            "derived" => FieldRole::Derived,
             _ => {
                 self.error(format!("unknown field role `{role_name}`"));
-                FieldRoleV1::Unknown
+                FieldRole::Unknown
             }
         };
-        let mut shape = ValueShapeV1::Scalar;
+        let mut shape = ValueShape::Scalar;
         if self.ident_is("scalar") {
             self.bump();
         } else if self.eat_ident("vector") {
             self.expect_punct('(');
             let n = self.number_u8(3);
             self.expect_punct(')');
-            shape = ValueShapeV1::Vector(n);
+            shape = ValueShape::Vector(n);
         } else if self.eat_ident("tensor") {
             self.expect_punct('(');
             let a = self.number_u8(3);
             self.eat_punct(',');
             let b = self.number_u8(a);
             self.expect_punct(')');
-            shape = ValueShapeV1::Tensor { rows: a, cols: b };
+            shape = ValueShape::Tensor { rows: a, cols: b };
         }
         let family = self.expect_ident_value()?.0;
         self.expect_punct('(');
@@ -761,34 +758,34 @@ impl Parser {
             "H1" => SpaceSpec {
                 family: SpaceFamily::H1,
                 order,
-                continuity: ContinuityV1::Continuous,
+                continuity: Continuity::Continuous,
             },
             "L2" => SpaceSpec {
                 family: SpaceFamily::L2,
                 order,
-                continuity: ContinuityV1::Discontinuous,
+                continuity: Continuity::Discontinuous,
             },
             "HCurl" | "Hcurl" => SpaceSpec {
                 family: SpaceFamily::HCurl,
                 order,
-                continuity: ContinuityV1::Tangential,
+                continuity: Continuity::Tangential,
             },
             "HDiv" | "Hdiv" => SpaceSpec {
                 family: SpaceFamily::HDiv,
                 order,
-                continuity: ContinuityV1::Normal,
+                continuity: Continuity::Normal,
             },
             "DG" => SpaceSpec {
                 family: SpaceFamily::Dg,
                 order,
-                continuity: ContinuityV1::Discontinuous,
+                continuity: Continuity::Discontinuous,
             },
             _ => {
                 self.error(format!("unsupported function space `{family}`"));
                 SpaceSpec {
                     family: SpaceFamily::H1,
                     order,
-                    continuity: ContinuityV1::Continuous,
+                    continuity: Continuity::Continuous,
                 }
             }
         };
@@ -876,7 +873,7 @@ impl Parser {
         Some(QuantityLiteral {
             value,
             unit: UnitId::new(unit),
-            quantity_kind: kind.unwrap_or_else(|| QuantityKindId::new("resolvent:Unspecified")),
+            kind: kind.unwrap_or_else(|| QuantityKindId::new("resolvent:Unspecified")),
         })
     }
 
@@ -963,12 +960,12 @@ impl Parser {
             let integrand = self.expr(0)?;
             self.expect_punct(';');
             let measure = match measure_name.as_str() {
-                "cell" => MeasureV1::Cell(target),
-                "boundary" => MeasureV1::Boundary(target),
-                "interior_facet" => MeasureV1::InteriorFacet(target),
+                "cell" => Measure::Cell(target),
+                "boundary" => Measure::Boundary(target),
+                "interior_facet" => Measure::InteriorFacet(target),
                 _ => {
                     self.error(format!("unknown measure `{measure_name}`"));
-                    MeasureV1::Cell(target)
+                    Measure::Cell(target)
                 }
             };
             integrals.push(IntegralDecl {
@@ -1313,19 +1310,23 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
             {
                 out.push_str(" {\n");
                 if let Some(k) = &f.quantity_kind {
-                    out.push_str(&format!("        quantity = {};\n", k.0));
+                    out.push_str(&format!("        quantity = {};\n", k.as_str()));
                 }
                 if let Some(u) = &f.unit {
-                    out.push_str(&format!("        unit = {};\n", u.0));
+                    out.push_str(&format!("        unit = {};\n", u.as_str()));
                 }
                 if let Some(n) = &f.nominal {
-                    out.push_str(&format!("        nominal = {} {};\n", n.value, n.unit.0));
+                    out.push_str(&format!(
+                        "        nominal = {} {};\n",
+                        n.value,
+                        n.unit.as_str()
+                    ));
                 }
                 if let Some(n) = &f.physical_min {
-                    out.push_str(&format!("        min = {} {};\n", n.value, n.unit.0));
+                    out.push_str(&format!("        min = {} {};\n", n.value, n.unit.as_str()));
                 }
                 if let Some(n) = &f.physical_max {
-                    out.push_str(&format!("        max = {} {};\n", n.value, n.unit.0));
+                    out.push_str(&format!("        max = {} {};\n", n.value, n.unit.as_str()));
                 }
                 if let Some(role) = f.time_role {
                     let role = match role {
@@ -1377,9 +1378,9 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
             out.push_str(&format!("    form {} {{\n", form.name));
             for integral in &form.integrals {
                 let (measure, target) = match &integral.measure {
-                    MeasureV1::Cell(target) => ("cell", target),
-                    MeasureV1::Boundary(target) => ("boundary", target),
-                    MeasureV1::InteriorFacet(target) => ("interior_facet", target),
+                    Measure::Cell(target) => ("cell", target),
+                    Measure::Boundary(target) => ("boundary", target),
+                    Measure::InteriorFacet(target) => ("interior_facet", target),
                 };
                 out.push_str(&format!(
                     "        {measure}({target}): {};\n",
@@ -1464,23 +1465,23 @@ fn coordinate_name(c: &CoordinateSystem) -> &str {
         CoordinateSystem::Custom(x) => x,
     }
 }
-fn field_role_name(r: &FieldRoleV1) -> &str {
+fn field_role_name(r: &FieldRole) -> &str {
     match r {
-        FieldRoleV1::State => "state",
-        FieldRoleV1::Unknown => "unknown",
-        FieldRoleV1::Test => "test",
-        FieldRoleV1::Trial => "trial",
-        FieldRoleV1::Coefficient => "coefficient",
-        FieldRoleV1::Parameter => "parameter",
-        FieldRoleV1::Derived => "derived",
+        FieldRole::State => "state",
+        FieldRole::Unknown => "unknown",
+        FieldRole::Test => "test",
+        FieldRole::Trial => "trial",
+        FieldRole::Coefficient => "coefficient",
+        FieldRole::Parameter => "parameter",
+        FieldRole::Derived => "derived",
     }
 }
-fn shape_name(s: &ValueShapeV1) -> String {
+fn shape_name(s: &ValueShape) -> String {
     match s {
-        ValueShapeV1::Scalar => "scalar".into(),
-        ValueShapeV1::Vector(n) => format!("vector({n})"),
-        ValueShapeV1::Tensor { rows, cols } => format!("tensor({rows},{cols})"),
-        ValueShapeV1::SymmetricTensor(n) => format!("tensor({n},{n})"),
+        ValueShape::Scalar => "scalar".into(),
+        ValueShape::Vector(n) => format!("vector({n})"),
+        ValueShape::Tensor { rows, cols } => format!("tensor({rows},{cols})"),
+        ValueShape::SymmetricTensor(n) => format!("tensor({n},{n})"),
     }
 }
 fn space_name(s: &SpaceFamily) -> &str {
@@ -1496,12 +1497,12 @@ fn format_value_decl(kind: &str, d: &ValueDecl) -> String {
     let ty = d
         .quantity_kind
         .as_ref()
-        .map(|x| format!(": {}", x.0))
+        .map(|x| format!(": {}", x.as_str()))
         .unwrap_or_default();
     let unit = d
         .unit
         .as_ref()
-        .map(|x| format!(" [{}]", x.0))
+        .map(|x| format!(" [{}]", x.as_str()))
         .unwrap_or_default();
     let value = d
         .value
@@ -1616,7 +1617,7 @@ pub fn resolve_modules(
     })
 }
 
-// ---------------- R15 properties/material semantics ----------------
+// ---------------- properties/material semantics ----------------
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TensorSymmetry {
@@ -1652,16 +1653,16 @@ pub struct PropertyInput {
     pub name: String,
     pub quantity_kind: QuantityKindId,
     pub dimension: Dimension,
-    pub shape: ValueShapeV1,
+    pub shape: ValueShape,
     pub physical_min: Option<f64>,
     pub physical_max: Option<f64>,
-    pub nominal: Option<CanonicalQuantity>,
+    pub nominal: Option<Quantity>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PropertyOutput {
     pub quantity_kind: QuantityKindId,
     pub dimension: Dimension,
-    pub shape: ValueShapeV1,
+    pub shape: ValueShape,
     pub symmetry: TensorSymmetry,
     pub frame: FrameSemantics,
 }
@@ -2143,7 +2144,7 @@ fn bilinear(
         + tx * ty * q11)
 }
 
-// ---------------- R16 constitutive semantics ----------------
+// ---------------- constitutive semantics ----------------
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ConstitutiveLaw {
@@ -2161,12 +2162,12 @@ pub struct ConstitutiveLaw {
 pub struct LawVariable {
     pub name: String,
     pub quantity_kind: QuantityKindId,
-    pub shape: ValueShapeV1,
+    pub shape: ValueShape,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StateVariable {
     pub name: String,
-    pub shape: ValueShapeV1,
+    pub shape: ValueShape,
     pub initial: Expr,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -2193,130 +2194,7 @@ pub fn standard_constitutive_laws() -> Vec<&'static str> {
     ]
 }
 
-// ---------------- R17 production discretization catalog ----------------
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ReferenceCell {
-    Triangle,
-    Tetrahedron,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ElementFamilyV1 {
-    Lagrange,
-    Discontinuous,
-    NedelecFirstKind,
-    RaviartThomas,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ElementSpec {
-    pub cell: ReferenceCell,
-    pub family: ElementFamilyV1,
-    pub space: SpaceFamily,
-    pub order: u8,
-    pub value_shape: ValueShapeV1,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum QuadraturePolicy {
-    Automatic,
-    Order(u8),
-    ExactForDegree(u8),
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BasisTabulationV1 {
-    pub values: Vec<Vec<f64>>,
-    pub gradients: Vec<Vec<Vec<f64>>>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DiscretizationCatalog {
-    pub elements: Vec<ElementSpec>,
-}
-impl DiscretizationCatalog {
-    pub fn production() -> Self {
-        let mut elements = vec![];
-        for cell in [ReferenceCell::Triangle, ReferenceCell::Tetrahedron] {
-            for order in [1, 2] {
-                elements.push(ElementSpec {
-                    cell,
-                    family: ElementFamilyV1::Lagrange,
-                    space: SpaceFamily::H1,
-                    order,
-                    value_shape: ValueShapeV1::Scalar,
-                });
-            }
-            for order in [0, 1] {
-                elements.push(ElementSpec {
-                    cell,
-                    family: ElementFamilyV1::Discontinuous,
-                    space: SpaceFamily::L2,
-                    order,
-                    value_shape: ValueShapeV1::Scalar,
-                });
-            }
-            elements.push(ElementSpec {
-                cell,
-                family: ElementFamilyV1::NedelecFirstKind,
-                space: SpaceFamily::HCurl,
-                order: 0,
-                value_shape: ValueShapeV1::Vector(match cell {
-                    ReferenceCell::Triangle => 2,
-                    ReferenceCell::Tetrahedron => 3,
-                }),
-            });
-            elements.push(ElementSpec {
-                cell,
-                family: ElementFamilyV1::RaviartThomas,
-                space: SpaceFamily::HDiv,
-                order: 0,
-                value_shape: ValueShapeV1::Vector(match cell {
-                    ReferenceCell::Triangle => 2,
-                    ReferenceCell::Tetrahedron => 3,
-                }),
-            });
-        }
-        Self { elements }
-    }
-    pub fn supports(&self, cell: ReferenceCell, space: SpaceFamily, order: u8) -> bool {
-        self.elements
-            .iter()
-            .any(|e| e.cell == cell && e.space == space && e.order == order)
-    }
-}
-
-pub fn triangle_lagrange_basis(order: u8, xi: f64, eta: f64) -> Result<Vec<f64>, ScientificError> {
-    let l1 = 1.0 - xi - eta;
-    let l2 = xi;
-    let l3 = eta;
-    Ok(match order {
-        1 => vec![l1, l2, l3],
-        2 => vec![
-            l1 * (2.0 * l1 - 1.0),
-            l2 * (2.0 * l2 - 1.0),
-            l3 * (2.0 * l3 - 1.0),
-            4.0 * l1 * l2,
-            4.0 * l2 * l3,
-            4.0 * l3 * l1,
-        ],
-        _ => {
-            return Err(ScientificError::Property(format!(
-                "unsupported triangle Lagrange order {order}"
-            )));
-        }
-    })
-}
-pub fn orientation_sign(permutation: &[usize]) -> i8 {
-    let mut inversions = 0;
-    for i in 0..permutation.len() {
-        for j in i + 1..permutation.len() {
-            if permutation[i] > permutation[j] {
-                inversions += 1;
-            }
-        }
-    }
-    if inversions % 2 == 0 { 1 } else { -1 }
-}
-
-// ---------------- R18 coupling semantics ----------------
+// ---------------- coupling semantics ----------------
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnknownBlock {
@@ -2356,7 +2234,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
     let field_names: BTreeSet<_> = model
         .fields
         .iter()
-        .filter(|f| matches!(f.role, FieldRoleV1::State | FieldRoleV1::Unknown))
+        .filter(|f| matches!(f.role, FieldRole::State | FieldRole::Unknown))
         .map(|f| f.name.clone())
         .collect();
     let property_map: BTreeMap<_, _> = model
@@ -2539,126 +2417,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
     }
 }
 
-// ---------------- R13 execution staging / canonical heat ----------------
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RuntimeStage {
-    Gather,
-    Restrict,
-    Geometry,
-    Basis,
-    FieldDerivative,
-    PointwiseProperty,
-    WeakIntegrand,
-    Quadrature,
-    LocalAccumulation,
-    Scatter,
-    BoundaryLift,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScientificExecutionPlan {
-    pub schema: String,
-    pub model: String,
-    pub stages: Vec<RuntimeStage>,
-    pub residual_blocks: Vec<String>,
-    pub derivative_blocks: Vec<BlockDerivative>,
-}
-pub fn execution_plan(model: &ScientificModel) -> ScientificExecutionPlan {
-    let graph = derive_coupling_graph(model);
-    ScientificExecutionPlan {
-        schema: "resolvent-scientific-execution/1".into(),
-        model: model.name.clone(),
-        stages: vec![
-            RuntimeStage::Gather,
-            RuntimeStage::Restrict,
-            RuntimeStage::Geometry,
-            RuntimeStage::Basis,
-            RuntimeStage::FieldDerivative,
-            RuntimeStage::PointwiseProperty,
-            RuntimeStage::WeakIntegrand,
-            RuntimeStage::Quadrature,
-            RuntimeStage::LocalAccumulation,
-            RuntimeStage::Scatter,
-            RuntimeStage::BoundaryLift,
-        ],
-        residual_blocks: graph.residual_blocks,
-        derivative_blocks: graph.derivatives,
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LinearTemperatureProperty {
-    pub at_t0: f64,
-    pub slope: f64,
-    pub t0: f64,
-}
-impl LinearTemperatureProperty {
-    pub fn value(self, t: f64) -> f64 {
-        self.at_t0 * (1.0 + self.slope * (t - self.t0))
-    }
-    pub fn derivative(self) -> f64 {
-        self.at_t0 * self.slope
-    }
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CanonicalHeatCase {
-    pub t0: f64,
-    pub amplitude: f64,
-    pub rho: LinearTemperatureProperty,
-    pub cp: LinearTemperatureProperty,
-    pub k: LinearTemperatureProperty,
-}
-impl Default for CanonicalHeatCase {
-    fn default() -> Self {
-        Self {
-            t0: 300.0,
-            amplitude: 10.0,
-            rho: LinearTemperatureProperty {
-                at_t0: 7800.0,
-                slope: 1e-5,
-                t0: 300.0,
-            },
-            cp: LinearTemperatureProperty {
-                at_t0: 500.0,
-                slope: 2e-4,
-                t0: 300.0,
-            },
-            k: LinearTemperatureProperty {
-                at_t0: 16.0,
-                slope: 5e-4,
-                t0: 300.0,
-            },
-        }
-    }
-}
-impl CanonicalHeatCase {
-    pub fn exact(&self, x: f64, y: f64, t: f64) -> f64 {
-        self.t0
-            + self.amplitude
-                * (std::f64::consts::PI * x).sin()
-                * (std::f64::consts::PI * y).sin()
-                * (-t).exp()
-    }
-    pub fn source(&self, x: f64, y: f64, t: f64) -> f64 {
-        let pi = std::f64::consts::PI;
-        let mode = (pi * x).sin() * (pi * y).sin() * (-t).exp();
-        let temp = self.t0 + self.amplitude * mode;
-        let dt = -self.amplitude * mode;
-        let lap = -2.0 * pi * pi * self.amplitude * mode;
-        let gx = self.amplitude * pi * (pi * x).cos() * (pi * y).sin() * (-t).exp();
-        let gy = self.amplitude * pi * (pi * x).sin() * (pi * y).cos() * (-t).exp();
-        let rho = self.rho.value(temp);
-        let cp = self.cp.value(temp);
-        let k = self.k.value(temp);
-        rho * cp * dt - (k * lap + self.k.derivative() * (gx * gx + gy * gy))
-    }
-    pub fn strong_residual(&self, x: f64, y: f64, t: f64) -> f64 {
-        let q = self.source(x, y, t);
-        self.source(x, y, t) - q
-    }
-}
-
-// ---------------- R20 time/state semantics ----------------
+// ---------------- time/state semantics ----------------
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimeRole {
@@ -2705,7 +2464,7 @@ impl TimeStateSemantics {
         let fields = model
             .fields
             .iter()
-            .filter(|f| matches!(f.role, FieldRoleV1::State | FieldRoleV1::Unknown))
+            .filter(|f| matches!(f.role, FieldRole::State | FieldRole::Unknown))
             .map(|f| TimeField {
                 field: f.name.clone(),
                 role: f.time_role.unwrap_or(TimeRole::Differential),
@@ -2727,18 +2486,12 @@ pub fn validate_quantities(
 ) -> Result<(), ScientificError> {
     for field in &model.fields {
         if let Some(nominal) = &field.nominal {
-            registry
-                .canonicalize(nominal)
-                .map_err(|e| ScientificError::Quantity(e.to_string()))?;
+            canonicalize_authored_quantity(registry, nominal)?;
         }
         if let (Some(min), Some(max)) = (&field.physical_min, &field.physical_max) {
-            let a = registry
-                .canonicalize(min)
-                .map_err(|e| ScientificError::Quantity(e.to_string()))?;
-            let b = registry
-                .canonicalize(max)
-                .map_err(|e| ScientificError::Quantity(e.to_string()))?;
-            if a.value_si > b.value_si {
+            let a = canonicalize_authored_quantity(registry, min)?;
+            let b = canonicalize_authored_quantity(registry, max)?;
+            if a.value_si() > b.value_si() {
                 return Err(ScientificError::Quantity(format!(
                     "field `{}` has min > max",
                     field.name
@@ -2749,18 +2502,43 @@ pub fn validate_quantities(
     Ok(())
 }
 
-pub fn quantity_defaults() -> (
-    UnitRegistry,
-    KindStrictness,
-    Option<DisplayUnit>,
-    Option<Bound<f64>>,
-) {
-    (
-        UnitRegistry::standard(),
-        KindStrictness::KindCompatible,
-        None,
-        None,
-    )
+/// Resolve authored unit symbols and unqualified kind names against a Quantitas registry, then
+/// return the canonical quantity. The returned value is a Quantitas type, not a Resolvent wrapper.
+pub fn canonicalize_authored_quantity(
+    registry: &UnitRegistry,
+    literal: &QuantityLiteral,
+) -> Result<Quantity, ScientificError> {
+    let Some(unit) = registry
+        .get(&literal.unit)
+        .or_else(|| registry.by_symbol(literal.unit.as_str()))
+    else {
+        return registry
+            .canonicalize(literal)
+            .map_err(|error| ScientificError::Quantity(error.to_string()));
+    };
+    let kind = if unit.admitted_kinds.is_empty() || unit.admitted_kinds.contains(&literal.kind) {
+        literal.kind.clone()
+    } else {
+        let suffix = literal.kind.as_str().rsplit(':').next().unwrap_or_default();
+        let mut candidates = unit.admitted_kinds.iter().filter(|candidate| {
+            candidate
+                .as_str()
+                .rsplit(':')
+                .next()
+                .is_some_and(|candidate_suffix| candidate_suffix == suffix)
+        });
+        match (candidates.next().cloned(), candidates.next()) {
+            (Some(candidate), None) => candidate,
+            _ => literal.kind.clone(),
+        }
+    };
+    registry
+        .canonicalize(&QuantityLiteral {
+            value: literal.value,
+            unit: unit.id.clone(),
+            kind,
+        })
+        .map_err(|error| ScientificError::Quantity(error.to_string()))
 }
 
 #[cfg(test)]
@@ -2823,21 +2601,19 @@ model NonlinearHeat {
     }
 
     #[test]
-    fn production_catalog_covers_agent_gate_spaces() {
-        let c = DiscretizationCatalog::production();
-        assert!(c.supports(ReferenceCell::Triangle, SpaceFamily::H1, 2));
-        assert!(c.supports(ReferenceCell::Triangle, SpaceFamily::L2, 0));
-        assert!(c.supports(ReferenceCell::Triangle, SpaceFamily::HCurl, 0));
-        assert!(c.supports(ReferenceCell::Triangle, SpaceFamily::HDiv, 0));
-        assert_eq!(orientation_sign(&[1, 0, 2]), -1);
-    }
-
-    #[test]
-    fn canonical_heat_source_is_smooth_and_finite() {
-        let c = CanonicalHeatCase::default();
-        for p in [(0.2, 0.3, 0.0), (0.5, 0.5, 0.2), (0.8, 0.4, 1.0)] {
-            assert!(c.source(p.0, p.1, p.2).is_finite());
-            assert_eq!(c.strong_residual(p.0, p.1, p.2), 0.0);
-        }
+    fn authored_symbols_resolve_through_quantitas() {
+        let module = parse_scientific_module(HEAT).unwrap();
+        let registry = UnitRegistry::si_bootstrap();
+        validate_quantities(&module.models[0], &registry).unwrap();
+        let quantity = canonicalize_authored_quantity(
+            &registry,
+            module.models[0].fields[0].nominal.as_ref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            quantity.kind(),
+            &QuantityKindId::thermodynamic_temperature()
+        );
+        assert_eq!(quantity.value_si(), 300.0);
     }
 }

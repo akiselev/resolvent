@@ -15,3 +15,12 @@ Read `STATUS.md` before substantial work and update it before every handoff or p
 - When a change affects another scientific-stack repository, record the exact dependency/contract state needed for reproducibility.
 
 Do not weaken tests, semantic gates, evidence requirements, or ownership boundaries merely to make a branch green.
+
+## Compiler boundaries
+
+- Keep one `.res` source and semantic model. Do not add alternate ASTs or mirror Quantitas types.
+- Resolvent may depend on Quantitas and Malleus. Malleus must never depend on Resolvent.
+- Keep meshes, concrete elements/DOFs, global operators, runtime state, and solver policy out of
+  this repository.
+- Mathematical transformations need explicit provenance and independent validation; removed code
+  is available in Git history but is not an oracle.

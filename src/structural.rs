@@ -1,16 +1,14 @@
-//! Structural equation analysis over the common [`System`] IR.
+//! Structural equation analysis over the canonical scientific model.
 //!
-//! Incidence, alias analysis, DAE/index analysis, matching, SCC/BLT and tearing are all
-//! projections or passes over the semantic System. There is intentionally no second equation
-//! language after the Plexus migration.
+//! Incidence, alias analysis, DAE/index analysis, matching, SCC/BLT and tearing are projections
+//! over [`ScientificModel`](crate::scientific::ScientificModel). Resolvent does not maintain a
+//! second equation language for these passes.
 
 pub mod dae;
 pub mod scc;
 pub mod schedule;
 
-use crate::expr::{ExprNode, ExprStore};
-use crate::id::SymbolId;
-use crate::model::System;
+use crate::scientific::{Expr, FieldRole, ScientificModel};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
@@ -26,31 +24,39 @@ pub use schedule::{
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IncidenceSystem {
-    pub variables: Vec<SymbolId>,
+    pub variables: Vec<String>,
     pub rows: Vec<Vec<usize>>,
 }
 impl IncidenceSystem {
-    pub fn from_system(system: &System, exprs: &ExprStore) -> Result<Self, StructuralError> {
+    /// Project the equations and unknown/state fields of a scientific model into an incidence
+    /// matrix. Names that denote parameters, coefficients, or functions are intentionally not
+    /// columns in the structural system.
+    pub fn from_model(model: &ScientificModel) -> Result<Self, StructuralError> {
+        let variables: Vec<_> = model
+            .fields
+            .iter()
+            .filter(|field| matches!(field.role, FieldRole::State | FieldRole::Unknown))
+            .map(|field| field.name.clone())
+            .collect();
         let mut columns = BTreeMap::new();
-        for (index, symbol) in system.unknowns.iter().copied().enumerate() {
-            columns.insert(symbol, index);
+        for (index, variable) in variables.iter().enumerate() {
+            if columns.insert(variable.as_str(), index).is_some() {
+                return Err(StructuralError::DuplicateVariable(variable.clone()));
+            }
         }
-        let mut rows = Vec::with_capacity(system.equations.len());
-        for equation in &system.equations {
+        let mut rows = Vec::with_capacity(model.equations.len());
+        for equation in &model.equations {
             let mut symbols = BTreeSet::new();
-            collect_symbols(equation.lhs, exprs, &mut symbols)?;
-            collect_symbols(equation.rhs, exprs, &mut symbols)?;
+            collect_names(&equation.lhs, &mut symbols);
+            collect_names(&equation.rhs, &mut symbols);
             rows.push(
                 symbols
                     .into_iter()
-                    .filter_map(|symbol| columns.get(&symbol).copied())
-                    .collect(),
+                    .filter_map(|name| columns.get(name).copied())
+                    .collect::<Vec<_>>(),
             )
         }
-        Ok(Self {
-            variables: system.unknowns.clone(),
-            rows,
-        })
+        Ok(Self { variables, rows })
     }
     pub fn n_equations(&self) -> usize {
         self.rows.len()
@@ -60,54 +66,29 @@ impl IncidenceSystem {
     }
 }
 
-fn collect_symbols(
-    root: crate::id::ExprId,
-    exprs: &ExprStore,
-    out: &mut BTreeSet<SymbolId>,
-) -> Result<(), StructuralError> {
-    let mut stack = vec![root];
-    let mut seen = BTreeSet::new();
-    while let Some(id) = stack.pop() {
-        if !seen.insert(id) {
-            continue;
+pub(crate) fn collect_names<'a>(expr: &'a Expr, out: &mut BTreeSet<&'a str>) {
+    match expr {
+        Expr::Name(name) => {
+            out.insert(name);
         }
-        let node = exprs
-            .get(id)
-            .ok_or(StructuralError::MissingExpression(id.0))?;
-        match node {
-            ExprNode::Literal(_) => {}
-            ExprNode::Symbol(symbol) => {
-                out.insert(*symbol);
-            }
-            ExprNode::Neg(x) => stack.push(*x),
-            ExprNode::Add(xs) | ExprNode::Mul(xs) => stack.extend(xs.iter().copied()),
-            ExprNode::Div {
-                numerator,
-                denominator,
-            } => {
-                stack.push(*numerator);
-                stack.push(*denominator)
-            }
-            ExprNode::PowI { base, .. } => stack.push(*base),
-            ExprNode::Apply { args, .. } => stack.extend(args.iter().copied()),
-            ExprNode::Derivative {
-                expr,
-                with_respect_to,
-                ..
-            } => {
-                stack.push(*expr);
-                out.insert(*with_respect_to);
+        Expr::Unary { arg, .. } => collect_names(arg, out),
+        Expr::Binary { lhs, rhs, .. } => {
+            collect_names(lhs, out);
+            collect_names(rhs, out);
+        }
+        Expr::Call { args, .. } | Expr::Vector(args) => {
+            for arg in args {
+                collect_names(arg, out);
             }
         }
+        Expr::Index { value, indices } => {
+            collect_names(value, out);
+            for index in indices {
+                collect_names(index, out);
+            }
+        }
+        Expr::Number { .. } | Expr::String(_) => {}
     }
-    Ok(())
-}
-pub(crate) fn collect_symbols_for_dae(
-    root: crate::id::ExprId,
-    exprs: &ExprStore,
-    out: &mut BTreeSet<SymbolId>,
-) -> Result<(), StructuralError> {
-    collect_symbols(root, exprs, out)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -142,7 +123,7 @@ impl Matching {
     }
 }
 
-/// Deterministic Hopcroft–Karp maximum matching, migrated from the Plexus reference corpus.
+/// Deterministic Hopcroft–Karp maximum matching.
 pub fn maximum_matching(system: &IncidenceSystem) -> Matching {
     let n_u = system.n_equations();
     let n_v = system.n_variables();
@@ -219,6 +200,6 @@ fn dfs(
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum StructuralError {
-    #[error("system references expression id {0} that is absent from the expression store")]
-    MissingExpression(u32),
+    #[error("model declares structural variable `{0}` more than once")]
+    DuplicateVariable(String),
 }

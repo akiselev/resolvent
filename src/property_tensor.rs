@@ -1,4 +1,4 @@
-//! Tensor-valued property frame transforms used by R15 material semantics.
+//! Tensor-valued property frame transforms used by material semantics.
 
 use serde::{Deserialize, Serialize};
 
