@@ -1,0 +1,118 @@
+name: FC0 fix pointwise gradient compatibility
+
+on:
+  push:
+    branches: [agent/fc0-fc1-form-v2]
+    paths: [.github/workflows/fc0-fix-pointwise-gradient.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - name: Patch classifier and add regression
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/scientific_weak.rs')
+          s = p.read_text()
+          s = s.replace('if contains_differential_operator(&expression) {', 'if contains_unlowered_differential_operator(&expression) {', 1)
+          a = '''fn contains_differential_operator(expression: &Expr) -> bool {
+    match expression {
+        Expr::Call { function, args } => {
+            matches!(
+                function.as_str(),
+                "dt" | "grad" | "div" | "curl" | "sym_grad"
+            ) || args.iter().any(contains_differential_operator)
+        }
+        Expr::Unary { arg, .. } => contains_differential_operator(arg),
+        Expr::Binary { lhs, rhs, .. } => {
+            contains_differential_operator(lhs) || contains_differential_operator(rhs)
+        }
+        Expr::Index { value, indices } => {
+            contains_differential_operator(value)
+                || indices.iter().any(contains_differential_operator)
+        }
+        Expr::Vector(values) => values.iter().any(contains_differential_operator),
+        Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => false,
+    }
+}
+'''
+          b = '''fn contains_unlowered_differential_operator(expression: &Expr) -> bool {
+    match expression {
+        // A simple field sample is legal in a pointwise term. This is required for
+        // cross-field sources such as Joule heating: sigma(T) * dot(grad(V), grad(V)).
+        Expr::Call { function, args } if matches!(function.as_str(), "dt" | "grad") => {
+            !matches!(args.as_slice(), [Expr::Name(_)])
+        }
+        // These operators require a recognized weak-form lowering; leaving one nested in
+        // a pointwise expression would defer unavailable differential semantics to runtime.
+        Expr::Call { function, .. }
+            if matches!(function.as_str(), "div" | "curl" | "sym_grad") => true,
+        Expr::Call { args, .. } => args.iter().any(contains_unlowered_differential_operator),
+        Expr::Unary { arg, .. } => contains_unlowered_differential_operator(arg),
+        Expr::Binary { lhs, rhs, .. } => {
+            contains_unlowered_differential_operator(lhs)
+                || contains_unlowered_differential_operator(rhs)
+        }
+        Expr::Index { value, indices } => {
+            contains_unlowered_differential_operator(value)
+                || indices.iter().any(contains_unlowered_differential_operator)
+        }
+        Expr::Vector(values) => values.iter().any(contains_unlowered_differential_operator),
+        Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => false,
+    }
+}
+'''
+          if a not in s:
+              raise SystemExit('old classifier not found')
+          s = s.replace(a, b, 1)
+          marker = '''    #[test]
+    fn electrothermal_aliases_lower_into_two_generic_blocks() {'''
+          test = '''    #[test]
+    fn pointwise_field_gradients_are_not_unlowered_higher_derivatives() {
+        let grad_v = Expr::Call {
+            function: "grad".into(),
+            args: vec![Expr::Name("V".into())],
+        };
+        let joule = Expr::Call {
+            function: "dot".into(),
+            args: vec![grad_v.clone(), grad_v.clone()],
+        };
+        assert!(!contains_unlowered_differential_operator(&joule));
+        assert!(contains_unlowered_differential_operator(&Expr::Call {
+            function: "div".into(),
+            args: vec![grad_v],
+        }));
+    }
+
+'''
+          if marker not in s:
+              raise SystemExit('test marker not found')
+          s = s.replace(marker, test + marker, 1)
+          p.write_text(s)
+          PY
+          cargo fmt --all -- --check || cargo fmt --all
+          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --all-features
+      - name: Commit validated fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- src/scientific_weak.rs
+          git rm -- .github/workflows/fc0-fix-pointwise-gradient.yml .github/workflows/fix-fc0-pointwise-gradients.yml FC0_FC1_CI.md
+          git diff --cached --check
+          git commit -m 'Fix FC0 pointwise gradient compatibility'
+          git push origin HEAD:${{ github.ref_name }}
