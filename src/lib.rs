@@ -26,10 +26,15 @@ pub mod migration;
 pub mod model;
 pub mod operator;
 pub mod physics;
+pub mod property_tensor;
 pub mod reference;
+pub mod reference_hdiv;
 pub mod reference_mixed;
 pub mod refinement;
 pub mod rsl;
+pub mod scientific;
+pub mod scientific_bridge;
+pub mod scientific_weak;
 pub mod source;
 pub mod structural;
 pub mod units;
@@ -87,10 +92,12 @@ pub use operator::{
 pub use physics::{
     PhysicsError, PhysicsLock, freeze as freeze_physics, parse_and_elaborate, validate_lock,
 };
+pub use property_tensor::SymmetricTensor2;
 pub use reference::{
     BoundaryEdge, DofLayout, PiecewiseConstant, ReferenceError, ReferenceMesh2, ReferenceOperator,
     RobinData, ScalarH1Problem, SparseMatrix, compile_scalar_h1_p1,
 };
+pub use reference_hdiv::{RaviartThomasOperator2, compile_raviart_thomas0_2d};
 pub use reference_mixed::{
     ElasticityOperator2, IsotropicElasticity2, NedelecOperator2, StokesOperatorP1P1,
     compile_elasticity_p1_2d, compile_nedelec0_2d, compile_stokes_p1p1_2d,
@@ -100,6 +107,20 @@ pub use refinement::{
     RefinementRelation, ScopeTransition,
 };
 pub use rsl::{ElaboratedRsl, RslFieldDecl, RslModel, RslSymbolDecl, parse_rsl};
+pub use scientific::{
+    CanonicalHeatCase, CouplingGraph, DiscretizationCatalog, PropertyDefinition,
+    ScientificExecutionPlan, ScientificModel, ScientificModule, TimeStateSemantics,
+    derive_coupling_graph, execution_plan, format_scientific_module, parse_scientific_module,
+    resolve_modules, semantic_digest,
+};
+pub use scientific_bridge::{
+    PropertyEvidenceLock, ScientificPhysicsLock, freeze_scientific, parse_and_freeze_scientific,
+    parse_scientific_latex_expr,
+};
+pub use scientific_weak::{
+    WeakLoweringError, WeakOperatorProgram, WeakResidualBlock, WeakTerm, lower_scalar_h1_equation,
+    lower_scalar_h1_model,
+};
 pub use source::{RelatedSpan, SourceDiagnostic, SourceSeverity, SourceSpan, Spanned};
 pub use structural::scc::{Digraph, GraphError, Sccs, tarjan_scc};
 pub use structural::{
@@ -111,5 +132,7 @@ pub use structural::{
 pub use units::{Dimension, UnitError};
 pub use verify::{CheckResult, CheckStatus, ValidationBundle, ValidationCheck, ValidationKind};
 
+pub use resolvent_quantities as quantities;
+
 /// Wire-level schema family for the unified scientific compiler surface.
-pub const SCIENTIFIC_SCHEMA_VERSION: &str = "resolvent-science/0.2";
+pub const SCIENTIFIC_SCHEMA_VERSION: &str = "resolvent-science/0.3";
