@@ -334,9 +334,7 @@ fn contains_unlowered_differential_operator(expression: &Expr) -> bool {
         }
         // These operators require a recognized weak-form lowering. Leaving one nested in
         // a pointwise expression would defer unavailable differential semantics to runtime.
-        Expr::Call { function, .. }
-            if matches!(function.as_str(), "div" | "curl" | "sym_grad") =>
-        {
+        Expr::Call { function, .. } if matches!(function.as_str(), "div" | "curl" | "sym_grad") => {
             true
         }
         Expr::Call { args, .. } => args.iter().any(contains_unlowered_differential_operator),
@@ -347,13 +345,9 @@ fn contains_unlowered_differential_operator(expression: &Expr) -> bool {
         }
         Expr::Index { value, indices } => {
             contains_unlowered_differential_operator(value)
-                || indices
-                    .iter()
-                    .any(contains_unlowered_differential_operator)
+                || indices.iter().any(contains_unlowered_differential_operator)
         }
-        Expr::Vector(values) => values
-            .iter()
-            .any(contains_unlowered_differential_operator),
+        Expr::Vector(values) => values.iter().any(contains_unlowered_differential_operator),
         Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => false,
     }
 }
