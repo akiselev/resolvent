@@ -26,15 +26,14 @@ jobs:
 
   finalize-fc0-fc1:
     if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/agent/fc0-fc1-form-v2' &&
+      github.event_name == 'pull_request' &&
       github.actor != 'github-actions[bot]'
     needs: rust
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.head_ref }}
           fetch-depth: 2
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -77,4 +76,4 @@ jobs:
           git add .github/workflows/ci.yml src/form_v2.rs validation/fc0-fc1-resolvent.md
           git diff --cached --check
           git commit -m "Complete FC0-FC1 semantic invariants"
-          git push origin HEAD:${{ github.ref_name }}
+          git push origin HEAD:${{ github.head_ref }}
