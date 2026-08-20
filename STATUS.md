@@ -31,9 +31,10 @@ finite-precision kernel scheduling, global field runtime, or numerical solve str
 - FC1 formulation provenance: integration-by-parts steps and generated boundary terms are
   explicit and must be reconciled rather than discarded.
 
-## Validation state
+## Validation gate
 
-The branch is validated by Resolvent CI:
+The branch must pass the repository's required commands before its commit is consumed by
+Malleus:
 
 ```text
 cargo fmt --all -- --check
@@ -42,9 +43,10 @@ cargo test --all-features
 ```
 
 Unit gates cover deterministic artifact serialization/digests, lossless scalar-H1
-compatibility, absent unevidenced claims, invalid frame contractions, mixed block digest
-stability, explicit facet-side rejection, and complex Hermitian semantics. Exact CI run
-results and commit SHA are recorded in the coordinated Sinbad integration PR.
+compatibility, absent unevidenced claims, invalid frame and variance contractions, mixed
+block digest stability, explicit facet-side rejection, and complex Hermitian semantics.
+Exact CI run results and the passing commit SHA are recorded in the coordinated Sinbad
+integration PR.
 
 ## Cross-repository contract
 
