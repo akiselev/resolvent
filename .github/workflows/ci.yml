@@ -5,9 +5,6 @@ on:
     branches: [master, "agent/**"]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
   rust:
     runs-on: ubuntu-latest
@@ -23,74 +20,3 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
       - name: test
         run: cargo test --all-features
-
-  finalize-fc0-fc1:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.actor != 'github-actions[bot]'
-    needs: rust
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.93.0"
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - name: Apply, validate, and commit the semantic hardening
-        shell: bash
-        run: |
-          sed -n "/python3 <<'PY'/,/^          PY$/p" \
-            .github/workflows/finalize-fc0-fc1-semantics.yml \
-            | sed '1d;$d;s/^          //' > /tmp/finalize-fc0-fc1.py
-          test -s /tmp/finalize-fc0-fc1.py
-          python3 <<'PY'
-          from pathlib import Path
-          path = Path("/tmp/finalize-fc0-fc1.py")
-          text = path.read_text()
-          text = text.replace(
-              "'''        let physical_fields = model\n",
-              "'''    let physical_fields = model\n",
-              1,
-          )
-          text = text.replace(
-              "'''        let mut physical_fields = model\n",
-              "'''    let mut physical_fields = model\n",
-              1,
-          )
-          path.write_text(text)
-          PY
-          python3 /tmp/finalize-fc0-fc1.py
-
-          cargo fmt --all
-          cargo fmt --all -- --check
-          cargo clippy --all-targets --all-features -- -D warnings
-          cargo test --all-features
-
-          source_commit=$(git rev-parse HEAD)
-          cat > validation/fc0-fc1-resolvent.md <<EOF
-          # Resolvent FC0-FC1 validation
-
-          Validated source commit: \`$source_commit\`
-
-          - \`cargo fmt --all -- --check\`: PASS
-          - \`cargo clippy --all-targets --all-features -- -D warnings\`: PASS
-          - \`cargo test --all-features\`: PASS
-
-          The gate includes deterministic artifacts, scalar-V1 compatibility, truthful claims,
-          complete receipt edges, declaration-order invariance, explicit facet sides, complex
-          inner-product convention, mixed blocks, and typed frame/variance contractions.
-          EOF
-
-          git fetch origin master --depth=1
-          git show origin/master:.github/workflows/ci.yml > .github/workflows/ci.yml
-          git rm .github/workflows/finalize-fc0-fc1-semantics.yml
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/workflows/ci.yml src/form_v2.rs validation/fc0-fc1-resolvent.md
-          git diff --cached --check
-          git commit -m "Complete FC0-FC1 semantic invariants"
-          git push origin HEAD:${{ github.head_ref }}

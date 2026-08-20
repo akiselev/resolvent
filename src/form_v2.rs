@@ -601,6 +601,18 @@ impl MeasureV2 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ConjugatedOperandV2 {
+    Left,
+    Right,
+}
+
+/// Canonical finite-element convention for `inner(a, b)`: the second operand is
+/// conjugated for complex scalar kinds. This keeps forms linear in coefficients and
+/// conjugate-linear in test arguments.
+pub const INNER_CONJUGATED_OPERAND_V2: ConjugatedOperandV2 = ConjugatedOperandV2::Right;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum AdjointKindV2 {
     Transpose,
     Hermitian,
@@ -640,7 +652,9 @@ pub enum FormExprV2 {
         left: Box<FormExprV2>,
         right: Box<FormExprV2>,
     },
-    /// Sesquilinear metric contraction. For complex scalars the left operand is conjugated.
+    /// Sesquilinear metric contraction. For complex scalars the right operand is conjugated.
+    /// The convention is exposed by [`INNER_CONJUGATED_OPERAND_V2`] so downstream
+    /// lowering cannot silently choose the opposite convention.
     Inner {
         left: Box<FormExprV2>,
         right: Box<FormExprV2>,
@@ -693,17 +707,19 @@ impl FormRoleV2 {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperatorClaimKindV2 {
     Symmetric,
+    ComplexSymmetric,
     Hermitian,
     PositiveDefinite,
     SkewSymmetric,
+    SkewHermitian,
     Conservation,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EvidenceBackedOperatorClaimV2 {
     pub claim: OperatorClaimKindV2,
     pub evidence: ArtifactRefV2,
@@ -715,6 +731,15 @@ pub struct FormCapabilitiesV2 {
     pub derivative_artifacts: Vec<ArtifactRefV2>,
     #[serde(default)]
     pub operator_claims: Vec<EvidenceBackedOperatorClaimV2>,
+}
+
+impl FormCapabilitiesV2 {
+    fn canonicalize(&mut self) {
+        self.derivative_artifacts.sort();
+        self.derivative_artifacts.dedup();
+        self.operator_claims.sort();
+        self.operator_claims.dedup();
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -761,6 +786,7 @@ impl VariationalFormV2 {
         // reordering a formulation after its derivation has been recorded.
         self.obligations.sort();
         self.obligations.dedup();
+        self.capabilities.canonicalize();
     }
 
     pub fn semantic_digest(&self) -> Result<ArtifactIdV2, ArtifactCodecErrorV2> {
@@ -933,6 +959,11 @@ impl VariationalFormV2 {
             ));
         }
 
+        let coefficient_fields = self
+            .coefficients
+            .iter()
+            .map(|coefficient| coefficient.field.as_str())
+            .collect::<BTreeSet<_>>();
         let environment = TypeEnvironmentV2 {
             spaces,
             arguments,
@@ -991,7 +1022,7 @@ impl VariationalFormV2 {
                     ));
                 }
             }
-            validate_measure_sides(integral, &path, &mut diagnostics);
+            validate_measure_sides(integral, &path, &coefficient_fields, &mut diagnostics);
         }
 
         if diagnostics.is_empty() {
@@ -1422,6 +1453,7 @@ fn push_axis_mismatch(
 fn validate_measure_sides(
     integral: &IntegralV2,
     path: &str,
+    coefficient_fields: &BTreeSet<&str>,
     diagnostics: &mut Vec<FormDiagnosticV2>,
 ) {
     let mut traces = Vec::new();
@@ -1429,6 +1461,7 @@ fn validate_measure_sides(
     collect_sides(
         &integral.integrand,
         false,
+        coefficient_fields,
         &mut traces,
         &mut unsided_operands,
     );
@@ -1459,6 +1492,7 @@ fn validate_measure_sides(
 fn collect_sides(
     expression: &FormExprV2,
     under_trace: bool,
+    coefficient_fields: &BTreeSet<&str>,
     traces: &mut Vec<TraceSideV2>,
     unsided_operands: &mut Vec<String>,
 ) {
@@ -1471,31 +1505,100 @@ fn collect_sides(
         }
         FormExprV2::Trace { value, side } => {
             traces.push(*side);
-            collect_sides(value, true, traces, unsided_operands);
+            collect_sides(value, true, coefficient_fields, traces, unsided_operands);
         }
         FormExprV2::Neg(value)
         | FormExprV2::TimeDerivative(value)
         | FormExprV2::Conjugate(value)
         | FormExprV2::Gradient { value, .. }
         | FormExprV2::Adjoint { value, .. } => {
-            collect_sides(value, under_trace, traces, unsided_operands);
+            collect_sides(
+                value,
+                under_trace,
+                coefficient_fields,
+                traces,
+                unsided_operands,
+            );
         }
         FormExprV2::Add(values) | FormExprV2::Product(values) => {
             for value in values {
-                collect_sides(value, under_trace, traces, unsided_operands);
+                collect_sides(
+                    value,
+                    under_trace,
+                    coefficient_fields,
+                    traces,
+                    unsided_operands,
+                );
             }
         }
         FormExprV2::Dot { left, right }
         | FormExprV2::Inner { left, right }
         | FormExprV2::Contract { left, right, .. } => {
-            collect_sides(left, under_trace, traces, unsided_operands);
-            collect_sides(right, under_trace, traces, unsided_operands);
+            collect_sides(
+                left,
+                under_trace,
+                coefficient_fields,
+                traces,
+                unsided_operands,
+            );
+            collect_sides(
+                right,
+                under_trace,
+                coefficient_fields,
+                traces,
+                unsided_operands,
+            );
+        }
+        FormExprV2::Scientific { expression, .. } if !under_trace => {
+            let mut referenced = BTreeSet::new();
+            collect_scientific_coefficient_names(expression, coefficient_fields, &mut referenced);
+            unsided_operands.extend(
+                referenced
+                    .into_iter()
+                    .map(|name| format!("scientific-coefficient:{name}")),
+            );
         }
         FormExprV2::Literal { .. }
         | FormExprV2::Constant(_)
         | FormExprV2::Scientific { .. }
         | FormExprV2::Argument(_)
         | FormExprV2::Coefficient(_) => {}
+    }
+}
+
+fn collect_scientific_coefficient_names(
+    expression: &ScientificExpr,
+    coefficient_fields: &BTreeSet<&str>,
+    out: &mut BTreeSet<String>,
+) {
+    match expression {
+        ScientificExpr::Name(name) if coefficient_fields.contains(name.as_str()) => {
+            out.insert(name.clone());
+        }
+        ScientificExpr::Unary { arg, .. } => {
+            collect_scientific_coefficient_names(arg, coefficient_fields, out);
+        }
+        ScientificExpr::Binary { lhs, rhs, .. } => {
+            collect_scientific_coefficient_names(lhs, coefficient_fields, out);
+            collect_scientific_coefficient_names(rhs, coefficient_fields, out);
+        }
+        ScientificExpr::Call { args, .. } => {
+            for arg in args {
+                collect_scientific_coefficient_names(arg, coefficient_fields, out);
+            }
+        }
+        ScientificExpr::Index { value, indices } => {
+            collect_scientific_coefficient_names(value, coefficient_fields, out);
+            for index in indices {
+                collect_scientific_coefficient_names(index, coefficient_fields, out);
+            }
+        }
+        ScientificExpr::Vector(values) => {
+            for value in values {
+                collect_scientific_coefficient_names(value, coefficient_fields, out);
+            }
+        }
+        ScientificExpr::Number { .. } | ScientificExpr::String(_) | ScientificExpr::Name(_) => {}
     }
 }
 
@@ -1657,6 +1760,16 @@ impl ScalarFormCompatibilityBundleV2 {
             }
             known.insert(form.artifact_ref());
         }
+        let mut required_receipts = BTreeSet::new();
+        for derivation in &self.derivations {
+            required_receipts.insert((self.model.clone(), derivation.artifact_ref()));
+        }
+        for form in &self.forms {
+            required_receipts.insert((form.payload.derivation.clone(), form.artifact_ref()));
+            required_receipts.insert((form.artifact_ref(), self.legacy.artifact_ref()));
+        }
+
+        let mut observed_receipts = BTreeSet::new();
         for receipt in &self.receipts {
             if receipt.schema != REFINEMENT_RECEIPT_V2_SCHEMA {
                 return Err(ArtifactCodecErrorV2::InvalidArtifact(format!(
@@ -1672,6 +1785,14 @@ impl ScalarFormCompatibilityBundleV2 {
                     receipt.result.artifact_id.hex()
                 )));
             }
+            observed_receipts.insert((receipt.source.clone(), receipt.result.clone()));
+        }
+        if let Some((source, result)) = required_receipts.difference(&observed_receipts).next() {
+            return Err(ArtifactCodecErrorV2::InvalidArtifact(format!(
+                "missing refinement receipt `{}` -> `{}`",
+                source.artifact_id.hex(),
+                result.artifact_id.hex()
+            )));
         }
         Ok(())
     }
@@ -1728,7 +1849,7 @@ pub fn adapt_scalar_h1_model_v2_with_options(
         artifact_id: model_id,
     };
 
-    let physical_fields = model
+    let mut physical_fields = model
         .fields
         .iter()
         .filter(|field| {
@@ -1738,6 +1859,7 @@ pub fn adapt_scalar_h1_model_v2_with_options(
             )
         })
         .collect::<Vec<_>>();
+    physical_fields.sort_by(|left, right| left.name.cmp(&right.name));
     for field in &physical_fields {
         if field.space.family != SpaceFamily::H1 || field.shape != ValueShapeV1::Scalar {
             return Err(adapter_error(
@@ -2505,5 +2627,204 @@ model Heat {
                 .unwrap_err()
                 .has_code("FORM-V2-AXIS-VARIANCE-MISMATCH")
         );
+    }
+
+    #[test]
+    fn inner_conjugates_the_test_operand_and_adapter_places_it_on_the_right() {
+        assert_eq!(INNER_CONJUGATED_OPERAND_V2, ConjugatedOperandV2::Right);
+        let source = r#"
+module test.inner;
+model InnerConvention {
+  domain Omega { dimension = 2; coordinates = cartesian; }
+  field u: state scalar H1(order=1) on Omega { time_role = differential; };
+  property k = conductivity(u);
+  equation balance on Omega { -div(k * grad(u)) = 0; }
+}
+"#;
+        let model = parse_scientific_module(source).unwrap().models.remove(0);
+        let bundle = adapt_scalar_h1_model_v2(&model).unwrap();
+        let FormExprV2::Product(values) = &bundle.forms[0].payload.integrals[0].integrand else {
+            panic!("diffusion compatibility integral must be a product");
+        };
+        let inner = values
+            .iter()
+            .find(|value| matches!(value, FormExprV2::Inner { .. }))
+            .expect("diffusion compatibility integral must contain inner");
+        let FormExprV2::Inner { left, right } = inner else {
+            unreachable!();
+        };
+        assert!(matches!(
+            left.as_ref(),
+            FormExprV2::Gradient { value, .. }
+                if matches!(value.as_ref(), FormExprV2::Coefficient(_))
+        ));
+        assert!(matches!(
+            right.as_ref(),
+            FormExprV2::Gradient { value, .. }
+                if matches!(value.as_ref(), FormExprV2::Argument(_))
+        ));
+    }
+
+    #[test]
+    fn scalar_adapter_form_identity_ignores_field_declaration_order() {
+        let source_a = r#"
+module test.order;
+model OrderedFields {
+  domain Omega { dimension = 2; coordinates = cartesian; }
+  field u: state scalar H1(order=1) on Omega { time_role = differential; };
+  field q: unknown scalar H1(order=1) on Omega;
+  equation balance on Omega { dt(u) = q; }
+}
+"#;
+        let source_b = r#"
+module test.order;
+model OrderedFields {
+  domain Omega { dimension = 2; coordinates = cartesian; }
+  field q: unknown scalar H1(order=1) on Omega;
+  field u: state scalar H1(order=1) on Omega { time_role = differential; };
+  equation balance on Omega { dt(u) = q; }
+}
+"#;
+        let model_a = parse_scientific_module(source_a).unwrap().models.remove(0);
+        let model_b = parse_scientific_module(source_b).unwrap().models.remove(0);
+        let form_a = adapt_scalar_h1_model_v2(&model_a).unwrap().forms.remove(0);
+        let form_b = adapt_scalar_h1_model_v2(&model_b).unwrap().forms.remove(0);
+        assert_eq!(form_a.artifact_id, form_b.artifact_id);
+        assert_eq!(
+            form_a.payload.semantic_digest().unwrap(),
+            form_b.payload.semantic_digest().unwrap()
+        );
+    }
+
+    #[test]
+    fn capability_order_and_duplicates_do_not_change_form_identity() {
+        let source = r#"
+module test.capabilities;
+model Capabilities {
+  domain Omega { dimension = 2; coordinates = cartesian; }
+  field u: state scalar H1(order=1) on Omega { time_role = differential; };
+  equation balance on Omega { dt(u) = 0; }
+}
+"#;
+        let model = parse_scientific_module(source).unwrap().models.remove(0);
+        let mut first = adapt_scalar_h1_model_v2(&model)
+            .unwrap()
+            .forms
+            .remove(0)
+            .payload;
+        let evidence_a = ArtifactRefV2 {
+            schema: "evidence/1".into(),
+            stage: ArtifactStageV2::Executable,
+            artifact_id: ArtifactIdV2(Digest::blake3(b"evidence-a")),
+        };
+        let evidence_b = ArtifactRefV2 {
+            schema: "evidence/1".into(),
+            stage: ArtifactStageV2::Executable,
+            artifact_id: ArtifactIdV2(Digest::blake3(b"evidence-b")),
+        };
+        first.capabilities.derivative_artifacts =
+            vec![evidence_b.clone(), evidence_a.clone(), evidence_b.clone()];
+        first.capabilities.operator_claims = vec![
+            EvidenceBackedOperatorClaimV2 {
+                claim: OperatorClaimKindV2::Hermitian,
+                evidence: evidence_b.clone(),
+            },
+            EvidenceBackedOperatorClaimV2 {
+                claim: OperatorClaimKindV2::ComplexSymmetric,
+                evidence: evidence_a.clone(),
+            },
+        ];
+        let mut second = first.clone();
+        second.capabilities.derivative_artifacts.reverse();
+        second.capabilities.operator_claims.reverse();
+        assert_eq!(
+            first.semantic_digest().unwrap(),
+            second.semantic_digest().unwrap()
+        );
+    }
+
+    #[test]
+    fn interior_facets_reject_scientific_field_references_without_trace_sides() {
+        let mut form = VariationalFormV2 {
+            schema: VARIATIONAL_FORM_V2_SCHEMA.into(),
+            name: "hidden-facet-coefficient".into(),
+            role: FormRoleV2::Residual,
+            scalar_kind: ScalarKindV2::Real64,
+            spaces: vec![scalar_space(0, "Omega")],
+            arguments: vec![FormArgumentV2 {
+                id: FormArgumentIdV2(0),
+                name: "v".into(),
+                number: 0,
+                part: None,
+                space: SpaceRequirementIdV2(0),
+            }],
+            coefficients: vec![FormCoefficientV2 {
+                id: FormCoefficientIdV2(0),
+                field: "u".into(),
+                space: SpaceRequirementIdV2(0),
+                time_level: TimeLevelV2::Current,
+                value_type: TensorTypeV2::scalar(ScalarKindV2::Real64),
+            }],
+            constants: vec![],
+            integrals: vec![IntegralV2 {
+                label: "hidden".into(),
+                integrand: FormExprV2::Product(vec![
+                    FormExprV2::Scientific {
+                        expression: ScientificExpr::Name("u".into()),
+                        value_type: TensorTypeV2::scalar(ScalarKindV2::Real64),
+                    },
+                    FormExprV2::Trace {
+                        value: Box::new(FormExprV2::Argument(FormArgumentIdV2(0))),
+                        side: TraceSideV2::Plus,
+                    },
+                ]),
+                measure: MeasureV2::InteriorFacet {
+                    domain: "Omega".into(),
+                    region: None,
+                },
+                metadata: BTreeMap::new(),
+            }],
+            derivation: dummy_derivation(),
+            obligations: vec![],
+            capabilities: FormCapabilitiesV2::default(),
+        };
+        let error = form.validate().unwrap_err();
+        assert!(error.has_code("FORM-V2-UNSIDED-FACET-OPERAND"));
+        assert!(
+            error
+                .diagnostics
+                .iter()
+                .any(|diagnostic| { diagnostic.message.contains("scientific-coefficient:u") })
+        );
+
+        let FormExprV2::Product(values) = &mut form.integrals[0].integrand else {
+            unreachable!();
+        };
+        values[0] = FormExprV2::Trace {
+            value: Box::new(values[0].clone()),
+            side: TraceSideV2::Minus,
+        };
+        form.validate().unwrap();
+    }
+
+    #[test]
+    fn compatibility_bundle_requires_every_refinement_receipt_edge() {
+        let source = r#"
+module test.receipts;
+model Receipts {
+  domain Omega { dimension = 2; coordinates = cartesian; }
+  field u: state scalar H1(order=1) on Omega { time_role = differential; };
+  equation balance on Omega { dt(u) = 0; }
+}
+"#;
+        let model = parse_scientific_module(source).unwrap().models.remove(0);
+        let mut bundle = adapt_scalar_h1_model_v2(&model).unwrap();
+        let form = bundle.forms[0].artifact_ref();
+        let legacy = bundle.legacy.artifact_ref();
+        bundle
+            .receipts
+            .retain(|receipt| receipt.source != form || receipt.result != legacy);
+        let error = bundle.verify().unwrap_err();
+        assert!(error.to_string().contains("missing refinement receipt"));
     }
 }
