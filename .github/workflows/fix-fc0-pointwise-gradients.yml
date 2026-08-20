@@ -1,0 +1,163 @@
+name: Fix and validate FC0 pointwise gradients
+
+on:
+  push:
+    branches:
+      - agent/fc0-fc1-form-v2
+    paths:
+      - .github/workflows/fix-fc0-pointwise-gradients.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply the compatibility fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/scientific_weak.rs")
+          text = path.read_text(encoding="utf-8")
+          text = text.replace(
+              "if contains_differential_operator(&expression) {",
+              "if contains_unlowered_differential_operator(&expression) {",
+              1,
+          )
+          old = '''fn contains_differential_operator(expression: &Expr) -> bool {
+    match expression {
+        Expr::Call { function, args } => {
+            matches!(
+                function.as_str(),
+                "dt" | "grad" | "div" | "curl" | "sym_grad"
+            ) || args.iter().any(contains_differential_operator)
+        }
+        Expr::Unary { arg, .. } => contains_differential_operator(arg),
+        Expr::Binary { lhs, rhs, .. } => {
+            contains_differential_operator(lhs) || contains_differential_operator(rhs)
+        }
+        Expr::Index { value, indices } => {
+            contains_differential_operator(value)
+                || indices.iter().any(contains_differential_operator)
+        }
+        Expr::Vector(values) => values.iter().any(contains_differential_operator),
+        Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => false,
+    }
+}
+'''
+          new = '''fn contains_unlowered_differential_operator(expression: &Expr) -> bool {
+    match expression {
+        // These are pointwise field samples supported by the scalar runtime. They may appear
+        // inside cross-field sources such as Joule heating without changing the residual
+        // block's primary differential field.
+        Expr::Call { function, args } if matches!(function.as_str(), "dt" | "grad") => {
+            !matches!(args.as_slice(), [Expr::Name(_)])
+        }
+        // Higher differential operators require a recognized weak-form lowering. Leaving one
+        // nested in a pointwise expression would defer unavailable derivatives to execution.
+        Expr::Call { function, .. }
+            if matches!(function.as_str(), "div" | "curl" | "sym_grad") =>
+        {
+            true
+        }
+        Expr::Call { args, .. } => args.iter().any(contains_unlowered_differential_operator),
+        Expr::Unary { arg, .. } => contains_unlowered_differential_operator(arg),
+        Expr::Binary { lhs, rhs, .. } => {
+            contains_unlowered_differential_operator(lhs)
+                || contains_unlowered_differential_operator(rhs)
+        }
+        Expr::Index { value, indices } => {
+            contains_unlowered_differential_operator(value)
+                || indices
+                    .iter()
+                    .any(contains_unlowered_differential_operator)
+        }
+        Expr::Vector(values) => values
+            .iter()
+            .any(contains_unlowered_differential_operator),
+        Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => false,
+    }
+}
+'''
+          if old not in text:
+              raise SystemExit("expected differential-classifier body was not found")
+          text = text.replace(old, new, 1)
+
+          marker = '''    #[test]
+    fn electrothermal_aliases_lower_into_two_generic_blocks() {'''
+          regression = '''    #[test]
+    fn pointwise_field_gradients_are_distinct_from_unlowered_higher_derivatives() {
+        let grad_v = Expr::Call {
+            function: "grad".into(),
+            args: vec![Expr::Name("V".into())],
+        };
+        let joule = Expr::Call {
+            function: "dot".into(),
+            args: vec![grad_v.clone(), grad_v.clone()],
+        };
+        assert!(!contains_unlowered_differential_operator(&joule));
+        assert!(contains_unlowered_differential_operator(&Expr::Call {
+            function: "div".into(),
+            args: vec![grad_v],
+        }));
+    }
+
+'''
+          if marker not in text:
+              raise SystemExit("expected electrothermal test marker was not found")
+          text = text.replace(marker, regression + marker, 1)
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Run and record required gates
+        shell: bash
+        run: |
+          set +e
+          cargo fmt --all > /tmp/fmt.log 2>&1
+          fmt_status=$?
+          cargo clippy --all-targets --all-features -- -D warnings > /tmp/clippy.log 2>&1
+          clippy_status=$?
+          cargo test --all-features > /tmp/test.log 2>&1
+          test_status=$?
+          set -e
+          python3 - "$fmt_status" "$clippy_status" "$test_status" <<'PY'
+          from pathlib import Path
+          import sys
+
+          names = ("fmt", "clippy", "test")
+          statuses = dict(zip(names, map(int, sys.argv[1:])))
+          lines = [
+              "# FC0-FC1 Resolvent CI diagnostic — compatibility fix",
+              "",
+              *(f"- `{name}`: {'PASS' if status == 0 else f'FAIL ({status})'}" for name, status in statuses.items()),
+              "",
+          ]
+          for name in names:
+              text = Path(f"/tmp/{name}.log").read_text(errors="replace")
+              if len(text) > 120_000:
+                  text = text[-120_000:]
+              lines.extend((f"## {name}", "", "```text", text.rstrip(), "```", ""))
+          Path("FC0_FC1_CI.md").write_text("\n".join(lines), encoding="utf-8")
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -- src/scientific_weak.rs src/form_v2.rs src/lib.rs STATUS.md FC0_FC1_CI.md
+          git rm -- .github/workflows/fix-fc0-pointwise-gradients.yml
+          git diff --cached --check
+          git commit -m "Fix FC0 cross-field pointwise gradient lowering"
+          git push origin HEAD:${{ github.ref_name }}
+          if [[ $fmt_status -ne 0 || $clippy_status -ne 0 || $test_status -ne 0 ]]; then
+            exit 1
+          fi
