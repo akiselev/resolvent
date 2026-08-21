@@ -4,16 +4,18 @@
 
 Turn the mature Resolvent kernel into a sustainable external ecosystem without weakening determinism, exactness or ownership boundaries.
 
-RV9 is not a single final release. It is the packaging, provider, distribution and scale program that begins once RV1-RV3 contracts are stable and matures as RV6/RV7 breadth lands.
+RV9 is not a single final release and does not wait for all earlier RV phases. Its lanes begin from their actual prerequisites: provider semantics from RV3, package/session semantics from RV4, protocol/bindings from RV8, and algorithm-specific correctness baselines from the owning algebra family.
 
 ## Principles
 
-- One canonical public semantic model regardless of provider.
+- One canonical public mathematical semantic model regardless of provider.
 - Providers accelerate/extend algorithms but do not define public wire identity.
 - Package loading is explicit and versioned.
-- Dynamic/plugin ABIs use stable protocol/C handles, not Rust trait-object ABI.
+- Do not create a second generic executable-plugin framework: use Outboard optionally when external executable discovery/worker lifecycle is needed.
+- Do not create a second general durable artifact lifecycle: use Artifactum optionally for durable large artifacts/provenance/lineage when needed.
+- Rust dynamic-library ABI is not a stable plugin ABI.
 - Cache keys include all semantic context that can change a result.
-- Parallelism preserves deterministic mathematical output and records unavoidable nondeterministic execution metadata separately.
+- Parallelism preserves deterministic mathematical output and records unavoidable nondeterministic scheduling metadata separately.
 - Large objects may be streamed/spilled/content-addressed rather than forcing all data into RAM.
 
 ## Work packages
@@ -22,7 +24,7 @@ RV9 is not a single final release. It is the packaging, provider, distribution a
 
 #### RV9-A1 - Package manifest
 
-Define a versioned package manifest containing:
+Define a versioned Resolvent package manifest containing:
 
 - package name/version;
 - Resolvent API/schema compatibility;
@@ -33,7 +35,7 @@ Define a versioned package manifest containing:
 - license/source metadata;
 - reproducibility digest.
 
-Package identity is separate from session-local import aliases.
+Package identity is separate from session-local import aliases and from executable-provider identity.
 
 #### RV9-A2 - Package loading and namespace isolation
 
@@ -60,7 +62,9 @@ Expose the same metadata to:
 
 ### RV9-B - Provider architecture
 
-#### RV9-B1 - Provider contract
+Resolvent owns the **mathematical provider contract**. Generic external-process lifecycle remains an optional Outboard concern.
+
+#### RV9-B1 - Mathematical provider contract
 
 A provider advertises:
 
@@ -69,10 +73,12 @@ A provider advertises:
 - domain/value import/export capabilities;
 - exactness/evidence guarantees;
 - deterministic behavior guarantees;
-- resource/cancellation capabilities;
+- resource/cancellation capabilities relevant to algebra planning;
 - licensing/runtime requirements.
 
-Provider selection flows through RV3 planning.
+Provider selection flows through RV3 planning and appears in plans/receipts.
+
+The contract says what mathematical operation a provider can perform and how its result is verified. It does not define a second executable discovery/worker framework.
 
 #### RV9-B2 - In-process providers
 
@@ -80,16 +86,27 @@ Support statically linked or feature-selected provider implementations using int
 
 No provider-private object appears in canonical serialized `Term`/`Element` identity.
 
-#### RV9-B3 - Stable out-of-process/dynamic providers
+#### RV9-B3 - External executable providers through Outboard
 
-For separately distributed providers, use:
+When a provider is separately installed or process isolation is desirable, implement a thin Resolvent/Outboard adapter rather than new discovery/worker infrastructure.
 
-- the kernel/provider protocol; or
-- a stable C-compatible handle ABI.
+Outboard already owns reusable:
 
-Do not expose Rust trait-object/vtable ABI across shared-library boundaries.
+- executable naming/discovery and shadow diagnostics;
+- manifest/interface/framework version negotiation;
+- typed argv invocation;
+- one-shot process handling;
+- persistent worker lifecycle;
+- progress events;
+- cooperative cancellation;
+- process isolation;
+- worker framing and compatibility checks.
 
-Process isolation is preferred for tools with incompatible licenses, fragile runtimes or crash risk.
+Resolvent defines the small application/domain interface describing algebra request/result artifacts and maps provider identity/capabilities into RV3 descriptors.
+
+If a future requirement is not supported by Outboard, first determine whether it is generic plugin-framework work that belongs in Outboard or genuinely algebra-specific protocol work that belongs here.
+
+Outboard remains optional; pure/core Resolvent does not depend on it.
 
 #### RV9-B4 - FLINT-class optimized provider
 
@@ -110,7 +127,7 @@ Requirements:
 - differential corpus establishes semantic normalization conventions;
 - LGPL/provider licensing remains isolated from the permissive core according to the chosen linking/distribution policy.
 
-Other providers can be added using the same contract rather than one-off integration APIs.
+An in-process FLINT provider and an out-of-process provider are separate deployment choices under one mathematical provider contract.
 
 ### RV9-C - Broad bindings
 
@@ -123,7 +140,7 @@ Mature and publish bindings for:
 - Julia if demand justifies it;
 - language-server/editor protocol clients.
 
-Bindings expose structured terms/domains/outcomes/plans rather than primarily strings.
+Bindings expose structured Terms/domains/outcomes/plans rather than primarily strings.
 
 Ownership/lifetime rules are documented explicitly for arena-relative handles and dynamic values.
 
@@ -146,9 +163,9 @@ Requirements:
 - receipts distinguish semantic identity from performance scheduling details;
 - correctness baseline remains available.
 
-### RV9-E - Content-addressed caching
+### RV9-E - Mathematical memoization and caching
 
-Define cache keys over:
+Resolvent owns cache identity for deterministic algebra operations:
 
 ```text
 operation/request digest
@@ -163,25 +180,35 @@ relevant package environment
 
 Do not key on local arena handles or wall-clock state.
 
-Cache classes:
+Core/local cache classes may include:
 
-- exact immutable result cache;
-- verified certificate cache;
-- expensive domain-conversion cache;
+- exact immutable result memoization;
+- verified certificate memoization;
+- expensive domain-conversion memoization;
 - render cache;
 - notebook cell cache;
 - provider result cache with validation metadata.
 
+This is **not** a general artifact lifecycle system. Resolvent cache entries are implementation/productivity data unless explicitly promoted to durable artifacts.
+
+#### Artifactum boundary
+
+When results need durable content-addressed storage, cross-repository lineage, reproducible transformations, remote mirroring/distribution, leases/GC, action history, or long-lived large evidence artifacts, use Artifactum through an optional adapter if its contract fits.
+
+The adapter maps Resolvent semantic digests/receipt/certificate metadata to Artifactum artifacts/attestations/actions without making Artifactum identity the mathematical identity of a Term or Element.
+
 ### RV9-F - Large-expression and large-object scale
 
-Add bounded infrastructure for:
+Add bounded **algebra-specific** infrastructure for:
 
-- streaming serialization/deserialization;
-- chunked/content-addressed large terms and polynomial data;
-- disk spill for large intermediates where algorithms permit it;
+- streaming canonical serialization/deserialization;
+- bounded chunk iteration over large internal algebra structures;
+- disk spill for algorithm intermediates where the algorithm permits it;
 - memory accounting per request;
-- resumable or checkpointable long algorithms only when the mathematical algorithm has a safe checkpoint contract;
-- remote artifact references in kernel protocol responses.
+- resumable/checkpointable long algorithms only when the mathematical algorithm has a safe checkpoint contract;
+- content-addressed references in kernel protocol responses.
+
+Do not build a second generic blob/tree CAS, remote artifact server, action executor, provenance graph or distribution system. Durable versions of those capabilities belong to Artifactum.
 
 A resource-limited operation returns a typed outcome, not an OOM-driven process failure as ordinary control flow.
 
@@ -206,25 +233,29 @@ Provide independently versioned extension packages/adapters rather than adding u
 
 Expected integrations:
 
-- `resolvent-scientia` or Scientia-owned adapter for scientific scalar terms/inspection;
+- Scientia-owned adapter for scientific algebra projection/inspection;
 - CADabra-owned adapter/provider for exact algebra interoperability and notebook geometry display;
 - Methodus-owned adapter for symbolic Jacobian/preprocessing inputs where useful;
-- Solverang-owned adapter for algebraic constraint normalization/inspection where useful;
-- Sinbad-owned notebook/product extension for simulation campaigns.
+- Solverang-owned adapter for algebraic constraint normalization/witnesses where useful;
+- Sinbad-owned notebook/product extension for simulation campaigns;
+- optional Resolvent-Outboard adapter for external algebra providers;
+- optional Resolvent-Artifactum adapter for durable algebra artifacts/evidence.
 
-Naming/ownership can differ, but dependency direction remains from extension/consumer down to Resolvent.
+Naming can differ, but dependency direction remains from extension/consumer down to Resolvent or laterally through explicit adapter packages; core Resolvent does not depend on upper federation repositories.
 
 ### RV9-I - Compatibility and release discipline
 
 Define pre-1.0 and 1.0 stability classes:
 
-- canonical wire schemas;
+- canonical Term wire schemas;
 - domain descriptors;
 - public Rust facade;
 - protocol messages;
 - package manifests;
-- provider protocol;
+- mathematical provider contract;
 - receipt/certificate schemas.
+
+Outboard worker protocol and Artifactum artifact schemas remain owned/versioned by those projects and are consumed through adapters rather than copied into Resolvent schemas.
 
 Breaking schema changes require explicit version transitions and fixtures. Internal algorithm implementations can evolve freely when mathematical behavior and evidence contracts remain compatible.
 
@@ -240,7 +271,8 @@ Maintain benchmark families separated by workload shape:
 - rewrite/e-graph size;
 - special-function precision;
 - root isolation difficulty;
-- notebook/kernel protocol overhead.
+- notebook/kernel protocol overhead;
+- provider adapter overhead where relevant.
 
 Score lanes use pinned baselines/change-point tracking. Performance work never weakens exactness checks to win a benchmark.
 
@@ -249,22 +281,35 @@ Score lanes use pinned baselines/change-point tracking. Performance work never w
 RV9 reaches mature status when:
 
 - package/module loading is explicit, versioned and deterministic;
-- external providers use one stable contract and are visible in RV3 plans/receipts;
+- mathematical providers use one Resolvent contract and are visible in RV3 plans/receipts;
+- external executable providers reuse Outboard rather than duplicating generic plugin lifecycle;
+- durable general artifact/provenance needs reuse Artifactum rather than duplicating its lifecycle;
 - broad language bindings expose structured CAS values;
 - major exact workloads parallelize without changing canonical results;
 - caches are content/context addressed rather than process-history addressed;
-- large requests have bounded memory/artifact strategies;
+- large requests have bounded algebra-specific memory/streaming strategies;
 - agents can discover, plan, execute and verify algebra through structured APIs;
 - federation integrations remain adapter/extension dependencies rather than reverse dependencies from Resolvent;
 - schema/release compatibility policy is enforced mechanically.
 
 ## Parallelism
 
-A/C/G can begin after RV8 dynamic/protocol surfaces stabilize. B begins once RV3 provider identity/plans are stable. D/J proceed per algorithm only after correctness baselines are frozen. E/F can develop alongside provider work because they operate at artifact/protocol boundaries. H is naturally federated across repositories.
+RV9 lanes are dependency-local rather than globally late:
+
+- B begins once RV3 provider identity/plans are stable;
+- A begins once RV4 package/session namespace semantics are stable enough;
+- C/G build on the relevant RV8 dynamic/protocol surfaces;
+- D/J proceed per algorithm only after correctness baselines are frozen;
+- E/F can begin when stable request/Term/domain digests exist;
+- H is naturally federated across repositories.
+
+No RV9 lane waits for the RV9 phase exit, and most do not wait for all RV6/RV7 breadth.
 
 ## Non-goals
 
 - making every external CAS a linked backend;
+- building another Outboard-style executable plugin host;
+- building another Artifactum-style durable artifact/provenance system;
 - depending on upper federation repositories from the core CAS;
 - allowing provider registration order to change mathematical semantics;
 - hiding proprietary/copyleft providers inside the permissive core distribution;
