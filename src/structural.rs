@@ -1,7 +1,7 @@
 //! Structural equation analysis over the canonical scientific model.
 //!
 //! Incidence, alias analysis, DAE/index analysis, matching, SCC/BLT and tearing are projections
-//! over [`ScientificModel`](crate::scientific::ScientificModel). Resolvent does not maintain a
+//! over [`ScientificModel`]. Resolvent does not maintain a
 //! second equation language for these passes.
 
 pub mod dae;
@@ -68,7 +68,7 @@ impl IncidenceSystem {
 
 pub(crate) fn collect_names<'a>(expr: &'a Expr, out: &mut BTreeSet<&'a str>) {
     match expr {
-        Expr::Name(name) => {
+        Expr::Name { name, .. } => {
             out.insert(name);
         }
         Expr::Unary { arg, .. } => collect_names(arg, out),
@@ -76,18 +76,18 @@ pub(crate) fn collect_names<'a>(expr: &'a Expr, out: &mut BTreeSet<&'a str>) {
             collect_names(lhs, out);
             collect_names(rhs, out);
         }
-        Expr::Call { args, .. } | Expr::Vector(args) => {
+        Expr::Call { args, .. } | Expr::Vector { elements: args, .. } => {
             for arg in args {
                 collect_names(arg, out);
             }
         }
-        Expr::Index { value, indices } => {
+        Expr::Index { value, indices, .. } => {
             collect_names(value, out);
             for index in indices {
                 collect_names(index, out);
             }
         }
-        Expr::Number { .. } | Expr::String(_) => {}
+        Expr::Number { .. } | Expr::String { .. } => {}
     }
 }
 

@@ -1,0 +1,1819 @@
+//! Typed semantic elaboration for `.res` source models.
+//!
+//! The parser-owned [`ScientificModule`] retains authored syntax. This module resolves every
+//! scientific reference into stable arena identities and assigns shape, axes, Quantitas
+//! dimensions/kinds, frame, and role metadata to every expression node.
+
+use crate::scientific::{
+    BinaryOp, BoundaryConditionKind, CoordinateSystem, Expr, FieldDecl, FieldRole, Measure,
+    ScientificModel as SourceModel, ScientificModule, UnaryOp, ValueDecl, ValueShape,
+    canonicalize_authored_quantity,
+};
+use crate::source::{RelatedSpan, SourceDiagnostic, SourceSpan};
+use quantitas::{Dimension, QuantityKindId, QuantityLiteral, UnitId, UnitRegistry};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+macro_rules! arena_id {
+    ($name:ident) => {
+        #[derive(
+            Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        )]
+        #[serde(transparent)]
+        pub struct $name(pub u32);
+
+        impl $name {
+            pub const fn index(self) -> usize {
+                self.0 as usize
+            }
+        }
+    };
+}
+
+arena_id!(DomainId);
+arena_id!(SymbolId);
+arena_id!(ExprId);
+
+pub const SEMANTIC_SCHEMA: &str = "resolvent-semantic/1";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticModule {
+    pub schema: String,
+    pub name: String,
+    pub models: Vec<SemanticModel>,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticCompilation {
+    pub source: ScientificModule,
+    pub semantic: SemanticModule,
+}
+
+/// Parse and elaborate source through the complete FC1 boundary.
+pub fn compile_semantics(
+    source: &str,
+    registry: &UnitRegistry,
+) -> Result<SemanticCompilation, Vec<SourceDiagnostic>> {
+    let parsed = crate::scientific::parse_scientific_module_diagnostics(source)?;
+    let semantic = elaborate_module(&parsed, registry)?;
+    Ok(SemanticCompilation {
+        source: parsed,
+        semantic,
+    })
+}
+
+/// One canonical, typed semantic arena for a source model.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticModel {
+    pub name: String,
+    pub domains: Vec<SemanticDomain>,
+    pub symbols: Vec<SemanticSymbol>,
+    pub expressions: Vec<SemanticExpr>,
+    pub declarations: Vec<SemanticDeclaration>,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticDomain {
+    pub id: DomainId,
+    pub name: String,
+    pub spatial_dimension: u8,
+    pub coordinates: CoordinateSystem,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticRole {
+    PhysicalField(FieldRole),
+    Parameter,
+    Constant,
+    Source,
+    Property,
+    ConstitutiveLaw,
+    Equation,
+    Form,
+    InitialCondition,
+    BoundaryCondition,
+    InterfaceCondition,
+    Observable,
+    Invariant,
+    Verification,
+    Literal,
+    Intrinsic,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SemanticShape {
+    Numeric(ValueShape),
+    Boolean,
+    String,
+    Region,
+    /// A declared scientific function whose output contract has not been supplied yet.
+    Deferred,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Axis {
+    pub position: u8,
+    pub extent: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Frame {
+    Neutral,
+    Domain(DomainId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticType {
+    pub shape: SemanticShape,
+    pub axes: Vec<Axis>,
+    /// `None` is a deferred dimension constraint, not a second dimension representation.
+    pub dimension: Option<Dimension>,
+    pub quantity_kind: Option<QuantityKindId>,
+    pub frame: Frame,
+    pub role: SemanticRole,
+}
+
+impl SemanticType {
+    fn numeric(
+        shape: ValueShape,
+        dimension: Option<Dimension>,
+        frame: Frame,
+        role: SemanticRole,
+    ) -> Self {
+        let axes = axes(&shape);
+        Self {
+            shape: SemanticShape::Numeric(shape),
+            axes,
+            dimension,
+            quantity_kind: None,
+            frame,
+            role,
+        }
+    }
+
+    fn deferred(role: SemanticRole) -> Self {
+        Self {
+            shape: SemanticShape::Deferred,
+            axes: vec![],
+            dimension: None,
+            quantity_kind: None,
+            frame: Frame::Neutral,
+            role,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticSymbol {
+    pub id: SymbolId,
+    pub name: String,
+    pub ty: SemanticType,
+    pub domain: Option<DomainId>,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticExpr {
+    pub id: ExprId,
+    pub kind: SemanticExprKind,
+    pub ty: SemanticType,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticExprKind {
+    Number {
+        value: f64,
+        unit: Option<UnitId>,
+    },
+    String {
+        value: String,
+    },
+    Symbol {
+        symbol: SymbolId,
+    },
+    Unary {
+        op: UnaryOp,
+        arg: ExprId,
+    },
+    Binary {
+        op: BinaryOp,
+        lhs: ExprId,
+        rhs: ExprId,
+    },
+    Call {
+        function: String,
+        args: Vec<ExprId>,
+    },
+    Index {
+        value: ExprId,
+        indices: Vec<ExprId>,
+    },
+    Vector {
+        elements: Vec<ExprId>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticDeclaration {
+    pub name: String,
+    pub role: SemanticRole,
+    pub symbol: Option<SymbolId>,
+    pub domain: Option<DomainId>,
+    pub expressions: Vec<ExprId>,
+    pub span: SourceSpan,
+}
+
+pub fn elaborate_module(
+    module: &ScientificModule,
+    registry: &UnitRegistry,
+) -> Result<SemanticModule, Vec<SourceDiagnostic>> {
+    let mut diagnostics = vec![];
+    let models = module
+        .models
+        .iter()
+        .map(|model| Elaborator::new(model, registry).run(&mut diagnostics))
+        .collect();
+    diagnostics.sort_by(|left, right| {
+        (left.span.start, left.span.end, &left.code, &left.message).cmp(&(
+            right.span.start,
+            right.span.end,
+            &right.code,
+            &right.message,
+        ))
+    });
+    diagnostics.dedup();
+    if diagnostics.is_empty() {
+        Ok(SemanticModule {
+            schema: SEMANTIC_SCHEMA.into(),
+            name: module.name.clone(),
+            models,
+            span: module.span,
+        })
+    } else {
+        Err(diagnostics)
+    }
+}
+
+pub fn semantic_arena_digest(module: &SemanticModule) -> String {
+    let mut value =
+        serde_json::to_value(module).expect("semantic arena serialization is infallible");
+    fn strip_spans(value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::Object(map) => {
+                map.retain(|key, _| key != "span" && !key.ends_with("_span"));
+                for value in map.values_mut() {
+                    strip_spans(value);
+                }
+            }
+            serde_json::Value::Array(values) => values.iter_mut().for_each(strip_spans),
+            _ => {}
+        }
+    }
+    strip_spans(&mut value);
+    blake3::hash(&serde_json::to_vec(&value).expect("semantic arena JSON is infallible"))
+        .to_hex()
+        .to_string()
+}
+
+struct Elaborator<'a> {
+    source: &'a SourceModel,
+    registry: &'a UnitRegistry,
+    domains: Vec<SemanticDomain>,
+    domain_names: BTreeMap<String, DomainId>,
+    symbols: Vec<SemanticSymbol>,
+    symbol_names: BTreeMap<String, SymbolId>,
+    expressions: Vec<SemanticExpr>,
+    declarations: Vec<SemanticDeclaration>,
+}
+
+impl<'a> Elaborator<'a> {
+    fn new(source: &'a SourceModel, registry: &'a UnitRegistry) -> Self {
+        Self {
+            source,
+            registry,
+            domains: vec![],
+            domain_names: BTreeMap::new(),
+            symbols: vec![],
+            symbol_names: BTreeMap::new(),
+            expressions: vec![],
+            declarations: vec![],
+        }
+    }
+
+    fn run(mut self, diagnostics: &mut Vec<SourceDiagnostic>) -> SemanticModel {
+        self.declare_domains(diagnostics);
+        self.declare_value_symbols(diagnostics);
+        self.elaborate_definitions(diagnostics);
+        SemanticModel {
+            name: self.source.name.clone(),
+            domains: self.domains,
+            symbols: self.symbols,
+            expressions: self.expressions,
+            declarations: self.declarations,
+            span: self.source.span,
+        }
+    }
+
+    fn declare_domains(&mut self, diagnostics: &mut Vec<SourceDiagnostic>) {
+        for domain in &self.source.domains {
+            if let Some(previous) = self.domain_names.get(&domain.name).copied() {
+                diagnostics.push(duplicate(
+                    "domain",
+                    &domain.name,
+                    domain.span,
+                    self.domains[previous.index()].span,
+                ));
+                continue;
+            }
+            if domain.dimension > 3 {
+                diagnostics.push(error(
+                    "RESOLVE_INVALID_DOMAIN_DIMENSION",
+                    format!(
+                        "domain `{}` has unsupported spatial dimension {}",
+                        domain.name, domain.dimension
+                    ),
+                    domain.span,
+                ));
+            }
+            if matches!(
+                domain.coordinates,
+                CoordinateSystem::Cylindrical | CoordinateSystem::Spherical
+            ) && domain.dimension != 3
+            {
+                diagnostics.push(error(
+                    "RESOLVE_FRAME_DIMENSION_MISMATCH",
+                    format!(
+                        "{:?} coordinates require a three-dimensional domain",
+                        domain.coordinates
+                    ),
+                    domain.coordinates_span,
+                ));
+            }
+            let id = DomainId(self.domains.len() as u32);
+            self.domain_names.insert(domain.name.clone(), id);
+            self.domains.push(SemanticDomain {
+                id,
+                name: domain.name.clone(),
+                spatial_dimension: domain.dimension,
+                coordinates: domain.coordinates.clone(),
+                span: domain.span,
+            });
+        }
+    }
+
+    fn declare_value_symbols(&mut self, diagnostics: &mut Vec<SourceDiagnostic>) {
+        for field in &self.source.fields {
+            let domain = self.resolve_domain(&field.domain, field.domain_span, diagnostics);
+            let mut ty = self.field_type(field, domain, diagnostics);
+            ty.role = SemanticRole::PhysicalField(field.role.clone());
+            self.insert_symbol(&field.name, ty, domain, field.span, diagnostics);
+        }
+        for value in &self.source.parameters {
+            self.declare_value(value, SemanticRole::Parameter, diagnostics);
+        }
+        for value in &self.source.constants {
+            self.declare_value(value, SemanticRole::Constant, diagnostics);
+        }
+        for value in &self.source.sources {
+            self.declare_value(value, SemanticRole::Source, diagnostics);
+        }
+        let properties = self
+            .source
+            .properties
+            .iter()
+            .map(|item| (&item.name, item.span));
+        for (name, span) in properties {
+            self.insert_symbol(
+                name,
+                SemanticType::deferred(SemanticRole::Property),
+                None,
+                span,
+                diagnostics,
+            );
+        }
+        let laws = self
+            .source
+            .constitutive_laws
+            .iter()
+            .map(|item| (&item.name, item.span));
+        for (name, span) in laws {
+            self.insert_symbol(
+                name,
+                SemanticType::deferred(SemanticRole::ConstitutiveLaw),
+                None,
+                span,
+                diagnostics,
+            );
+        }
+        let equations = self
+            .source
+            .equations
+            .iter()
+            .map(|item| (&item.name, item.span));
+        for (name, span) in equations {
+            self.insert_symbol(
+                name,
+                SemanticType::deferred(SemanticRole::Equation),
+                None,
+                span,
+                diagnostics,
+            );
+        }
+    }
+
+    fn declare_value(
+        &mut self,
+        value: &ValueDecl,
+        role: SemanticRole,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        let (dimension, kind) = self.declared_quantity_type(
+            value.quantity_kind.as_ref(),
+            value.quantity_kind_span,
+            value.unit.as_ref(),
+            value.unit_span,
+            diagnostics,
+        );
+        let mut ty = if matches!(role, SemanticRole::Source) && dimension.is_none() {
+            SemanticType::deferred(role)
+        } else {
+            SemanticType::numeric(ValueShape::Scalar, dimension, Frame::Neutral, role)
+        };
+        ty.quantity_kind = kind;
+        self.insert_symbol(&value.name, ty, None, value.span, diagnostics);
+    }
+
+    fn field_type(
+        &self,
+        field: &FieldDecl,
+        domain: Option<DomainId>,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> SemanticType {
+        validate_shape(&field.shape, field.span, diagnostics);
+        let (dimension, kind) = self.declared_quantity_type(
+            field.quantity_kind.as_ref(),
+            field.quantity_kind_span,
+            field.unit.as_ref(),
+            field.unit_span,
+            diagnostics,
+        );
+        for literal in [&field.nominal, &field.physical_min, &field.physical_max]
+            .into_iter()
+            .flatten()
+        {
+            self.validate_literal(
+                literal,
+                field.span,
+                field.quantity_kind.is_some(),
+                diagnostics,
+            );
+            if let Some(expected) = dimension
+                && self
+                    .literal_dimension(literal)
+                    .is_some_and(|actual| actual != expected)
+            {
+                diagnostics.push(error(
+                    "TYPE_DIMENSION_MISMATCH",
+                    format!(
+                        "quantity literal for field `{}` has an incompatible dimension",
+                        field.name
+                    ),
+                    field.span,
+                ));
+            }
+        }
+        if let (Some(min), Some(max)) = (&field.physical_min, &field.physical_max)
+            && let (Ok(min), Ok(max)) = (
+                canonicalize_authored_quantity(self.registry, min),
+                canonicalize_authored_quantity(self.registry, max),
+            )
+            && min.value_si() > max.value_si()
+        {
+            diagnostics.push(error(
+                "TYPE_INVALID_RANGE",
+                format!("field `{}` has min greater than max", field.name),
+                field.span,
+            ));
+        }
+        let mut ty = SemanticType::numeric(
+            field.shape.clone(),
+            dimension,
+            domain.map_or(Frame::Neutral, Frame::Domain),
+            SemanticRole::PhysicalField(field.role.clone()),
+        );
+        ty.quantity_kind = kind;
+        ty
+    }
+
+    fn declared_quantity_type(
+        &self,
+        kind: Option<&QuantityKindId>,
+        kind_span: Option<SourceSpan>,
+        unit: Option<&UnitId>,
+        unit_span: Option<SourceSpan>,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> (Option<Dimension>, Option<QuantityKindId>) {
+        let definition = unit.and_then(|unit| {
+            self.registry
+                .get(unit)
+                .or_else(|| self.registry.by_symbol(unit.as_str()))
+                .or_else(|| {
+                    diagnostics.push(error(
+                        "RESOLVE_UNKNOWN_UNIT",
+                        format!("unknown unit `{unit}`"),
+                        unit_span.unwrap_or_default(),
+                    ));
+                    None
+                })
+        });
+        let mut canonical_kind = kind.cloned();
+        if let (Some(kind), Some(definition)) = (kind, definition) {
+            if known_kind_dimension(kind).is_some_and(|expected| expected != definition.dimension) {
+                diagnostics.push(error(
+                    "RESOLVE_UNIT_KIND_MISMATCH",
+                    format!(
+                        "unit `{}` has dimension `{}`, which is incompatible with quantity kind `{kind}`",
+                        definition.symbol, definition.dimension
+                    ),
+                    kind_span.or(unit_span).unwrap_or_default(),
+                ));
+            }
+            let literal = QuantityLiteral {
+                value: 0.0,
+                unit: definition.id.clone(),
+                kind: kind.clone(),
+            };
+            match canonicalize_authored_quantity(self.registry, &literal) {
+                Ok(quantity) => canonical_kind = Some(quantity.kind().clone()),
+                Err(error_value) => diagnostics.push(error(
+                    "RESOLVE_UNIT_KIND_MISMATCH",
+                    error_value.to_string(),
+                    kind_span.or(unit_span).unwrap_or_default(),
+                )),
+            }
+        }
+        let dimension = definition
+            .map(|definition| definition.dimension)
+            .or_else(|| kind.and_then(known_kind_dimension));
+        (dimension, canonical_kind)
+    }
+
+    fn validate_literal(
+        &self,
+        literal: &QuantityLiteral,
+        span: SourceSpan,
+        check_kind: bool,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        let definition = self
+            .registry
+            .get(&literal.unit)
+            .or_else(|| self.registry.by_symbol(literal.unit.as_str()));
+        let Some(definition) = definition else {
+            diagnostics.push(error(
+                "RESOLVE_UNKNOWN_UNIT",
+                format!("unknown unit `{}`", literal.unit),
+                span,
+            ));
+            return;
+        };
+        if check_kind {
+            let mut literal = literal.clone();
+            literal.unit = definition.id.clone();
+            if let Err(error_value) = canonicalize_authored_quantity(self.registry, &literal) {
+                diagnostics.push(error(
+                    "RESOLVE_UNIT_KIND_MISMATCH",
+                    error_value.to_string(),
+                    span,
+                ));
+            }
+        }
+    }
+
+    fn literal_dimension(&self, literal: &QuantityLiteral) -> Option<Dimension> {
+        self.registry
+            .get(&literal.unit)
+            .or_else(|| self.registry.by_symbol(literal.unit.as_str()))
+            .map(|definition| definition.dimension)
+    }
+
+    fn insert_symbol(
+        &mut self,
+        name: &str,
+        ty: SemanticType,
+        domain: Option<DomainId>,
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> Option<SymbolId> {
+        if let Some(previous) = self.symbol_names.get(name).copied() {
+            diagnostics.push(duplicate(
+                "symbol",
+                name,
+                span,
+                self.symbols[previous.index()].span,
+            ));
+            return None;
+        }
+        let id = SymbolId(self.symbols.len() as u32);
+        self.symbol_names.insert(name.into(), id);
+        self.symbols.push(SemanticSymbol {
+            id,
+            name: name.into(),
+            ty,
+            domain,
+            span,
+        });
+        Some(id)
+    }
+
+    fn resolve_domain(
+        &self,
+        name: &str,
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> Option<DomainId> {
+        self.domain_names.get(name).copied().or_else(|| {
+            diagnostics.push(error(
+                "RESOLVE_UNKNOWN_DOMAIN",
+                format!("unknown domain `{name}`"),
+                span,
+            ));
+            None
+        })
+    }
+
+    fn elaborate_definitions(&mut self, diagnostics: &mut Vec<SourceDiagnostic>) {
+        for value in &self.source.parameters {
+            self.elaborate_value(value, SemanticRole::Parameter, diagnostics);
+        }
+        for value in &self.source.constants {
+            self.elaborate_value(value, SemanticRole::Constant, diagnostics);
+        }
+        for value in &self.source.sources {
+            self.elaborate_value(value, SemanticRole::Source, diagnostics);
+        }
+        for property in &self.source.properties {
+            let expr = self.elaborate_expr(&property.value, diagnostics);
+            self.update_deferred_symbol(&property.name, expr);
+            self.push_declaration(
+                &property.name,
+                SemanticRole::Property,
+                None,
+                vec![expr],
+                property.span,
+            );
+        }
+        for law in &self.source.constitutive_laws {
+            let expr = self.elaborate_expr(&law.law, diagnostics);
+            self.update_deferred_symbol(&law.name, expr);
+            self.push_declaration(
+                &law.name,
+                SemanticRole::ConstitutiveLaw,
+                None,
+                vec![expr],
+                law.span,
+            );
+        }
+        for equation in &self.source.equations {
+            let domain = equation.domain.as_ref().and_then(|name| {
+                self.resolve_domain(
+                    name,
+                    equation.domain_span.unwrap_or(equation.span),
+                    diagnostics,
+                )
+            });
+            let lhs = self.elaborate_expr(&equation.lhs, diagnostics);
+            let rhs = self.elaborate_expr(&equation.rhs, diagnostics);
+            self.require_compatible(lhs, rhs, equation.span, diagnostics);
+            self.push_declaration(
+                &equation.name,
+                SemanticRole::Equation,
+                domain,
+                vec![lhs, rhs],
+                equation.span,
+            );
+        }
+        for form in &self.source.forms {
+            let mut expressions = vec![];
+            for integral in &form.integrals {
+                let domain = match &integral.measure {
+                    Measure::Cell(name) => {
+                        self.resolve_domain(name, integral.target_span, diagnostics)
+                    }
+                    Measure::Boundary(_) | Measure::InteriorFacet(_) => None,
+                };
+                let expression = self.elaborate_expr(&integral.integrand, diagnostics);
+                if let Some(domain) = domain {
+                    self.require_frame(expression, domain, integral.integrand.span(), diagnostics);
+                }
+                expressions.push(expression);
+            }
+            self.push_declaration(&form.name, SemanticRole::Form, None, expressions, form.span);
+        }
+        for condition in &self.source.initial_conditions {
+            let target = self.resolve_target(&condition.target, condition.span, true, diagnostics);
+            let value = self.elaborate_expr(&condition.value, diagnostics);
+            if let Some(target) = target {
+                self.require_compatible_symbol(target, value, condition.span, diagnostics);
+            }
+            self.push_declaration(
+                &condition.target,
+                SemanticRole::InitialCondition,
+                None,
+                vec![value],
+                condition.span,
+            );
+        }
+        for condition in &self.source.boundary_conditions {
+            self.elaborate_boundary(condition, SemanticRole::BoundaryCondition, diagnostics);
+        }
+        for condition in &self.source.interface_conditions {
+            self.elaborate_boundary(condition, SemanticRole::InterfaceCondition, diagnostics);
+        }
+        for observable in &self.source.observables {
+            let expression = self.elaborate_expr(&observable.value, diagnostics);
+            self.push_declaration(
+                &observable.name,
+                SemanticRole::Observable,
+                None,
+                vec![expression],
+                observable.span,
+            );
+        }
+        for invariant in &self.source.invariants {
+            let expression = self.elaborate_expr(&invariant.value, diagnostics);
+            self.push_declaration(
+                &invariant.name,
+                SemanticRole::Invariant,
+                None,
+                vec![expression],
+                invariant.span,
+            );
+        }
+        for verification in &self.source.verifications {
+            let expressions = verification
+                .args
+                .values()
+                .map(|expression| self.elaborate_expr(expression, diagnostics))
+                .collect();
+            self.push_declaration(
+                &verification.name,
+                SemanticRole::Verification,
+                None,
+                expressions,
+                verification.span,
+            );
+        }
+    }
+
+    fn elaborate_value(
+        &mut self,
+        value: &ValueDecl,
+        role: SemanticRole,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        let expressions = value.value.as_ref().map_or_else(Vec::new, |expression| {
+            let id = self.elaborate_expr(expression, diagnostics);
+            if let Some(symbol) = self.symbol_names.get(&value.name).copied() {
+                self.require_compatible_symbol(symbol, id, expression.span(), diagnostics);
+            }
+            vec![id]
+        });
+        self.push_declaration(&value.name, role, None, expressions, value.span);
+    }
+
+    fn elaborate_boundary(
+        &mut self,
+        condition: &crate::scientific::BoundaryConditionDecl,
+        role: SemanticRole,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        let region = self.elaborate_expr(&condition.region, diagnostics);
+        if !matches!(
+            self.expressions[region.index()].ty.shape,
+            SemanticShape::Region | SemanticShape::Deferred
+        ) {
+            diagnostics.push(error(
+                "TYPE_REGION_REQUIRED",
+                "boundary/interface selector must produce a region",
+                condition.region.span(),
+            ));
+        }
+        let target =
+            self.resolve_target(&condition.target, condition.target_span, false, diagnostics);
+        let value = self.elaborate_expr(&condition.value, diagnostics);
+        if let Some(target) = target {
+            self.require_compatible_symbol(target, value, condition.value.span(), diagnostics);
+        }
+        if matches!(role, SemanticRole::InterfaceCondition)
+            && condition.kind != BoundaryConditionKind::Interface
+        {
+            diagnostics.push(error(
+                "TYPE_ROLE_MISMATCH",
+                "interface declaration must use an interface condition",
+                condition.span,
+            ));
+        }
+        self.push_declaration(
+            &condition.name,
+            role,
+            None,
+            vec![region, value],
+            condition.span,
+        );
+    }
+
+    fn resolve_target(
+        &self,
+        name: &str,
+        span: SourceSpan,
+        initial: bool,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> Option<SymbolId> {
+        let Some(id) = self.symbol_names.get(name).copied() else {
+            diagnostics.push(error(
+                "RESOLVE_UNKNOWN_NAME",
+                format!("unknown target `{name}`"),
+                span,
+            ));
+            return None;
+        };
+        let role = &self.symbols[id.index()].ty.role;
+        let allowed = if initial {
+            matches!(role, SemanticRole::PhysicalField(FieldRole::State))
+        } else {
+            matches!(
+                role,
+                SemanticRole::PhysicalField(_) | SemanticRole::ConstitutiveLaw
+            )
+        };
+        if !allowed {
+            diagnostics.push(error(
+                "TYPE_ROLE_MISMATCH",
+                if initial {
+                    format!("initial condition target `{name}` is not a state field")
+                } else {
+                    format!("boundary condition target `{name}` is not a field")
+                },
+                span,
+            ));
+        }
+        Some(id)
+    }
+
+    fn elaborate_expr(
+        &mut self,
+        expression: &Expr,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> ExprId {
+        let (kind, ty) = match expression {
+            Expr::Number { value, unit, span } => {
+                let (unit_id, dimension) = if let Some(authored) = unit {
+                    match self
+                        .registry
+                        .by_symbol(authored)
+                        .or_else(|| self.registry.get(&UnitId::new(authored)))
+                    {
+                        Some(definition) => {
+                            (Some(definition.id.clone()), Some(definition.dimension))
+                        }
+                        None => {
+                            diagnostics.push(error(
+                                "RESOLVE_UNKNOWN_UNIT",
+                                format!("unknown unit `{authored}`"),
+                                *span,
+                            ));
+                            (Some(UnitId::new(authored)), None)
+                        }
+                    }
+                } else {
+                    (None, Some(Dimension::DIMENSIONLESS))
+                };
+                (
+                    SemanticExprKind::Number {
+                        value: *value,
+                        unit: unit_id,
+                    },
+                    SemanticType::numeric(
+                        ValueShape::Scalar,
+                        dimension,
+                        Frame::Neutral,
+                        SemanticRole::Literal,
+                    ),
+                )
+            }
+            Expr::String { value, .. } => (
+                SemanticExprKind::String {
+                    value: value.clone(),
+                },
+                SemanticType {
+                    shape: SemanticShape::String,
+                    axes: vec![],
+                    dimension: None,
+                    quantity_kind: None,
+                    frame: Frame::Neutral,
+                    role: SemanticRole::Literal,
+                },
+            ),
+            Expr::Name { name, span } => {
+                if name == "t" {
+                    (
+                        SemanticExprKind::Call {
+                            function: "time".into(),
+                            args: vec![],
+                        },
+                        SemanticType::numeric(
+                            ValueShape::Scalar,
+                            Some(Dimension::TIME),
+                            Frame::Neutral,
+                            SemanticRole::Intrinsic,
+                        ),
+                    )
+                } else if name == "pi" || name == "π" {
+                    (
+                        SemanticExprKind::Number {
+                            value: std::f64::consts::PI,
+                            unit: None,
+                        },
+                        SemanticType::numeric(
+                            ValueShape::Scalar,
+                            Some(Dimension::DIMENSIONLESS),
+                            Frame::Neutral,
+                            SemanticRole::Literal,
+                        ),
+                    )
+                } else if let Some(symbol) = self.symbol_names.get(name).copied() {
+                    (
+                        SemanticExprKind::Symbol { symbol },
+                        self.symbols[symbol.index()].ty.clone(),
+                    )
+                } else {
+                    diagnostics.push(error(
+                        "RESOLVE_UNKNOWN_NAME",
+                        format!("unknown name `{name}`"),
+                        *span,
+                    ));
+                    (
+                        SemanticExprKind::Call {
+                            function: "unresolved".into(),
+                            args: vec![],
+                        },
+                        SemanticType::deferred(SemanticRole::Intrinsic),
+                    )
+                }
+            }
+            Expr::Unary { op, arg, .. } => {
+                let arg = self.elaborate_expr(arg, diagnostics);
+                let ty = self.expressions[arg.index()].ty.clone();
+                if !is_numeric_or_deferred(&ty.shape) {
+                    diagnostics.push(error(
+                        "TYPE_NUMERIC_REQUIRED",
+                        "unary negation requires a numeric operand",
+                        expression.span(),
+                    ));
+                }
+                (SemanticExprKind::Unary { op: *op, arg }, ty)
+            }
+            Expr::Binary { op, lhs, rhs, .. } => {
+                let lhs = self.elaborate_expr(lhs, diagnostics);
+                let rhs = self.elaborate_expr(rhs, diagnostics);
+                let ty = self.binary_type(*op, lhs, rhs, expression.span(), diagnostics);
+                (SemanticExprKind::Binary { op: *op, lhs, rhs }, ty)
+            }
+            Expr::Call { function, args, .. } => {
+                let args: Vec<_> = args
+                    .iter()
+                    .map(|arg| self.elaborate_expr(arg, diagnostics))
+                    .collect();
+                let ty = self.call_type(function, &args, expression.span(), diagnostics);
+                (
+                    SemanticExprKind::Call {
+                        function: function.clone(),
+                        args,
+                    },
+                    ty,
+                )
+            }
+            Expr::Index { value, indices, .. } => {
+                let value = self.elaborate_expr(value, diagnostics);
+                let indices: Vec<_> = indices
+                    .iter()
+                    .map(|index| self.elaborate_expr(index, diagnostics))
+                    .collect();
+                let ty = self.index_type(value, &indices, expression.span(), diagnostics);
+                (SemanticExprKind::Index { value, indices }, ty)
+            }
+            Expr::Vector { elements, .. } => {
+                let elements: Vec<_> = elements
+                    .iter()
+                    .map(|item| self.elaborate_expr(item, diagnostics))
+                    .collect();
+                let ty = self.vector_type(&elements, expression.span(), diagnostics);
+                (SemanticExprKind::Vector { elements }, ty)
+            }
+        };
+        let id = ExprId(self.expressions.len() as u32);
+        self.expressions.push(SemanticExpr {
+            id,
+            kind,
+            ty,
+            span: expression.span(),
+        });
+        id
+    }
+
+    fn binary_type(
+        &self,
+        op: BinaryOp,
+        lhs: ExprId,
+        rhs: ExprId,
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> SemanticType {
+        let left = &self.expressions[lhs.index()].ty;
+        let right = &self.expressions[rhs.index()].ty;
+        match op {
+            BinaryOp::Add | BinaryOp::Sub => {
+                if self.is_zero(lhs) {
+                    let mut ty = right.clone();
+                    ty.role = SemanticRole::Intrinsic;
+                    return ty;
+                }
+                if self.is_zero(rhs) {
+                    let mut ty = left.clone();
+                    ty.role = SemanticRole::Intrinsic;
+                    return ty;
+                }
+                check_shape_compatibility(left, right, span, diagnostics);
+                check_dimension_compatibility(left, right, span, diagnostics);
+                check_frame_compatibility(left, right, span, diagnostics);
+                merge_types(left, right, SemanticRole::Intrinsic)
+            }
+            BinaryOp::Mul | BinaryOp::Div => {
+                let shape = multiply_shape(&left.shape, &right.shape, span, diagnostics);
+                let dimension = match (left.dimension, right.dimension) {
+                    (Some(left), Some(right)) if op == BinaryOp::Mul => {
+                        left.checked_product(right).ok()
+                    }
+                    (Some(left), Some(right)) => left.checked_quotient(right).ok(),
+                    _ => None,
+                };
+                SemanticType {
+                    axes: semantic_axes(&shape),
+                    shape,
+                    dimension,
+                    quantity_kind: None,
+                    frame: merge_frame(&left.frame, &right.frame, span, diagnostics),
+                    role: SemanticRole::Intrinsic,
+                }
+            }
+            BinaryOp::Pow => {
+                require_scalar_dimensionless(right, span, diagnostics);
+                let dimension = self
+                    .integer_literal(rhs)
+                    .and_then(|power| left.dimension?.checked_powi(power).ok());
+                let mut ty = left.clone();
+                ty.dimension = dimension;
+                ty.quantity_kind = None;
+                ty.role = SemanticRole::Intrinsic;
+                ty
+            }
+            BinaryOp::Eq | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
+                check_shape_compatibility(left, right, span, diagnostics);
+                check_dimension_compatibility(left, right, span, diagnostics);
+                check_frame_compatibility(left, right, span, diagnostics);
+                SemanticType {
+                    shape: SemanticShape::Boolean,
+                    axes: vec![],
+                    dimension: None,
+                    quantity_kind: None,
+                    frame: Frame::Neutral,
+                    role: SemanticRole::Intrinsic,
+                }
+            }
+        }
+    }
+
+    fn call_type(
+        &self,
+        function: &str,
+        args: &[ExprId],
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> SemanticType {
+        let arg = |index: usize| args.get(index).map(|id| &self.expressions[id.index()].ty);
+        match function {
+            "boundary" | "interface" | "interface_region" => {
+                require_arity(function, args, 1, span, diagnostics);
+                if let Some(arg) = arg(0)
+                    && !matches!(arg.shape, SemanticShape::String | SemanticShape::Deferred)
+                {
+                    diagnostics.push(error(
+                        "TYPE_STRING_REQUIRED",
+                        format!("`{function}` expects a string region name"),
+                        span,
+                    ));
+                }
+                SemanticType {
+                    shape: SemanticShape::Region,
+                    axes: vec![],
+                    dimension: None,
+                    quantity_kind: None,
+                    frame: Frame::Neutral,
+                    role: SemanticRole::Intrinsic,
+                }
+            }
+            "dt" => {
+                require_arity(function, args, 1, span, diagnostics);
+                let mut ty = arg(0)
+                    .cloned()
+                    .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic));
+                ty.dimension = ty
+                    .dimension
+                    .and_then(|dimension| dimension.checked_quotient(Dimension::TIME).ok());
+                ty.quantity_kind = None;
+                ty.role = SemanticRole::Intrinsic;
+                ty
+            }
+            "grad" | "rotated_grad" => {
+                require_arity(function, args, 1, span, diagnostics);
+                self.derivative_type(arg(0), true, diagnostics, span)
+            }
+            "div" => {
+                require_arity(function, args, 1, span, diagnostics);
+                self.derivative_type(arg(0), false, diagnostics, span)
+            }
+            "dot" => {
+                require_arity(function, args, 2, span, diagnostics);
+                if let (Some(left), Some(right)) = (arg(0), arg(1)) {
+                    dot_type(left, right, span, diagnostics)
+                } else {
+                    SemanticType::deferred(SemanticRole::Intrinsic)
+                }
+            }
+            "sin" | "cos" | "exp" | "log" | "ln" => {
+                require_arity(function, args, 1, span, diagnostics);
+                if let Some(arg) = arg(0) {
+                    require_scalar_dimensionless(arg, span, diagnostics);
+                }
+                SemanticType::numeric(
+                    ValueShape::Scalar,
+                    Some(Dimension::DIMENSIONLESS),
+                    Frame::Neutral,
+                    SemanticRole::Intrinsic,
+                )
+            }
+            "sqrt" => {
+                require_arity(function, args, 1, span, diagnostics);
+                let mut ty = arg(0)
+                    .cloned()
+                    .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic));
+                ty.dimension = ty
+                    .dimension
+                    .and_then(|dimension| dimension.checked_root(2).ok());
+                ty.quantity_kind = None;
+                ty.role = SemanticRole::Intrinsic;
+                ty
+            }
+            "abs" | "min" | "max" | "integrate" => {
+                if args.is_empty() {
+                    diagnostics.push(error(
+                        "TYPE_ARITY",
+                        format!("`{function}` requires at least one argument"),
+                        span,
+                    ));
+                }
+                arg(0)
+                    .cloned()
+                    .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic))
+            }
+            "trace" => {
+                require_arity(function, args, 1, span, diagnostics);
+                let mut ty = arg(0)
+                    .cloned()
+                    .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic));
+                // The side mapping is established by FC2; at source-semantics time a trace is
+                // explicitly detached from its volume frame so interface equality is legal.
+                ty.frame = Frame::Neutral;
+                ty.role = SemanticRole::Intrinsic;
+                ty
+            }
+            "zero_vector" => {
+                require_arity(function, args, 1, span, diagnostics);
+                let extent = args
+                    .first()
+                    .and_then(|id| self.integer_literal(*id))
+                    .and_then(|value| u8::try_from(value).ok())
+                    .unwrap_or(0);
+                if extent == 0 {
+                    diagnostics.push(error(
+                        "TYPE_INVALID_AXIS",
+                        "zero_vector extent must be a positive integer",
+                        span,
+                    ));
+                }
+                SemanticType::numeric(
+                    ValueShape::Vector(extent),
+                    None,
+                    Frame::Neutral,
+                    SemanticRole::Intrinsic,
+                )
+            }
+            "zero_tensor" => {
+                require_arity(function, args, 1, span, diagnostics);
+                let extent = args
+                    .first()
+                    .and_then(|id| self.integer_literal(*id))
+                    .and_then(|value| u8::try_from(value).ok())
+                    .unwrap_or(0);
+                if extent == 0 {
+                    diagnostics.push(error(
+                        "TYPE_INVALID_AXIS",
+                        "zero_tensor extent must be a positive integer",
+                        span,
+                    ));
+                }
+                SemanticType::numeric(
+                    ValueShape::Tensor {
+                        rows: extent,
+                        cols: extent,
+                    },
+                    None,
+                    Frame::Neutral,
+                    SemanticRole::Intrinsic,
+                )
+            }
+            _ => SemanticType::deferred(SemanticRole::Intrinsic),
+        }
+    }
+
+    fn derivative_type(
+        &self,
+        arg: Option<&SemanticType>,
+        gradient: bool,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+        span: SourceSpan,
+    ) -> SemanticType {
+        let Some(arg) = arg else {
+            return SemanticType::deferred(SemanticRole::Intrinsic);
+        };
+        let Frame::Domain(domain) = arg.frame else {
+            let mut ty = arg.clone();
+            ty.shape = SemanticShape::Deferred;
+            ty.axes.clear();
+            ty.dimension = None;
+            ty.role = SemanticRole::Intrinsic;
+            return ty;
+        };
+        let spatial = self.domains[domain.index()].spatial_dimension;
+        let shape = match (&arg.shape, gradient, spatial) {
+            (SemanticShape::Numeric(ValueShape::Scalar), true, 1) => {
+                SemanticShape::Numeric(ValueShape::Scalar)
+            }
+            (SemanticShape::Numeric(ValueShape::Scalar), true, extent) => {
+                SemanticShape::Numeric(ValueShape::Vector(extent))
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(extent)), true, 1) => {
+                SemanticShape::Numeric(ValueShape::Vector(*extent))
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(extent)), true, columns) => {
+                SemanticShape::Numeric(ValueShape::Tensor {
+                    rows: *extent,
+                    cols: columns,
+                })
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(extent)), false, 1) => {
+                SemanticShape::Numeric(ValueShape::Vector(*extent))
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(_)), false, _) => {
+                SemanticShape::Numeric(ValueShape::Scalar)
+            }
+            (SemanticShape::Numeric(ValueShape::Tensor { rows, .. }), false, _) => {
+                SemanticShape::Numeric(ValueShape::Vector(*rows))
+            }
+            (SemanticShape::Deferred, _, _) => SemanticShape::Deferred,
+            _ => {
+                diagnostics.push(error(
+                    "TYPE_SHAPE_MISMATCH",
+                    "differential operator received an incompatible shape",
+                    span,
+                ));
+                SemanticShape::Deferred
+            }
+        };
+        SemanticType {
+            axes: semantic_axes(&shape),
+            shape,
+            dimension: arg
+                .dimension
+                .and_then(|dimension| dimension.checked_quotient(Dimension::LENGTH).ok()),
+            quantity_kind: None,
+            frame: Frame::Domain(domain),
+            role: SemanticRole::Intrinsic,
+        }
+    }
+
+    fn index_type(
+        &self,
+        value: ExprId,
+        indices: &[ExprId],
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> SemanticType {
+        let source = &self.expressions[value.index()].ty;
+        if !matches!(source.shape, SemanticShape::Deferred) && indices.len() > source.axes.len() {
+            diagnostics.push(error(
+                "TYPE_AXIS_COUNT",
+                format!(
+                    "expression has {} axes but {} indices were supplied",
+                    source.axes.len(),
+                    indices.len()
+                ),
+                span,
+            ));
+        }
+        for (position, index) in indices.iter().enumerate() {
+            let index_ty = &self.expressions[index.index()].ty;
+            require_scalar_dimensionless(
+                index_ty,
+                self.expressions[index.index()].span,
+                diagnostics,
+            );
+            if let (Some(axis), Some(literal_index)) =
+                (source.axes.get(position), self.integer_literal(*index))
+                && (literal_index < 0 || literal_index >= i32::from(axis.extent))
+            {
+                diagnostics.push(error(
+                    "TYPE_AXIS_BOUNDS",
+                    format!(
+                        "index {literal_index} is outside axis extent {}",
+                        axis.extent
+                    ),
+                    self.expressions[index.index()].span,
+                ));
+            }
+        }
+        let remaining = source.axes.get(indices.len()..).unwrap_or_default();
+        let shape = match remaining {
+            [] => SemanticShape::Numeric(ValueShape::Scalar),
+            [axis] => SemanticShape::Numeric(ValueShape::Vector(axis.extent)),
+            [rows, cols] => SemanticShape::Numeric(ValueShape::Tensor {
+                rows: rows.extent,
+                cols: cols.extent,
+            }),
+            _ => SemanticShape::Deferred,
+        };
+        let mut ty = source.clone();
+        ty.shape = shape;
+        ty.axes = remaining.to_vec();
+        ty.role = SemanticRole::Intrinsic;
+        ty
+    }
+
+    fn vector_type(
+        &self,
+        elements: &[ExprId],
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) -> SemanticType {
+        if elements.is_empty() {
+            diagnostics.push(error(
+                "TYPE_INVALID_AXIS",
+                "vector literal cannot be empty",
+                span,
+            ));
+        }
+        if let Some(first) = elements.first() {
+            for element in &elements[1..] {
+                check_shape_compatibility(
+                    &self.expressions[first.index()].ty,
+                    &self.expressions[element.index()].ty,
+                    span,
+                    diagnostics,
+                );
+                check_dimension_compatibility(
+                    &self.expressions[first.index()].ty,
+                    &self.expressions[element.index()].ty,
+                    span,
+                    diagnostics,
+                );
+            }
+            let first = &self.expressions[first.index()].ty;
+            let mut ty = SemanticType::numeric(
+                ValueShape::Vector(elements.len() as u8),
+                first.dimension,
+                first.frame.clone(),
+                SemanticRole::Literal,
+            );
+            ty.quantity_kind = first.quantity_kind.clone();
+            ty
+        } else {
+            SemanticType::numeric(
+                ValueShape::Vector(0),
+                None,
+                Frame::Neutral,
+                SemanticRole::Literal,
+            )
+        }
+    }
+
+    fn integer_literal(&self, id: ExprId) -> Option<i32> {
+        match self.expressions[id.index()].kind {
+            SemanticExprKind::Number { value, unit: None }
+                if value.fract() == 0.0 && value >= i32::MIN as f64 && value <= i32::MAX as f64 =>
+            {
+                Some(value as i32)
+            }
+            _ => None,
+        }
+    }
+
+    fn update_deferred_symbol(&mut self, name: &str, expression: ExprId) {
+        if let Some(symbol) = self.symbol_names.get(name).copied() {
+            let role = self.symbols[symbol.index()].ty.role.clone();
+            let mut ty = self.expressions[expression.index()].ty.clone();
+            ty.role = role;
+            self.symbols[symbol.index()].ty = ty;
+            self.symbols[symbol.index()].domain =
+                match self.expressions[expression.index()].ty.frame {
+                    Frame::Domain(domain) => Some(domain),
+                    Frame::Neutral => None,
+                };
+        }
+    }
+
+    fn require_compatible_symbol(
+        &self,
+        symbol: SymbolId,
+        value: ExprId,
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        let expected = &self.symbols[symbol.index()].ty;
+        let actual = &self.expressions[value.index()].ty;
+        if !self.is_zero(value) {
+            check_shape_compatibility(expected, actual, span, diagnostics);
+            check_dimension_compatibility(expected, actual, span, diagnostics);
+            check_frame_compatibility(expected, actual, span, diagnostics);
+        }
+    }
+
+    fn require_compatible(
+        &self,
+        left: ExprId,
+        right: ExprId,
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        if self.is_zero(left) || self.is_zero(right) {
+            return;
+        }
+        let left = &self.expressions[left.index()].ty;
+        let right = &self.expressions[right.index()].ty;
+        check_shape_compatibility(left, right, span, diagnostics);
+        check_dimension_compatibility(left, right, span, diagnostics);
+        check_frame_compatibility(left, right, span, diagnostics);
+    }
+
+    fn require_frame(
+        &self,
+        expression: ExprId,
+        domain: DomainId,
+        span: SourceSpan,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+    ) {
+        if let Frame::Domain(actual) = self.expressions[expression.index()].ty.frame
+            && actual != domain
+        {
+            diagnostics.push(error(
+                "TYPE_FRAME_MISMATCH",
+                "integrand frame does not match its integration domain",
+                span,
+            ));
+        }
+    }
+
+    fn push_declaration(
+        &mut self,
+        name: &str,
+        role: SemanticRole,
+        domain: Option<DomainId>,
+        expressions: Vec<ExprId>,
+        span: SourceSpan,
+    ) {
+        self.declarations.push(SemanticDeclaration {
+            name: name.into(),
+            symbol: self.symbol_names.get(name).copied(),
+            role,
+            domain,
+            expressions,
+            span,
+        });
+    }
+
+    fn is_zero(&self, expression: ExprId) -> bool {
+        matches!(
+            self.expressions[expression.index()].kind,
+            SemanticExprKind::Number {
+                value: 0.0,
+                unit: None
+            }
+        )
+    }
+}
+
+fn axes(shape: &ValueShape) -> Vec<Axis> {
+    match shape {
+        ValueShape::Scalar => vec![],
+        ValueShape::Vector(extent) => vec![Axis {
+            position: 0,
+            extent: *extent,
+        }],
+        ValueShape::Tensor { rows, cols } => vec![
+            Axis {
+                position: 0,
+                extent: *rows,
+            },
+            Axis {
+                position: 1,
+                extent: *cols,
+            },
+        ],
+        ValueShape::SymmetricTensor(extent) => vec![
+            Axis {
+                position: 0,
+                extent: *extent,
+            },
+            Axis {
+                position: 1,
+                extent: *extent,
+            },
+        ],
+    }
+}
+
+fn semantic_axes(shape: &SemanticShape) -> Vec<Axis> {
+    match shape {
+        SemanticShape::Numeric(shape) => axes(shape),
+        _ => vec![],
+    }
+}
+
+fn validate_shape(shape: &ValueShape, span: SourceSpan, diagnostics: &mut Vec<SourceDiagnostic>) {
+    let invalid = match shape {
+        ValueShape::Scalar => false,
+        ValueShape::Vector(extent) | ValueShape::SymmetricTensor(extent) => *extent == 0,
+        ValueShape::Tensor { rows, cols } => *rows == 0 || *cols == 0,
+    };
+    if invalid {
+        diagnostics.push(error(
+            "TYPE_INVALID_AXIS",
+            "shape axes must have positive extents",
+            span,
+        ));
+    }
+}
+
+fn known_kind_dimension(kind: &QuantityKindId) -> Option<Dimension> {
+    match kind.as_str().rsplit(':').next().unwrap_or_default() {
+        "ThermodynamicTemperature" | "TemperatureDifference" => Some(Dimension::TEMPERATURE),
+        "Dimensionless" => Some(Dimension::DIMENSIONLESS),
+        _ => None,
+    }
+}
+
+fn dot_type(
+    left: &SemanticType,
+    right: &SemanticType,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) -> SemanticType {
+    match (&left.shape, &right.shape) {
+        (
+            SemanticShape::Numeric(ValueShape::Vector(left)),
+            SemanticShape::Numeric(ValueShape::Vector(right)),
+        ) if left != right => {
+            diagnostics.push(error(
+                "TYPE_AXIS_MISMATCH",
+                format!("dot product axis extents differ: {left} and {right}"),
+                span,
+            ));
+        }
+        (
+            SemanticShape::Numeric(ValueShape::Vector(_)),
+            SemanticShape::Numeric(ValueShape::Vector(_)),
+        )
+        | (SemanticShape::Deferred, _)
+        | (_, SemanticShape::Deferred) => {}
+        _ => diagnostics.push(error(
+            "TYPE_SHAPE_MISMATCH",
+            "dot product requires vector operands",
+            span,
+        )),
+    }
+    check_frame_compatibility(left, right, span, diagnostics);
+    SemanticType::numeric(
+        ValueShape::Scalar,
+        match (left.dimension, right.dimension) {
+            (Some(left), Some(right)) => left.checked_product(right).ok(),
+            _ => None,
+        },
+        merge_frame(&left.frame, &right.frame, span, diagnostics),
+        SemanticRole::Intrinsic,
+    )
+}
+
+fn require_arity(
+    function: &str,
+    args: &[ExprId],
+    expected: usize,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) {
+    if args.len() != expected {
+        diagnostics.push(error(
+            "TYPE_ARITY",
+            format!(
+                "`{function}` expects {expected} argument(s), found {}",
+                args.len()
+            ),
+            span,
+        ));
+    }
+}
+
+fn require_scalar_dimensionless(
+    ty: &SemanticType,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) {
+    if !matches!(
+        ty.shape,
+        SemanticShape::Numeric(ValueShape::Scalar) | SemanticShape::Deferred
+    ) {
+        diagnostics.push(error(
+            "TYPE_SHAPE_MISMATCH",
+            "expected a scalar value",
+            span,
+        ));
+    }
+    if ty
+        .dimension
+        .is_some_and(|dimension| !dimension.is_dimensionless())
+    {
+        diagnostics.push(error(
+            "TYPE_DIMENSION_MISMATCH",
+            "expected a dimensionless value",
+            span,
+        ));
+    }
+}
+
+fn is_numeric_or_deferred(shape: &SemanticShape) -> bool {
+    matches!(shape, SemanticShape::Numeric(_) | SemanticShape::Deferred)
+}
+
+fn multiply_shape(
+    left: &SemanticShape,
+    right: &SemanticShape,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) -> SemanticShape {
+    match (left, right) {
+        (SemanticShape::Deferred, _) | (_, SemanticShape::Deferred) => SemanticShape::Deferred,
+        (SemanticShape::Numeric(ValueShape::Scalar), other)
+        | (other, SemanticShape::Numeric(ValueShape::Scalar))
+            if is_numeric_or_deferred(other) =>
+        {
+            other.clone()
+        }
+        (SemanticShape::Numeric(left), SemanticShape::Numeric(right)) if left == right => {
+            SemanticShape::Numeric(left.clone())
+        }
+        _ => {
+            diagnostics.push(error(
+                "TYPE_SHAPE_MISMATCH",
+                "multiplication has incompatible operand shapes",
+                span,
+            ));
+            SemanticShape::Deferred
+        }
+    }
+}
+
+fn merge_types(left: &SemanticType, right: &SemanticType, role: SemanticRole) -> SemanticType {
+    let mut ty = if matches!(left.shape, SemanticShape::Deferred) {
+        right.clone()
+    } else {
+        left.clone()
+    };
+    ty.dimension = left.dimension.or(right.dimension);
+    ty.quantity_kind = if left.quantity_kind == right.quantity_kind {
+        left.quantity_kind.clone()
+    } else {
+        None
+    };
+    ty.frame = match (&left.frame, &right.frame) {
+        (Frame::Neutral, frame) | (frame, Frame::Neutral) => frame.clone(),
+        (frame, _) => frame.clone(),
+    };
+    ty.role = role;
+    ty
+}
+
+fn merge_frame(
+    left: &Frame,
+    right: &Frame,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) -> Frame {
+    match (left, right) {
+        (Frame::Neutral, frame) | (frame, Frame::Neutral) => frame.clone(),
+        (Frame::Domain(left), Frame::Domain(right)) if left == right => Frame::Domain(*left),
+        _ => {
+            diagnostics.push(error(
+                "TYPE_FRAME_MISMATCH",
+                "operands belong to different domain frames",
+                span,
+            ));
+            left.clone()
+        }
+    }
+}
+
+fn check_shape_compatibility(
+    left: &SemanticType,
+    right: &SemanticType,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) {
+    if !matches!(left.shape, SemanticShape::Deferred)
+        && !matches!(right.shape, SemanticShape::Deferred)
+        && left.shape != right.shape
+    {
+        diagnostics.push(error(
+            "TYPE_SHAPE_MISMATCH",
+            format!("incompatible shapes {:?} and {:?}", left.shape, right.shape),
+            span,
+        ));
+    }
+}
+
+fn check_dimension_compatibility(
+    left: &SemanticType,
+    right: &SemanticType,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) {
+    if let (Some(left), Some(right)) = (left.dimension, right.dimension)
+        && left != right
+    {
+        diagnostics.push(error(
+            "TYPE_DIMENSION_MISMATCH",
+            format!("incompatible dimensions `{left}` and `{right}`"),
+            span,
+        ));
+    }
+}
+
+fn check_frame_compatibility(
+    left: &SemanticType,
+    right: &SemanticType,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) {
+    if let (Frame::Domain(left), Frame::Domain(right)) = (&left.frame, &right.frame)
+        && left != right
+    {
+        diagnostics.push(error(
+            "TYPE_FRAME_MISMATCH",
+            "operands belong to different domain frames",
+            span,
+        ));
+    }
+}
+
+fn duplicate(kind: &str, name: &str, span: SourceSpan, previous: SourceSpan) -> SourceDiagnostic {
+    let mut diagnostic = error(
+        "RESOLVE_DUPLICATE_NAME",
+        format!("duplicate {kind} `{name}`"),
+        span,
+    );
+    diagnostic.related.push(RelatedSpan {
+        span: previous,
+        message: "first declared here".into(),
+    });
+    diagnostic
+}
+
+fn error(code: &'static str, message: impl Into<String>, span: SourceSpan) -> SourceDiagnostic {
+    SourceDiagnostic::error(code, message, span).phase("elaboration")
+}

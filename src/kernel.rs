@@ -106,7 +106,7 @@ fn lower_expr(
 ) -> Result<ScalarExpr, KernelLoweringError> {
     Ok(match expr {
         Expr::Number { value, .. } => ScalarExpr::Constant(*value),
-        Expr::Name(name) => ScalarExpr::Load(
+        Expr::Name { name, .. } => ScalarExpr::Load(
             *bindings
                 .get(name)
                 .ok_or_else(|| KernelLoweringError::UnboundSymbol(name.clone()))?,
@@ -114,8 +114,9 @@ fn lower_expr(
         Expr::Unary {
             op: ResUnaryOp::Neg,
             arg,
+            ..
         } => ScalarExpr::unary(UnaryOp::Neg, lower_expr(arg, bindings)?),
-        Expr::Binary { op, lhs, rhs } => {
+        Expr::Binary { op, lhs, rhs, .. } => {
             let op = match op {
                 ResBinaryOp::Add => BinaryOp::Add,
                 ResBinaryOp::Sub => BinaryOp::Sub,
@@ -134,8 +135,8 @@ fn lower_expr(
             };
             ScalarExpr::binary(op, lower_expr(lhs, bindings)?, lower_expr(rhs, bindings)?)
         }
-        Expr::Call { function, args } => lower_call(function, args, bindings)?,
-        Expr::String(_) => {
+        Expr::Call { function, args, .. } => lower_call(function, args, bindings)?,
+        Expr::String { .. } => {
             return Err(KernelLoweringError::UnsupportedExpression(
                 "string literal".into(),
             ));
@@ -145,7 +146,7 @@ fn lower_expr(
                 "indexed tensor expression".into(),
             ));
         }
-        Expr::Vector(_) => {
+        Expr::Vector { .. } => {
             return Err(KernelLoweringError::UnsupportedExpression(
                 "vector expression".into(),
             ));

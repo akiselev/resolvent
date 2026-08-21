@@ -4,7 +4,7 @@ Updated: 2026-08-20
 
 Branch: `master`
 
-Milestone: compiler federation reset
+Milestone: FC1 source and semantic core complete
 
 ## Role
 
@@ -18,10 +18,16 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
 
 ## Implemented
 
-- Recovering `.res` parser, canonical formatter, source spans, module resolution, and stable
-  semantic digest.
-- Canonical `ScientificModule`, `ScientificModel`, and `Expr` used by every active compiler pass.
-- Direct Quantitas quantity/unit types and validation; the internal quantity crate is removed.
+- Recovering `.res` parser, canonical formatter, byte-precise expression/reference spans,
+  deterministic module resolution, and presentation-invariant source digest.
+- One typed `SemanticModel` arena with stable domain, symbol, and expression identities; resolved
+  roles and references; shapes and axes; Quantitas dimensions/kinds/units; domain frames; and
+  presentation-invariant semantic digest.
+- Stable structured diagnostics with exact spans for malformed syntax, imports, domains, names,
+  units, quantity kinds, roles, shapes, axes, dimensions, and frames.
+- `compile_semantics` is the complete FC1 library boundary. CLI `check`, `inspect`, `freeze`, and
+  all analysis/form commands require it; `elaborate` emits the typed arena directly.
+- Direct Quantitas quantity/unit types and validation; no internal quantity representation exists.
 - Property tables/expressions, derivative contracts, constitutive semantics, coupling graphs,
   time/state semantics, and evidence profiles.
 - Structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning projected directly
@@ -49,7 +55,9 @@ Verified locally on 2026-08-20:
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 31 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 37 tests, 0 failed.
+- `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
+  50 parsed and elaborated.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
 - `cargo run --quiet --bin resolvent -- structural examples/nonlinear_heat.res` -- passed with
   one explicit structural block.
@@ -67,8 +75,9 @@ Verified locally on 2026-08-20:
 
 ## Next compiler work
 
-1. Elaborate expression dimensions, shapes, field roles, and diagnostics across every declaration.
-2. Derive variational forms from strong equations with integration-by-parts and boundary receipts.
+1. Derive variational forms from strong equations with integration-by-parts and boundary receipts.
+2. Move authored-form organization onto typed arena identities and add explicit arguments,
+   captures, measures, sides, and a deterministic form interpreter.
 3. Add indexed tensor/QFunction factorization and basis/transformation requirements.
 4. Lower Poisson completely through Malleus and bind it to a Finitum realization.
 5. Add primal/JVP/VJP/parameter kernel products and verify them independently.

@@ -26,9 +26,11 @@ repository. Git history is the archive for the removed implementation.
 
 Resolvent currently provides:
 
-- a recovering parser and canonical formatter for `.res` modules;
-- one `ScientificModel` and `Expr` representation with source spans and stable semantic digests;
-- Quantitas-backed authored quantities and unit validation;
+- a recovering parser, canonical formatter, and deterministic module resolver for `.res` modules;
+- a source-syntax tree with byte-precise expression/reference spans;
+- one typed `SemanticModel` arena with resolved domain/symbol/expression identities, value shapes,
+  axes, Quantitas dimensions and quantity kinds, domain frames, and scientific roles;
+- stable structured diagnostics for malformed syntax, units, kinds, roles, names, axes, and frames;
 - property, constitutive, coupling, time/state, and evidence semantics;
 - structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning over the same model;
 - compilation of authored forms into `VariationalForm` while retaining the canonical `Expr` type;
@@ -46,10 +48,16 @@ differential operations fail at the Malleus boundary instead of becoming opaque 
 cargo run --bin resolvent -- check examples/nonlinear_heat.res
 cargo run --bin resolvent -- fmt examples/nonlinear_heat.res
 cargo run --bin resolvent -- parse examples/nonlinear_heat.res
+cargo run --bin resolvent -- elaborate examples/nonlinear_heat.res
 cargo run --bin resolvent -- coupling examples/nonlinear_heat.res
 cargo run --bin resolvent -- structural examples/nonlinear_heat.res
 cargo run --bin resolvent -- form path/to/model.res form_name
 ```
+
+`check`, `inspect`, `freeze`, `coupling`, `structural`, `explain`, and `form` all require successful
+typed elaboration. `parse` is intentionally syntax-only, while `elaborate` prints the canonical
+typed arena. An external scientific function with no declared signature receives an explicit
+`deferred` result constraint; it is never guessed to be scalar or dimensionless.
 
 The library is the authoritative API. See [SCIENTIFIC-COMPILER.md](SCIENTIFIC-COMPILER.md) for the
 artifact boundaries and [STATUS.md](STATUS.md) for the exact checked state and next work.

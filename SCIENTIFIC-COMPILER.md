@@ -58,12 +58,18 @@ constraints, and global operators. Krasis combines those operators with transact
 state. Solverang consumes physics-neutral residual/operator traits. Sinbad selects cases, runs,
 policies, and artifacts.
 
-## Canonical semantic model
+## Source and canonical semantic model
 
-`ScientificModule` and `ScientificModel` are the only source/semantic model. The same `Expr` nodes
-are referenced by equations, properties, forms, conditions, coupling analysis, differentiation,
-and form compilation. Structural passes project incidence from this model; they do not translate
-through a graph-compiler model.
+`ScientificModule`, its contained source models, and `Expr` retain authored syntax and provenance.
+They are parser output, not a second type system. `compile_semantics` resolves that syntax into one
+`SemanticModule` / `SemanticModel` arena. Every semantic expression has an arena identity, precise
+span, resolved symbol identity, value shape and axes, a Quantitas `Dimension` and
+`QuantityKindId` when constrained, a domain frame, and a distinct scientific role.
+
+Unspecified external scientific-function signatures remain explicitly `deferred`. Known facts are
+still enforced around them; no scalar, unit, axis, or frame meaning is invented. Stable diagnostic
+codes and byte spans cover parsing, module imports, names, domains, units, quantity kinds, roles,
+axes, shapes, dimensions, and frames. Semantic arena digests exclude presentation spans.
 
 Authored forms compile to `VariationalForm`, which retains canonical expressions and adds only
 form-specific organization:
@@ -114,11 +120,9 @@ role.
 
 ## Immediate work
 
-1. Split the large semantic module into coherent parser, model, property, and analysis modules
-   without duplicating types.
-2. Add typed expression elaboration with dimensions, value shapes, field roles, and source-rich
-   diagnostics.
-3. Derive variational forms from strong equations with explicit transformation receipts.
-4. Define indexed tensor/QFunction IR and basis/transformation requirements.
-5. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
-6. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.
+1. Derive variational forms from strong equations with explicit transformation receipts.
+2. Move authored-form organization onto typed arena identities while adding arguments, captures,
+   measures, sides, and deterministic interpretation.
+3. Define indexed tensor/QFunction IR and basis/transformation requirements.
+4. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
+5. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.

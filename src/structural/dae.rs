@@ -73,7 +73,7 @@ pub fn analyze_aliases(model: &ScientificModel) -> AliasAnalysis {
 
 fn as_name(expr: &Expr) -> Option<&str> {
     match expr {
-        Expr::Name(name) => Some(name),
+        Expr::Name { name, .. } => Some(name),
         _ => None,
     }
 }
@@ -142,24 +142,24 @@ fn collect_derivatives(expr: &Expr, out: &mut BTreeSet<DerivativeVariable>) {
             collect_derivatives(lhs, out);
             collect_derivatives(rhs, out);
         }
-        Expr::Call { args, .. } | Expr::Vector(args) => {
+        Expr::Call { args, .. } | Expr::Vector { elements: args, .. } => {
             for arg in args {
                 collect_derivatives(arg, out);
             }
         }
-        Expr::Index { value, indices } => {
+        Expr::Index { value, indices, .. } => {
             collect_derivatives(value, out);
             for index in indices {
                 collect_derivatives(index, out);
             }
         }
-        Expr::Number { .. } | Expr::String(_) | Expr::Name(_) => {}
+        Expr::Number { .. } | Expr::String { .. } | Expr::Name { .. } => {}
     }
 }
 
 fn derivative_target(mut expr: &Expr) -> Option<(&str, u8)> {
     let mut order = 0_u8;
-    while let Expr::Call { function, args } = expr {
+    while let Expr::Call { function, args, .. } = expr {
         if function != "dt" || args.len() != 1 {
             break;
         }
@@ -168,7 +168,7 @@ fn derivative_target(mut expr: &Expr) -> Option<(&str, u8)> {
     }
     match (order, expr) {
         (0, _) => None,
-        (_, Expr::Name(field)) => Some((field, order)),
+        (_, Expr::Name { name: field, .. }) => Some((field, order)),
         _ => None,
     }
 }

@@ -12,6 +12,7 @@ pub mod id;
 pub mod kernel;
 pub mod property_tensor;
 pub mod scientific;
+pub mod semantic;
 pub mod source;
 pub mod structural;
 
@@ -31,8 +32,14 @@ pub use property_tensor::SymmetricTensor2;
 pub use scientific::{
     CouplingGraph, PropertyDefinition, ScientificError, ScientificModel, ScientificModule,
     TimeStateSemantics, canonicalize_authored_quantity, derive_coupling_graph,
-    format_scientific_module, parse_scientific_module, resolve_modules, semantic_digest,
-    validate_quantities,
+    format_scientific_module, parse_scientific_module, parse_scientific_module_diagnostics,
+    resolve_modules, semantic_digest, validate_quantities,
+};
+pub use semantic::{
+    Axis, DomainId, ExprId, Frame, SemanticCompilation, SemanticDeclaration, SemanticDomain,
+    SemanticExpr, SemanticExprKind, SemanticModel, SemanticModule, SemanticRole, SemanticShape,
+    SemanticSymbol, SemanticType, SymbolId, compile_semantics, elaborate_module,
+    semantic_arena_digest,
 };
 pub use source::{RelatedSpan, SourceDiagnostic, SourceSeverity, SourceSpan, Spanned};
 pub use structural::scc::{Digraph, GraphError, Sccs, tarjan_scc};

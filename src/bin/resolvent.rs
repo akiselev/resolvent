@@ -1,6 +1,8 @@
+use quantitas::UnitRegistry;
 use resolvent::{
-    IncidenceSystem, compile_schedule, compile_variational_form, derive_coupling_graph,
-    format_scientific_module, parse_scientific_module, semantic_digest,
+    IncidenceSystem, SourceDiagnostic, compile_schedule, compile_variational_form,
+    derive_coupling_graph, elaborate_module, format_scientific_module,
+    parse_scientific_module_diagnostics, semantic_arena_digest, semantic_digest,
 };
 use std::{env, fs, process::ExitCode};
 
@@ -23,15 +25,12 @@ fn run() -> Result<(), String> {
     let file = positional.next().ok_or_else(usage)?;
     let selector = positional.next().map(String::as_str);
     let source = fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
-    let module = parse_scientific_module(&source).map_err(|errors| {
-        errors
-            .into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let module = parse_scientific_module_diagnostics(&source)
+        .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
     match command.as_str() {
         "check" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
             if json {
                 println!(
                     "{}",
@@ -39,6 +38,8 @@ fn run() -> Result<(), String> {
                         "ok": true,
                         "models": module.models.len(),
                         "semantic_digest": semantic_digest(&module),
+                        "semantic_arena_digest": semantic_arena_digest(&semantic),
+                        "expressions": semantic.models.iter().map(|model| model.expressions.len()).sum::<usize>(),
                     }))
                     .map_err(|e| e.to_string())?
                 );
@@ -46,7 +47,7 @@ fn run() -> Result<(), String> {
                 println!(
                     "ok: {} model(s), digest {}",
                     module.models.len(),
-                    semantic_digest(&module)
+                    semantic_arena_digest(&semantic)
                 );
             }
         }
@@ -55,16 +56,23 @@ fn run() -> Result<(), String> {
             serde_json::to_string_pretty(&module).map_err(|e| e.to_string())?
         ),
         "fmt" => print!("{}", format_scientific_module(&module)),
-        "freeze" => println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "schema":"resolvent-scientific-lock/1",
-                "module":module.name,
-                "semantic_digest":semantic_digest(&module)
-            }))
-            .map_err(|e| e.to_string())?
-        ),
+        "freeze" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schema":"resolvent-scientific-lock/1",
+                    "module":module.name,
+                    "source_digest":semantic_digest(&module),
+                    "semantic_digest":semantic_arena_digest(&semantic)
+                }))
+                .map_err(|e| e.to_string())?
+            );
+        }
         "inspect" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
             let models = module
                 .models
                 .iter()
@@ -95,12 +103,16 @@ fn run() -> Result<(), String> {
                     "schema": "resolvent-scientific-inspect/1",
                     "module": module.name,
                     "semantic_digest": semantic_digest(&module),
+                    "semantic_arena_digest": semantic_arena_digest(&semantic),
+                    "semantic_models": semantic.models,
                     "models": models,
                 }))
                 .map_err(|e| e.to_string())?
             );
         }
         "coupling" => {
+            elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
             let model = module.models.first().ok_or("module has no model")?;
             println!(
                 "{}",
@@ -109,6 +121,8 @@ fn run() -> Result<(), String> {
             );
         }
         "structural" => {
+            elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
             let model = module.models.first().ok_or("module has no model")?;
             let incidence = IncidenceSystem::from_model(model).map_err(|e| e.to_string())?;
             let output = match compile_schedule(&incidence) {
@@ -127,6 +141,8 @@ fn run() -> Result<(), String> {
             );
         }
         "explain" => {
+            elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
             let model = module.models.first().ok_or("module has no model")?;
             let graph = derive_coupling_graph(model);
             let edges = graph
@@ -145,6 +161,8 @@ fn run() -> Result<(), String> {
             );
         }
         "form" => {
+            elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
             let model = module.models.first().ok_or("module has no model")?;
             let form_name = selector.ok_or("form command requires a form name")?;
             println!(
@@ -155,11 +173,59 @@ fn run() -> Result<(), String> {
                 .map_err(|e| e.to_string())?
             );
         }
+        "elaborate" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&semantic).map_err(|error| error.to_string())?
+            );
+        }
         _ => return Err(usage()),
     }
     Ok(())
 }
 
 fn usage() -> String {
-    "usage: resolvent <check|fmt|parse|inspect|freeze|explain|coupling|structural|form> [--json] <model.res> [selector]".into()
+    "usage: resolvent <check|fmt|parse|elaborate|inspect|freeze|explain|coupling|structural|form> [--json] <model.res> [selector]".into()
+}
+
+fn render_diagnostics(source: &str, diagnostics: &[SourceDiagnostic], json: bool) -> String {
+    if json {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "ok": false,
+            "diagnostics": diagnostics,
+        }))
+        .unwrap_or_else(|error| error.to_string());
+    }
+    diagnostics
+        .iter()
+        .map(|diagnostic| {
+            let (line, column) = line_column(source, diagnostic.span.start);
+            format!(
+                "{}:{}: {} [{}] {}",
+                line,
+                column,
+                match diagnostic.severity {
+                    resolvent::SourceSeverity::Note => "note",
+                    resolvent::SourceSeverity::Warning => "warning",
+                    resolvent::SourceSeverity::Error => "error",
+                },
+                diagnostic.code,
+                diagnostic.message
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn line_column(source: &str, byte_offset: usize) -> (usize, usize) {
+    let offset = byte_offset.min(source.len());
+    let prefix = &source[..offset];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix.chars().count(), |(_, tail)| tail.chars().count())
+        + 1;
+    (line, column)
 }

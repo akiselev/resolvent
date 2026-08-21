@@ -4,7 +4,7 @@
 //! expressions remain structured, coupling is derived from use, and solver strategy never
 //! enters the model semantics.
 
-use crate::source::SourceSpan;
+use crate::source::{SourceDiagnostic, SourceSpan, Spanned};
 use quantitas::{Dimension, Quantity, QuantityKindId, QuantityLiteral, UnitId, UnitRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,7 +16,7 @@ pub const SCIENTIFIC_SCHEMA: &str = "resolvent-scientific/1";
 pub struct ScientificModule {
     pub schema: String,
     pub name: String,
-    pub imports: Vec<String>,
+    pub imports: Vec<Spanned<String>>,
     pub models: Vec<ScientificModel>,
     pub span: SourceSpan,
 }
@@ -47,6 +47,7 @@ pub struct DomainDecl {
     pub name: String,
     pub dimension: u8,
     pub coordinates: CoordinateSystem,
+    pub coordinates_span: SourceSpan,
     pub span: SourceSpan,
 }
 
@@ -113,8 +114,11 @@ pub struct FieldDecl {
     pub shape: ValueShape,
     pub space: SpaceSpec,
     pub domain: String,
+    pub domain_span: SourceSpan,
     pub quantity_kind: Option<QuantityKindId>,
+    pub quantity_kind_span: Option<SourceSpan>,
     pub unit: Option<UnitId>,
+    pub unit_span: Option<SourceSpan>,
     pub nominal: Option<QuantityLiteral>,
     pub physical_min: Option<QuantityLiteral>,
     pub physical_max: Option<QuantityLiteral>,
@@ -126,7 +130,9 @@ pub struct FieldDecl {
 pub struct ValueDecl {
     pub name: String,
     pub quantity_kind: Option<QuantityKindId>,
+    pub quantity_kind_span: Option<SourceSpan>,
     pub unit: Option<UnitId>,
+    pub unit_span: Option<SourceSpan>,
     pub value: Option<Expr>,
     pub span: SourceSpan,
 }
@@ -148,6 +154,7 @@ pub struct ConstitutiveBinding {
 pub struct EquationDecl {
     pub name: String,
     pub domain: Option<String>,
+    pub domain_span: Option<SourceSpan>,
     pub lhs: Expr,
     pub rhs: Expr,
     pub span: SourceSpan,
@@ -163,6 +170,7 @@ pub struct FormDecl {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IntegralDecl {
     pub measure: Measure,
+    pub target_span: SourceSpan,
     pub integrand: Expr,
     pub span: SourceSpan,
 }
@@ -187,6 +195,7 @@ pub struct BoundaryConditionDecl {
     pub region: Expr,
     pub kind: BoundaryConditionKind,
     pub target: String,
+    pub target_span: SourceSpan,
     pub value: Expr,
     pub span: SourceSpan,
 }
@@ -218,27 +227,41 @@ pub enum Expr {
     Number {
         value: f64,
         unit: Option<String>,
+        span: SourceSpan,
     },
-    String(String),
-    Name(String),
+    String {
+        value: String,
+        span: SourceSpan,
+    },
+    Name {
+        name: String,
+        span: SourceSpan,
+    },
     Unary {
         op: UnaryOp,
         arg: Box<Expr>,
+        span: SourceSpan,
     },
     Binary {
         op: BinaryOp,
         lhs: Box<Expr>,
         rhs: Box<Expr>,
+        span: SourceSpan,
     },
     Call {
         function: String,
         args: Vec<Expr>,
+        span: SourceSpan,
     },
     Index {
         value: Box<Expr>,
         indices: Vec<Expr>,
+        span: SourceSpan,
     },
-    Vector(Vec<Expr>),
+    Vector {
+        elements: Vec<Expr>,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,9 +283,30 @@ pub enum BinaryOp {
 }
 
 impl Expr {
+    pub const fn span(&self) -> SourceSpan {
+        match self {
+            Self::Number { span, .. }
+            | Self::String { span, .. }
+            | Self::Name { span, .. }
+            | Self::Unary { span, .. }
+            | Self::Binary { span, .. }
+            | Self::Call { span, .. }
+            | Self::Index { span, .. }
+            | Self::Vector { span, .. } => *span,
+        }
+    }
+
+    pub fn synthetic_number(value: f64) -> Self {
+        Self::Number {
+            value,
+            unit: None,
+            span: SourceSpan::default(),
+        }
+    }
+
     pub fn names(&self, out: &mut BTreeSet<String>) {
         match self {
-            Expr::Name(name) => {
+            Expr::Name { name, .. } => {
                 out.insert(name.clone());
             }
             Expr::Unary { arg, .. } => arg.names(out),
@@ -270,18 +314,18 @@ impl Expr {
                 lhs.names(out);
                 rhs.names(out);
             }
-            Expr::Call { args, .. } | Expr::Vector(args) => {
+            Expr::Call { args, .. } | Expr::Vector { elements: args, .. } => {
                 for arg in args {
                     arg.names(out);
                 }
             }
-            Expr::Index { value, indices } => {
+            Expr::Index { value, indices, .. } => {
                 value.names(out);
                 for i in indices {
                     i.names(out);
                 }
             }
-            Expr::Number { .. } | Expr::String(_) => {}
+            Expr::Number { .. } | Expr::String { .. } => {}
         }
     }
 }
@@ -294,14 +338,56 @@ pub enum ScientificError {
     Duplicate(String),
     #[error("unknown name `{0}`")]
     UnknownName(String),
-    #[error("import cycle: {0}")]
-    ImportCycle(String),
-    #[error("missing imported module `{0}`")]
-    MissingModule(String),
+    #[error("import cycle through `{name}`")]
+    ImportCycle { name: String, span: SourceSpan },
+    #[error("missing imported module `{name}`")]
+    MissingModule { name: String, span: SourceSpan },
     #[error("quantity error: {0}")]
     Quantity(String),
     #[error("property evaluation failed: {0}")]
     Property(String),
+}
+
+impl ScientificError {
+    pub fn diagnostic(&self) -> SourceDiagnostic {
+        match self {
+            Self::Syntax { message, span } => {
+                SourceDiagnostic::error("PARSE_SYNTAX", message, *span).phase("parsing")
+            }
+            Self::Duplicate(name) => SourceDiagnostic::error(
+                "RESOLVE_DUPLICATE_NAME",
+                format!("duplicate declaration `{name}`"),
+                SourceSpan::default(),
+            )
+            .phase("resolution"),
+            Self::UnknownName(name) => SourceDiagnostic::error(
+                "RESOLVE_UNKNOWN_NAME",
+                format!("unknown name `{name}`"),
+                SourceSpan::default(),
+            )
+            .phase("resolution"),
+            Self::ImportCycle { name, span } => SourceDiagnostic::error(
+                "RESOLVE_IMPORT_CYCLE",
+                format!("import cycle through `{name}`"),
+                *span,
+            )
+            .phase("resolution"),
+            Self::MissingModule { name, span } => SourceDiagnostic::error(
+                "RESOLVE_MISSING_MODULE",
+                format!("missing imported module `{name}`"),
+                *span,
+            )
+            .phase("resolution"),
+            Self::Quantity(message) => {
+                SourceDiagnostic::error("TYPE_QUANTITY", message, SourceSpan::default())
+                    .phase("elaboration")
+            }
+            Self::Property(message) => {
+                SourceDiagnostic::error("PROPERTY_EVALUATION", message, SourceSpan::default())
+                    .phase("evaluation")
+            }
+        }
+    }
 }
 
 // ---------------- lexer/parser ----------------
@@ -557,8 +643,8 @@ impl Parser {
         };
         let mut imports = vec![];
         while self.eat_ident("use") {
-            if let Some((name, _)) = self.expect_ident_value() {
-                imports.push(name);
+            if let Some((value, span)) = self.expect_ident_value() {
+                imports.push(Spanned { value, span });
             }
             self.expect_punct(';');
         }
@@ -680,15 +766,15 @@ impl Parser {
         self.expect_punct('{');
         let mut dimension = 2;
         let mut coordinates = CoordinateSystem::Cartesian;
+        let mut coordinates_span = span;
         while !matches!(self.token().kind, TokenKind::Eof | TokenKind::Punct('}')) {
             let key = self.expect_ident_value()?.0;
             self.eat_op("=");
             if key == "dimension" {
-                if let TokenKind::Number(v) = self.bump().kind {
-                    dimension = v as u8;
-                }
+                dimension = self.number_u8(2);
             } else if key == "coordinates" {
-                if let Some((v, _)) = self.expect_ident_value() {
+                if let Some((v, value_span)) = self.expect_ident_value() {
+                    coordinates_span = value_span;
                     coordinates = match v.as_str() {
                         "cartesian" => CoordinateSystem::Cartesian,
                         "cylindrical" => CoordinateSystem::Cylindrical,
@@ -707,6 +793,7 @@ impl Parser {
             name,
             dimension,
             coordinates,
+            coordinates_span,
             span,
         })
     }
@@ -714,7 +801,7 @@ impl Parser {
     fn field(&mut self) -> Option<FieldDecl> {
         let (name, span) = self.expect_ident_value()?;
         self.expect_punct(':');
-        let role_name = self.expect_ident_value()?.0;
+        let (role_name, role_span) = self.expect_ident_value()?;
         let role = match role_name.as_str() {
             "state" => FieldRole::State,
             "unknown" => FieldRole::Unknown,
@@ -724,7 +811,10 @@ impl Parser {
             "parameter" => FieldRole::Parameter,
             "derived" => FieldRole::Derived,
             _ => {
-                self.error(format!("unknown field role `{role_name}`"));
+                self.errors.push(ScientificError::Syntax {
+                    message: format!("unknown field role `{role_name}`"),
+                    span: role_span,
+                });
                 FieldRole::Unknown
             }
         };
@@ -744,7 +834,7 @@ impl Parser {
             self.expect_punct(')');
             shape = ValueShape::Tensor { rows: a, cols: b };
         }
-        let family = self.expect_ident_value()?.0;
+        let (family, family_span) = self.expect_ident_value()?;
         self.expect_punct('(');
         let mut order = 1;
         if self.eat_ident("order") {
@@ -781,7 +871,10 @@ impl Parser {
                 continuity: Continuity::Discontinuous,
             },
             _ => {
-                self.error(format!("unsupported function space `{family}`"));
+                self.errors.push(ScientificError::Syntax {
+                    message: format!("unsupported function space `{family}`"),
+                    span: family_span,
+                });
                 SpaceSpec {
                     family: SpaceFamily::H1,
                     order,
@@ -792,12 +885,13 @@ impl Parser {
         if !self.eat_ident("on") {
             self.error("field requires `on <domain>`".into());
         }
-        let domain = self
+        let (domain, domain_span) = self
             .expect_ident_value()
-            .map(|x| x.0)
-            .unwrap_or_else(|| "Omega".into());
+            .unwrap_or_else(|| ("Omega".into(), self.token().span));
         let mut quantity_kind = None;
+        let mut quantity_kind_span = None;
         let mut unit = None;
+        let mut unit_span = None;
         let mut nominal = None;
         let mut physical_min = None;
         let mut physical_max = None;
@@ -808,20 +902,34 @@ impl Parser {
                 self.eat_op("=");
                 match key.as_str() {
                     "quantity" => {
-                        quantity_kind = self.expect_ident_value().map(|x| QuantityKindId::new(x.0))
+                        if let Some((kind, span)) = self.expect_ident_value() {
+                            quantity_kind = Some(QuantityKindId::new(kind));
+                            quantity_kind_span = Some(span);
+                        }
                     }
-                    "unit" => unit = self.expect_ident_value().map(|x| UnitId::new(x.0)),
+                    "unit" => {
+                        if let Some((name, span)) = self.expect_ident_value() {
+                            unit = Some(UnitId::new(name));
+                            unit_span = Some(span);
+                        }
+                    }
                     "nominal" => nominal = self.quantity_literal(quantity_kind.clone()),
                     "min" => physical_min = self.quantity_literal(quantity_kind.clone()),
                     "max" => physical_max = self.quantity_literal(quantity_kind.clone()),
                     "time_role" => {
-                        time_role = self.expect_ident_value().map(|x| {
-                            if x.0 == "algebraic" {
-                                TimeRole::Algebraic
-                            } else {
-                                TimeRole::Differential
-                            }
-                        })
+                        if let Some((name, span)) = self.expect_ident_value() {
+                            time_role = match name.as_str() {
+                                "algebraic" => Some(TimeRole::Algebraic),
+                                "differential" => Some(TimeRole::Differential),
+                                _ => {
+                                    self.errors.push(ScientificError::Syntax {
+                                        message: format!("unknown time role `{name}`"),
+                                        span,
+                                    });
+                                    None
+                                }
+                            };
+                        }
                     }
                     _ => {
                         self.error(format!("unknown field attribute `{key}`"));
@@ -839,8 +947,11 @@ impl Parser {
             shape,
             space,
             domain,
+            domain_span,
             quantity_kind,
+            quantity_kind_span,
             unit,
+            unit_span,
             nominal,
             physical_min,
             physical_max,
@@ -851,11 +962,14 @@ impl Parser {
 
     fn number_u8(&mut self, default: u8) -> u8 {
         let t = self.bump();
-        if let TokenKind::Number(v) = t.kind {
+        if let TokenKind::Number(v) = t.kind
+            && v.fract() == 0.0
+            && (0.0..=f64::from(u8::MAX)).contains(&v)
+        {
             v as u8
         } else {
             self.errors.push(ScientificError::Syntax {
-                message: "expected integer".into(),
+                message: "expected an integer from 0 through 255".into(),
                 span: t.span,
             });
             default
@@ -880,12 +994,20 @@ impl Parser {
     fn value_decl(&mut self) -> Option<ValueDecl> {
         let (name, span) = self.expect_ident_value()?;
         let mut kind = None;
+        let mut quantity_kind_span = None;
         let mut unit = None;
-        if self.eat_punct(':') {
-            kind = self.expect_ident_value().map(|x| QuantityKindId::new(x.0));
+        let mut unit_span = None;
+        if self.eat_punct(':')
+            && let Some((name, span)) = self.expect_ident_value()
+        {
+            kind = Some(QuantityKindId::new(name));
+            quantity_kind_span = Some(span);
         }
         if self.eat_punct('[') {
-            unit = self.expect_ident_value().map(|x| UnitId::new(x.0));
+            if let Some((name, span)) = self.expect_ident_value() {
+                unit = Some(UnitId::new(name));
+                unit_span = Some(span);
+            }
             self.expect_punct(']');
         }
         let value = if self.eat_op("=") {
@@ -897,7 +1019,9 @@ impl Parser {
         Some(ValueDecl {
             name,
             quantity_kind: kind,
+            quantity_kind_span,
             unit,
+            unit_span,
             value,
             span,
         })
@@ -921,10 +1045,13 @@ impl Parser {
 
     fn equation(&mut self) -> Option<EquationDecl> {
         let (name, span) = self.expect_ident_value()?;
-        let domain = if self.eat_ident("on") {
-            self.expect_ident_value().map(|x| x.0)
+        let (domain, domain_span) = if self.eat_ident("on") {
+            match self.expect_ident_value() {
+                Some((name, span)) => (Some(name), Some(span)),
+                None => (None, None),
+            }
         } else {
-            None
+            (None, None)
         };
         self.expect_punct('{');
         // Top-level equality belongs to the equation declaration, not the expression tree.
@@ -940,6 +1067,7 @@ impl Parser {
         Some(EquationDecl {
             name,
             domain,
+            domain_span,
             lhs,
             rhs,
             span,
@@ -954,7 +1082,7 @@ impl Parser {
             let measure_span = self.token().span;
             let measure_name = self.expect_ident_value()?.0;
             self.expect_punct('(');
-            let target = self.expect_ident_value()?.0;
+            let (target, target_span) = self.expect_ident_value()?;
             self.expect_punct(')');
             self.eat_punct(':');
             let integrand = self.expr(0)?;
@@ -964,12 +1092,16 @@ impl Parser {
                 "boundary" => Measure::Boundary(target),
                 "interior_facet" => Measure::InteriorFacet(target),
                 _ => {
-                    self.error(format!("unknown measure `{measure_name}`"));
+                    self.errors.push(ScientificError::Syntax {
+                        message: format!("unknown measure `{measure_name}`"),
+                        span: measure_span,
+                    });
                     Measure::Cell(target)
                 }
             };
             integrals.push(IntegralDecl {
                 measure,
+                target_span,
                 integrand,
                 span: measure_span,
             });
@@ -1029,7 +1161,7 @@ impl Parser {
                 }
             }
         };
-        let target = self.expect_ident_value()?.0;
+        let (target, target_span) = self.expect_ident_value()?;
         self.eat_op("=");
         let value = self.expr(0)?;
         self.eat_punct(';');
@@ -1040,6 +1172,7 @@ impl Parser {
             region,
             kind,
             target,
+            target_span,
             value,
             span,
         })
@@ -1077,30 +1210,30 @@ impl Parser {
         let mut lhs = match self.bump() {
             Token {
                 kind: TokenKind::Number(value),
-                ..
+                span: number_span,
             } => {
-                let unit = if let TokenKind::Ident(name) = &self.token().kind {
-                    if is_unitish(name) {
-                        Some(if let TokenKind::Ident(x) = self.bump().kind {
-                            x
-                        } else {
-                            unreachable!()
-                        })
-                    } else {
-                        None
-                    }
+                let (unit, end) = if matches!(self.token().kind, TokenKind::Ident(_)) {
+                    let token = self.bump();
+                    let TokenKind::Ident(unit) = token.kind else {
+                        unreachable!()
+                    };
+                    (Some(unit), token.span.end)
                 } else {
-                    None
+                    (None, number_span.end)
                 };
-                Expr::Number { value, unit }
+                Expr::Number {
+                    value,
+                    unit,
+                    span: SourceSpan::new(number_span.start, end),
+                }
             }
             Token {
                 kind: TokenKind::String(s),
-                ..
-            } => Expr::String(s),
+                span,
+            } => Expr::String { value: s, span },
             Token {
                 kind: TokenKind::Ident(name),
-                ..
+                span: name_span,
             } => {
                 if self.eat_punct('(') {
                     let mut args = vec![];
@@ -1113,21 +1246,31 @@ impl Parser {
                             self.expect_punct(',');
                         }
                     }
+                    let end = self.tokens[self.i.saturating_sub(1)].span.end;
                     Expr::Call {
                         function: name,
                         args,
+                        span: SourceSpan::new(name_span.start, end),
                     }
                 } else {
-                    Expr::Name(name)
+                    Expr::Name {
+                        name,
+                        span: name_span,
+                    }
                 }
             }
             Token {
                 kind: TokenKind::Op(op),
-                ..
-            } if op == "-" => Expr::Unary {
-                op: UnaryOp::Neg,
-                arg: Box::new(self.expr(11)?),
-            },
+                span: op_span,
+            } if op == "-" => {
+                let arg = Box::new(self.expr(11)?);
+                let span = SourceSpan::new(op_span.start, arg.span().end);
+                Expr::Unary {
+                    op: UnaryOp::Neg,
+                    arg,
+                    span,
+                }
+            }
             Token {
                 kind: TokenKind::Punct('('),
                 ..
@@ -1138,7 +1281,7 @@ impl Parser {
             }
             Token {
                 kind: TokenKind::Punct('['),
-                ..
+                span: open_span,
             } => {
                 let mut xs = vec![];
                 if !self.eat_punct(']') {
@@ -1150,7 +1293,11 @@ impl Parser {
                         self.expect_punct(',');
                     }
                 }
-                Expr::Vector(xs)
+                let end = self.tokens[self.i.saturating_sub(1)].span.end;
+                Expr::Vector {
+                    elements: xs,
+                    span: SourceSpan::new(open_span.start, end),
+                }
             }
             t => {
                 self.errors.push(ScientificError::Syntax {
@@ -1162,6 +1309,7 @@ impl Parser {
         };
         loop {
             if self.eat_punct('[') {
+                let start = lhs.span().start;
                 let mut indices = vec![];
                 if !self.eat_punct(']') {
                     loop {
@@ -1175,6 +1323,7 @@ impl Parser {
                 lhs = Expr::Index {
                     value: Box::new(lhs),
                     indices,
+                    span: SourceSpan::new(start, self.tokens[self.i.saturating_sub(1)].span.end),
                 };
                 continue;
             }
@@ -1190,22 +1339,18 @@ impl Parser {
             }
             self.bump();
             let rhs = self.expr(rbp)?;
+            let span = SourceSpan::new(lhs.span().start, rhs.span().end);
             lhs = Expr::Binary {
                 op,
                 lhs: Box::new(lhs),
                 rhs: Box::new(rhs),
+                span,
             };
         }
         Some(lhs)
     }
 }
 
-fn is_unitish(s: &str) -> bool {
-    matches!(
-        s,
-        "K" | "degC" | "delta_degC" | "s" | "m" | "kg" | "Pa" | "J" | "W" | "V" | "A"
-    )
-}
 fn binary_binding(op: &str) -> Option<(u8, u8, BinaryOp)> {
     Some(match op {
         "=" | "==" => (1, 2, BinaryOp::Eq),
@@ -1233,6 +1378,14 @@ pub fn parse_scientific_module(input: &str) -> Result<ScientificModule, Vec<Scie
     }
 }
 
+/// Parse `.res` source with stable structured diagnostics for CI, editors, and agents.
+pub fn parse_scientific_module_diagnostics(
+    input: &str,
+) -> Result<ScientificModule, Vec<SourceDiagnostic>> {
+    parse_scientific_module(input)
+        .map_err(|errors| errors.iter().map(ScientificError::diagnostic).collect())
+}
+
 pub fn semantic_digest(module: &ScientificModule) -> String {
     // Spans are provenance, not scientific meaning. Strip them before hashing so
     // whitespace/comments/formatting do not perturb the physics identity.
@@ -1241,7 +1394,7 @@ pub fn semantic_digest(module: &ScientificModule) -> String {
     fn canonicalize(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(map) => {
-                map.remove("span");
+                map.retain(|key, _| key != "span" && !key.ends_with("_span"));
                 for child in map.values_mut() {
                     canonicalize(child);
                 }
@@ -1261,6 +1414,15 @@ pub fn semantic_digest(module: &ScientificModule) -> String {
                     });
                 } else if items.iter().all(|item| item.as_str().is_some()) {
                     items.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+                } else if items
+                    .iter()
+                    .all(|item| item.get("value").and_then(|x| x.as_str()).is_some())
+                {
+                    items.sort_by(|a, b| {
+                        a.get("value")
+                            .and_then(|x| x.as_str())
+                            .cmp(&b.get("value").and_then(|x| x.as_str()))
+                    });
                 }
             }
             _ => {}
@@ -1276,7 +1438,7 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
     let mut out = String::new();
     out.push_str(&format!("module {};\n\n", module.name));
     for import in &module.imports {
-        out.push_str(&format!("use {import};\n"));
+        out.push_str(&format!("use {};\n", import.value));
     }
     if !module.imports.is_empty() {
         out.push('\n');
@@ -1513,25 +1675,25 @@ fn format_value_decl(kind: &str, d: &ValueDecl) -> String {
 }
 fn format_expr(e: &Expr) -> String {
     match e {
-        Expr::Number { value, unit } => format!(
+        Expr::Number { value, unit, .. } => format!(
             "{value}{}",
             unit.as_ref().map(|u| format!(" {u}")).unwrap_or_default()
         ),
-        Expr::String(s) => format!("\"{s}\""),
-        Expr::Name(n) => n.clone(),
+        Expr::String { value, .. } => format!("\"{value}\""),
+        Expr::Name { name, .. } => name.clone(),
         Expr::Unary { arg, .. } => format!("-{}", format_expr(arg)),
-        Expr::Binary { op, lhs, rhs } => format!(
+        Expr::Binary { op, lhs, rhs, .. } => format!(
             "({} {} {})",
             format_expr(lhs),
             binary_name(*op),
             format_expr(rhs)
         ),
-        Expr::Call { function, args } => format!(
+        Expr::Call { function, args, .. } => format!(
             "{}({})",
             function,
             args.iter().map(format_expr).collect::<Vec<_>>().join(", ")
         ),
-        Expr::Index { value, indices } => format!(
+        Expr::Index { value, indices, .. } => format!(
             "{}[{}]",
             format_expr(value),
             indices
@@ -1540,7 +1702,7 @@ fn format_expr(e: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
-        Expr::Vector(xs) => format!(
+        Expr::Vector { elements: xs, .. } => format!(
             "[{}]",
             xs.iter().map(format_expr).collect::<Vec<_>>().join(", ")
         ),
@@ -1588,18 +1750,33 @@ pub fn resolve_modules(
         out: &mut BTreeMap<String, ScientificModule>,
     ) -> Result<(), ScientificError> {
         match state.get(name).copied() {
-            Some(1) => return Err(ScientificError::ImportCycle(name.into())),
+            Some(1) => {
+                return Err(ScientificError::ImportCycle {
+                    name: name.into(),
+                    span: module.span,
+                });
+            }
             Some(2) => return Ok(()),
             _ => {}
         }
         state.insert(name.into(), 1);
         for import in &module.imports {
-            let text = source
-                .load(import)
-                .ok_or_else(|| ScientificError::MissingModule(import.clone()))?;
+            let text =
+                source
+                    .load(&import.value)
+                    .ok_or_else(|| ScientificError::MissingModule {
+                        name: import.value.clone(),
+                        span: import.span,
+                    })?;
             let parsed =
                 parse_scientific_module(&text).map_err(|e| e.into_iter().next().unwrap())?;
-            visit(import, parsed, source, state, out)?;
+            if matches!(state.get(&import.value), Some(1)) {
+                return Err(ScientificError::ImportCycle {
+                    name: import.value.clone(),
+                    span: import.span,
+                });
+            }
+            visit(&import.value, parsed, source, state, out)?;
         }
         state.insert(name.into(), 2);
         out.insert(name.into(), module);
@@ -1609,7 +1786,11 @@ pub fn resolve_modules(
     let mut state = BTreeMap::new();
     let mut modules = BTreeMap::new();
     visit(&root_name, root, source, &mut state, &mut modules)?;
-    let bytes = serde_json::to_vec(&modules).unwrap();
+    let semantic_projection = modules
+        .iter()
+        .map(|(name, module)| (name, semantic_digest(module)))
+        .collect::<BTreeMap<_, _>>();
+    let bytes = serde_json::to_vec(&semantic_projection).unwrap();
     let digest = blake3::hash(&bytes).to_hex().to_string();
     Ok(ResolvedModules {
         modules,
@@ -1870,11 +2051,11 @@ pub fn eval_expr(expr: &Expr, env: &BTreeMap<String, f64>) -> Result<f64, Scient
     let e = |x: &Expr| eval_expr(x, env);
     Ok(match expr {
         Expr::Number { value, .. } => *value,
-        Expr::Name(n) => *env
-            .get(n)
-            .ok_or_else(|| ScientificError::UnknownName(n.clone()))?,
+        Expr::Name { name, .. } => *env
+            .get(name)
+            .ok_or_else(|| ScientificError::UnknownName(name.clone()))?,
         Expr::Unary { arg, .. } => -e(arg)?,
-        Expr::Binary { op, lhs, rhs } => {
+        Expr::Binary { op, lhs, rhs, .. } => {
             let a = e(lhs)?;
             let b = e(rhs)?;
             match op {
@@ -1890,7 +2071,7 @@ pub fn eval_expr(expr: &Expr, env: &BTreeMap<String, f64>) -> Result<f64, Scient
                 BinaryOp::Ge => (a >= b) as u8 as f64,
             }
         }
-        Expr::Call { function, args } => {
+        Expr::Call { function, args, .. } => {
             let xs = args.iter().map(e).collect::<Result<Vec<_>, _>>()?;
             match (function.as_str(), xs.as_slice()) {
                 ("sin", [x]) => x.sin(),
@@ -1908,118 +2089,89 @@ pub fn eval_expr(expr: &Expr, env: &BTreeMap<String, f64>) -> Result<f64, Scient
                 }
             }
         }
-        Expr::String(_) | Expr::Index { .. } | Expr::Vector(_) => {
+        Expr::String { .. } | Expr::Index { .. } | Expr::Vector { .. } => {
             return Err(ScientificError::Property("non-scalar expression".into()));
         }
     })
 }
 
 pub fn differentiate_expr(expr: &Expr, var: &str) -> Expr {
+    let span = expr.span();
     let n = |v: f64| Expr::Number {
         value: v,
         unit: None,
+        span,
+    };
+    let unary = |op, arg| Expr::Unary {
+        op,
+        arg: Box::new(arg),
+        span,
+    };
+    let binary = |op, lhs, rhs| Expr::Binary {
+        op,
+        lhs: Box::new(lhs),
+        rhs: Box::new(rhs),
+        span,
+    };
+    let call = |function: &str, args| Expr::Call {
+        function: function.into(),
+        args,
+        span,
     };
     match expr {
-        Expr::Number { .. } | Expr::String(_) => n(0.0),
-        Expr::Name(x) => n(if x == var { 1.0 } else { 0.0 }),
-        Expr::Unary { arg, .. } => Expr::Unary {
-            op: UnaryOp::Neg,
-            arg: Box::new(differentiate_expr(arg, var)),
-        },
-        Expr::Binary { op, lhs, rhs } => match op {
-            BinaryOp::Add | BinaryOp::Sub => Expr::Binary {
-                op: *op,
-                lhs: Box::new(differentiate_expr(lhs, var)),
-                rhs: Box::new(differentiate_expr(rhs, var)),
-            },
-            BinaryOp::Mul => Expr::Binary {
-                op: BinaryOp::Add,
-                lhs: Box::new(Expr::Binary {
-                    op: BinaryOp::Mul,
-                    lhs: Box::new(differentiate_expr(lhs, var)),
-                    rhs: rhs.clone(),
-                }),
-                rhs: Box::new(Expr::Binary {
-                    op: BinaryOp::Mul,
-                    lhs: lhs.clone(),
-                    rhs: Box::new(differentiate_expr(rhs, var)),
-                }),
-            },
-            BinaryOp::Div => Expr::Binary {
-                op: BinaryOp::Div,
-                lhs: Box::new(Expr::Binary {
-                    op: BinaryOp::Sub,
-                    lhs: Box::new(Expr::Binary {
-                        op: BinaryOp::Mul,
-                        lhs: Box::new(differentiate_expr(lhs, var)),
-                        rhs: rhs.clone(),
-                    }),
-                    rhs: Box::new(Expr::Binary {
-                        op: BinaryOp::Mul,
-                        lhs: lhs.clone(),
-                        rhs: Box::new(differentiate_expr(rhs, var)),
-                    }),
-                }),
-                rhs: Box::new(Expr::Binary {
-                    op: BinaryOp::Pow,
-                    lhs: rhs.clone(),
-                    rhs: Box::new(n(2.0)),
-                }),
-            },
+        Expr::Number { .. } | Expr::String { .. } => n(0.0),
+        Expr::Name { name, .. } => n(if name == var { 1.0 } else { 0.0 }),
+        Expr::Unary { arg, .. } => unary(UnaryOp::Neg, differentiate_expr(arg, var)),
+        Expr::Binary { op, lhs, rhs, .. } => match op {
+            BinaryOp::Add | BinaryOp::Sub => binary(
+                *op,
+                differentiate_expr(lhs, var),
+                differentiate_expr(rhs, var),
+            ),
+            BinaryOp::Mul => binary(
+                BinaryOp::Add,
+                binary(BinaryOp::Mul, differentiate_expr(lhs, var), *rhs.clone()),
+                binary(BinaryOp::Mul, *lhs.clone(), differentiate_expr(rhs, var)),
+            ),
+            BinaryOp::Div => binary(
+                BinaryOp::Div,
+                binary(
+                    BinaryOp::Sub,
+                    binary(BinaryOp::Mul, differentiate_expr(lhs, var), *rhs.clone()),
+                    binary(BinaryOp::Mul, *lhs.clone(), differentiate_expr(rhs, var)),
+                ),
+                binary(BinaryOp::Pow, *rhs.clone(), n(2.0)),
+            ),
             BinaryOp::Pow => {
                 if let Expr::Number { value: p, .. } = **rhs {
-                    Expr::Binary {
-                        op: BinaryOp::Mul,
-                        lhs: Box::new(n(p)),
-                        rhs: Box::new(Expr::Binary {
-                            op: BinaryOp::Mul,
-                            lhs: Box::new(Expr::Binary {
-                                op: BinaryOp::Pow,
-                                lhs: lhs.clone(),
-                                rhs: Box::new(n(p - 1.0)),
-                            }),
-                            rhs: Box::new(differentiate_expr(lhs, var)),
-                        }),
-                    }
+                    binary(
+                        BinaryOp::Mul,
+                        n(p),
+                        binary(
+                            BinaryOp::Mul,
+                            binary(BinaryOp::Pow, *lhs.clone(), n(p - 1.0)),
+                            differentiate_expr(lhs, var),
+                        ),
+                    )
                 } else {
                     n(0.0)
                 }
             }
             _ => n(0.0),
         },
-        Expr::Call { function, args } if args.len() == 1 => {
+        Expr::Call { function, args, .. } if args.len() == 1 => {
             let x = &args[0];
             let dx = differentiate_expr(x, var);
             let outer = match function.as_str() {
-                "sin" => Expr::Call {
-                    function: "cos".into(),
-                    args: vec![x.clone()],
-                },
-                "cos" => Expr::Unary {
-                    op: UnaryOp::Neg,
-                    arg: Box::new(Expr::Call {
-                        function: "sin".into(),
-                        args: vec![x.clone()],
-                    }),
-                },
-                "exp" => Expr::Call {
-                    function: "exp".into(),
-                    args: vec![x.clone()],
-                },
-                "log" | "ln" => Expr::Binary {
-                    op: BinaryOp::Div,
-                    lhs: Box::new(n(1.0)),
-                    rhs: Box::new(x.clone()),
-                },
+                "sin" => call("cos", vec![x.clone()]),
+                "cos" => unary(UnaryOp::Neg, call("sin", vec![x.clone()])),
+                "exp" => call("exp", vec![x.clone()]),
+                "log" | "ln" => binary(BinaryOp::Div, n(1.0), x.clone()),
                 _ => n(0.0),
             };
-            Expr::Binary {
-                op: BinaryOp::Mul,
-                lhs: Box::new(outer),
-                rhs: Box::new(dx),
-            }
+            binary(BinaryOp::Mul, outer, dx)
         }
-        Expr::Call { .. } | Expr::Index { .. } | Expr::Vector(_) => n(0.0),
+        Expr::Call { .. } | Expr::Index { .. } | Expr::Vector { .. } => n(0.0),
     }
 }
 
@@ -2579,20 +2731,28 @@ model NonlinearHeat {
 
     #[test]
     fn property_expression_symbolic_derivative_matches_finite_difference() {
+        let span = SourceSpan::default();
         let expr = Expr::Binary {
             op: BinaryOp::Add,
             lhs: Box::new(Expr::Number {
                 value: 10.0,
                 unit: None,
+                span,
             }),
             rhs: Box::new(Expr::Binary {
                 op: BinaryOp::Mul,
                 lhs: Box::new(Expr::Number {
                     value: 0.5,
                     unit: None,
+                    span,
                 }),
-                rhs: Box::new(Expr::Name("T".into())),
+                rhs: Box::new(Expr::Name {
+                    name: "T".into(),
+                    span,
+                }),
+                span,
             }),
+            span,
         };
         let mut env = BTreeMap::new();
         env.insert("T".into(), 300.0);

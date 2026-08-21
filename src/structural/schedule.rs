@@ -1,4 +1,4 @@
-//! Causalization pipeline over [`IncidenceSystem`](super::IncidenceSystem): maximum matching,
+//! Causalization pipeline over [`IncidenceSystem`]: maximum matching,
 //! equation dependency graph, SCC/BLT decomposition and deterministic greedy tearing.
 //!
 //! This is intentionally a projection of Resolvent's canonical scientific model; it does not
