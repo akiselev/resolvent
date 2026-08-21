@@ -1,176 +1,245 @@
-# RV0 - Exact Foundation Consolidation
+# RV0 - Exact Foundation Stabilization
+
+## Status
+
+R1 shared exact-algebra consolidation is already landed. Resolvent now owns the former CADabra generic scalar/dual, rational, interval/filter, root, radical, lazy-real, Bernstein and exact-matrix machinery; CADabra consumes Resolvent directly and the duplicate crates are gone.
+
+RV0 is therefore a short post-consolidation stabilization phase, not a migration phase.
 
 ## Goal
 
-Complete the remaining CADabra R1 ownership cut so Resolvent has one mature exact/scalar foundation before its general symbolic representation changes.
+Freeze the public exact/scalar invariants that RV1-RV9 will rely on, close residual resource/error/serialization gaps, and establish repeatable cross-consumer/performance baselines before the general term/domain redesign begins.
 
-RV0 deliberately does **not** redesign the existing `Expr` model. Mixing a cross-repository numeric migration with a new symbolic identity model would make regressions difficult to classify and would block CADabra R2 unnecessarily.
+RV0 must not become an artificial blocker for CADabra R2. CADabra may proceed on the landed R1 substrate. Coordination is required only when an RV0 fix changes an exact decision or public algebra contract used by CADabra.
 
-## Starting point
+## Landed starting point
 
-Resolvent currently has a small `num-bigint`/`num-rational` exact expression and polynomial implementation. CADabra still contains the mature generic machinery in `cadabra-exact` and `cadabra-scalar`: exact rationals, interval filters, error-free transforms, lazy exact reals, certified roots, radicals, Bernstein forms, exact matrices and dual numbers.
+Current `STATUS.md` records:
 
-The active CADabra recovery plan already requires this machinery to move directly into Resolvent and the duplicate crates to be deleted. RV0 is the Resolvent side of that gate.
+- stable explicitly serialized arbitrary-precision rationals;
+- shared scalar, approximate-scalar, uncertainty and dual-number vocabulary;
+- intervals, error-free transforms, expansions, filters and exactness metrics;
+- bounded deterministic canonicalization;
+- exact symbolic differentiation for current arithmetic/common scalar functions;
+- exact rational expression evaluation/sign queries;
+- dense univariate polynomial arithmetic, division, gcd and derivatives;
+- exact Sylvester resultants;
+- Descartes/VCA root isolation with explicit budgets and immutable root certificates;
+- lazy exact reals, square-root extensions, Bernstein polynomials and exact rational/polynomial matrices;
+- deterministic algebra receipts;
+- 117 tests plus 2 doctests;
+- the migrated 111 CADabra algebra tests/doctests;
+- filtered determinant benchmark around the current 7.9x reference.
+
+RV0 treats that state as a baseline to harden, not work to repeat.
 
 ## Work packages
 
-### RV0-A1 - Migration census and API freeze
+### RV0-A1 - Public API and invariant census
 
-Before code movement:
+Document the exact/scalar public surface and classify every exported item by role:
 
-- enumerate public APIs and all stable/maintained CADabra call sites for `cadabra-exact` and `cadabra-scalar`;
-- classify each type/function as generic algebra, geometry policy or experiment-only;
-- record the existing exact/scalar tests, doctests and benchmark commands;
-- identify public assertions/panics that must become validated constructors, typed errors or private proved preconditions;
-- keep the current narrow Scientia `Rational` conversion API available during the cut.
+- exact primitive/value;
+- approximate/enclosure value;
+- uncertainty/decision value;
+- scalar-kernel trait;
+- polynomial/root/matrix algebra;
+- lazy exact runtime value;
+- serialization artifact;
+- budget/error/evidence type.
 
-Exit: one checked migration table accounts for every public item and consumer.
+For each exported type/function, record:
 
-### RV0-A2 - Canonical rational and stable serialization
+- mathematical invariant;
+- exactness/approximation contract;
+- panic/error preconditions;
+- serialization status;
+- whether the type is safe to reference from long-lived RV1/RV2 public APIs;
+- current Scientia/CADabra consumers.
 
-Adopt the mature CADabra arbitrary-precision rational implementation as Resolvent's canonical rational representation rather than preserving two rational stacks.
+Exit: no public item has ambiguous ownership or an undocumented exactness contract.
+
+### RV0-A2 - Serialization audit and golden fixtures
+
+R1 established explicitly serialized rationals and immutable root certificates. Extend the audit across every value that is expected to survive process/repository boundaries.
 
 Requirements:
 
-- dependency backend is hidden behind Resolvent-owned public types;
-- exact finite `f64` admission remains available for host interop;
-- exact decimal ingress is designed here or reserved explicitly for RV1 rather than conflated with binary-float ingress;
-- wire serialization uses Resolvent-defined numerator/denominator canonical data, not dependency-internal serde structure;
-- denominator/sign normalization is canonical;
-- conversion to outward-correct float intervals is preserved and tested at normal/subnormal/overflow boundaries.
+- canonical rational bytes do not depend on backend-private serde structure;
+- immutable root certificates round trip and validate on decode;
+- public serialized matrices/polynomials use Resolvent-owned schema versions where they are durable artifacts;
+- lazy runtime-only state is not serialized as authoritative identity;
+- schema golden vectors cover normal, degenerate and boundary cases;
+- a golden change requires an explicit schema/version decision.
 
-Exit: round-trip golden fixtures and the existing Scientia conversion tests pass against the new canonical type.
+Do not serialize caches, mutex state, local arena IDs or mutable refinement state as semantic truth.
 
-### RV0-B1 - Exact/filter tower transplant
+### RV0-B1 - Panic and fallibility audit
 
-Move generic modules and tests into Resolvent:
+Search the public exact/scalar path for assertions/panics reachable from valid untrusted caller data.
 
-- sign and uncertainty values;
-- interval arithmetic;
-- error-free transforms and expansions;
-- exact ring/field traits required by the imported algorithms;
-- certification/filter ladder and metrics;
-- lazy exact `Real` DAG and tuple formulas;
-- square-root extensions and radical-sign helpers;
-- exact root types, isolation/refinement and sign-at-root operations;
-- Bernstein polynomial range machinery.
+Convert to:
 
-Geometry-specific classification, branch meaning and event policy remain in CADabra.
+- validated constructors;
+- typed domain/input errors;
+- typed resource/indeterminate outcomes;
+- private assertions only where a public invariant proves the condition.
 
-Exit: imported property tests and deep-DAG concurrency/teardown tests pass inside Resolvent without importing CADabra vocabulary.
+Priority cases:
 
-### RV0-B2 - Polynomial and exact matrix consolidation
+- zero denominators/divisors;
+- malformed intervals;
+- invalid root certificates;
+- matrix shape mismatches;
+- non-finite approximate ingress;
+- unsupported scalar operations;
+- forced lazy-exact evaluation edge cases.
 
-Move and reconcile:
+Exit: public APIs fail closed instead of using panic as ordinary error control flow.
 
-- mature univariate rational polynomial implementation;
-- root/isolation algorithms;
-- exact rational matrices;
-- polynomial matrices;
-- resultants;
-- any generic coefficient-growth metrics used by the exact stack.
+### RV0-B2 - Resource budget coverage
 
-Remove weaker duplicate Resolvent polynomial/root paths instead of retaining two implementations.
-
-Bivariate/multivariate elimination remains experimental until RV5/RV6 consumers and acceptance cases justify promotion.
-
-Exit: one public polynomial/root implementation remains.
-
-### RV0-C1 - Scalar and differentiability seam
-
-Move the generic scalar seam and `Dual<S>` to Resolvent.
-
-Preserve the key property: one numeric kernel may instantiate over fast `f64`, certified exact `Real`, and dual values without cloning algorithm text.
-
-Do not claim this seam is the complete CAS domain abstraction. RV2 introduces explicit domains/parents for rings, fields, polynomials, matrices, series and dynamic notebook values.
-
-Exit:
-
-- float-only code can use the seam without forcing exact computation at runtime;
-- exact kernels run at `Real`;
-- forward-mode exact derivatives using `Dual<Real>` retain the current certification tests.
-
-### RV0-C2 - Budgets and typed indeterminacy
-
-Extend `AlgebraBudget` or its successor so every potentially explosive imported operation has an explicit bound or a bounded input contract.
-
-Examples:
+Audit every potentially explosive operation against the current `AlgebraBudget` model and extend it or define successor budget components for:
 
 - expression/work nodes;
-- root refinement/isolation steps;
 - coefficient bit growth;
-- polynomial degree/terms;
-- matrix dimension/elimination work;
-- forced lazy-exact nodes.
+- polynomial degree/term count;
+- resultant/matrix work;
+- root subdivisions/refinements;
+- lazy exact nodes forced;
+- recursive/tower depth where relevant.
 
-Operations that exhaust a budget return a typed resource result. They do not guess, silently fall back to `f64`, or hang indefinitely.
+Budget exhaustion must be deterministic with respect to counted mathematical work, not an implicit wall-clock timeout.
 
-### RV0-D1 - Scientia revalidation
+RV3 later generalizes this into operation/plan resource accounting.
 
-Keep Scientia's existing narrow adapter behavior stable during RV0.
+### RV0-B3 - Exact/approximate capability table
 
-Acceptance:
+Make the distinctions inherited from CADabra explicit before RV2 domains arrive.
 
-- complete Scientia test suite passes;
-- Sinbad's current corpus compiler checks remain green;
-- no scientific semantics migrate into Resolvent;
-- no second scientific expression representation is introduced in RV0.
+Record which operations are available for:
 
-The lossy structural limitations of the adapter are fixed in RV1, not here.
+- `f64`;
+- interval/enclosure values;
+- exact rationals;
+- lazy exact reals;
+- square-root/algebraic extensions;
+- `Dual<S>` combinations.
 
-### RV0-D2 - Direct CADabra migration and duplicate deletion
+In particular, keep the distinction between exact-closed field operations and approximate/transcendental operations. Do not silently add transcendental methods to exact values by evaluating them in `f64`.
 
-Migrate stable CADabra consumers directly to public Resolvent types, including at least:
+### RV0-C1 - Consumer boundary regression gate
 
-- `cadabra-number`;
-- `cadabra-predicates`;
-- `cadabra-arrangements`;
-- `cadabra-ssi`;
-- maintained algebra/geometry experiments that remain part of the recovery gate.
+Maintain direct integration cases for both current primary consumers.
 
-Then delete `cadabra-exact` and `cadabra-scalar`, remove workspace entries and remove stable direct backend dependencies that bypass Resolvent.
+Scientia:
 
-No adapter crate, type-alias compatibility facade or dual backend is allowed.
+- existing exact differentiation bridge remains green;
+- no scientific semantics or source types move into Resolvent;
+- current corpus/semantic compiler gates remain green where part of the federation validation run.
 
-### RV0-E1 - Cross-repository evidence gate
+CADabra:
 
-Run and record:
+- no `cadabra-exact`/`cadabra-scalar` references remain;
+- stable CADabra crates consume public Resolvent types directly;
+- geometry-specific checked-number/predicate/topology policy remains above Resolvent;
+- exact/filter changes run relevant arrangement/SSI and licensed Parasolid oracle cases when available.
 
-- Resolvent formatting/check/clippy/tests/rustdoc/doctests;
-- all tests/doctests migrated from the two CADabra crates (the current recovery plan records 111 as the pre-migration count);
-- Scientia full suite and corpus checks;
-- CADabra ordinary workspace gates;
-- exact/filter benchmarks;
-- arrangement filter-rate regression cases;
-- licensed Parasolid oracle/integration tests when available because exact geometric decisions changed;
-- downstream Finitum/Krasis/Sinbad gates required by the active federation plan.
+### RV0-C2 - Dependency and ownership grep gates
 
-Existing diagnostic performance references such as filtered determinant speedup and filtered predicate rates remain regression context, not claims that must be preserved byte-for-byte if the algorithm changes for a justified reason.
+Add mechanical checks where cheap:
+
+- no `.res`/scientific semantic vocabulary in production Resolvent modules;
+- no CAD topology/entity vocabulary in production Resolvent modules;
+- no Methodus numerical-solver or Solverang constraint-system semantics;
+- no compatibility facade restoring deleted CADabra algebra crates;
+- no stable consumer reaching around Resolvent to the underlying exact backend where the public abstraction is intended to own the decision.
+
+### RV0-D1 - Baseline performance corpus
+
+Record representative non-gating baselines for the exact stack before RV1/RV2 representation changes:
+
+- rational arithmetic by bit size;
+- interval filter versus exact fallback rates;
+- determinant/filter benchmark;
+- polynomial/resultant by degree/coefficient size;
+- root isolation/refinement by degree/root separation;
+- lazy exact DAG forcing and sharing behavior;
+- exact matrix operations.
+
+Correctness gates and score gates remain distinct. A baseline change is not automatically a correctness failure, but change-point data makes regressions visible.
+
+### RV0-D2 - Deep/shared/concurrency stress
+
+Preserve and broaden the strongest inherited lazy-exact tests:
+
+- deep DAG evaluation without recursive stack overflow;
+- iterative teardown;
+- shared-subgraph forcing;
+- overlapping concurrent forcing;
+- deterministic exact decisions independent of forcing history;
+- interval cache tightening never changes the exact mathematical value.
+
+This specifically protects RV1 from accidentally conflating the retained symbolic term model with the existing lazy-exact runtime DAG.
+
+### RV0-E1 - Federation baseline record
+
+Record exact repository commits and successful gates for the post-R1 baseline used to start RV1 work.
+
+Minimum local Resolvent gate:
+
+```text
+cargo fmt --all -- --check
+cargo check --locked --workspace --all-targets
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace --all-targets
+RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --no-deps
+cargo test --locked --workspace --doc
+git diff --check
+```
+
+Cross-repository validation should include Scientia and CADabra when a change touches their consumed algebra contracts, plus any downstream Sinbad/Finitum/Krasis gate required by the active federation plan.
+
+### RV0-E2 - RV1 readiness freeze
+
+Before replacing/augmenting the public symbolic expression identity in RV1, freeze these facts:
+
+- canonical exact-number serialization;
+- error/fallibility conventions;
+- exact versus approximate scalar capability boundaries;
+- root-certificate identity;
+- public consumer ownership boundaries;
+- benchmark/stress corpus locations.
+
+RV1 may build a new term/wire schema without destabilizing the already-working exact numeric substrate.
 
 ## Exit gate
 
-RV0 exits only when:
+RV0 exits when:
 
-- Resolvent is the sole owner of the generic exact/scalar implementation;
-- one canonical rational/polynomial/root stack remains;
-- stable serialized exact values do not depend on backend-private formats;
-- Scientia consumes Resolvent and remains behaviorally green;
-- CADabra consumes Resolvent directly;
-- `cadabra-exact` and `cadabra-scalar` no longer exist;
-- no compatibility layer or duplicate backend replaces them;
-- CADabra R2 has a stable public algebra substrate.
+- the landed R1 exact/scalar API has documented mathematical invariants and exactness semantics;
+- durable serialized exact values are schema-owned by Resolvent;
+- public panic/resource gaps found by the audit are closed or explicitly tracked as blockers;
+- exact/approximate/dual capability boundaries are explicit;
+- Scientia and CADabra integration gates are repeatable;
+- baseline performance/stress corpora are recorded;
+- RV1 can change symbolic representation without reopening numeric ownership.
+
+RV0 does **not** require CADabra to stop R2 work while these audits run.
 
 ## Parallelism
 
-Within RV0, API census/serialization design can proceed alongside transplant preparation and test migration. The actual consumer cutover is serialized after the relevant types land. RV1 term work may be designed in parallel but must not merge a public term-model replacement into the same cross-repository migration cut.
+A1/A2/B1/B2/B3 are largely parallel audits/hardening lanes. C1/C2 and D1/D2 can run concurrently against the landed implementation. E2 is the short convergence step before RV1's one-way identity decisions.
 
 ## Non-goals
 
+- redoing the R1 migration;
+- restoring deleted CADabra algebra crates;
 - new general CAS language;
-- new hash-consed symbolic store;
-- assumptions/rewrite engine;
-- broad multivariate algebra;
-- notebook/protocol work;
+- new hash-consed symbolic store (RV1);
+- assumptions/rewrite engine (RV4);
+- broad multivariate algebra (RV6);
+- notebook/protocol work (RV8);
 - geometry semantics;
 - Methodus numerical algorithms;
 - Solverang constraint semantics.
