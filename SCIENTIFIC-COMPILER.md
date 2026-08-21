@@ -164,9 +164,19 @@ The local artifact is explicitly a one-quadrature-point QFunction. Finitum owns 
 and traversal; Malleus's empty iteration domain therefore means one invocation, never an omitted
 symbolic loop. See [ITERATION-OWNERSHIP.md](ITERATION-OWNERSHIP.md).
 
-FC5 lowers only FC4's local indexed numerical regions to Malleus structured modules. It must add
-validated buffer/index/layout/effect contracts and complete primal, JVP, VJP, and parameter
-kernel bundles before optimized backends.
+FC5 lowers only FC4's local indexed numerical regions to Malleus structured modules. Each indexed
+output becomes a validated primal, state-JVP, state-VJP, and frozen-input parameter-JVP bundle.
+Free/reduction axes, affine maps, dense layouts, access effects, finite-precision policy, and
+source/derivative receipts are explicit. Malleus constructs derivatives as structured IR-to-IR
+passes and its deterministic interpreter executes every product before any optimized backend.
+
+The current structured boundary deliberately assigns one affine index vector to each input
+operand. Reusing one QFunction input with different index vectors, including separate reduction
+axis bindings, is refused as `KERNEL_INDEXING`; access-local indexing must be generalized before
+such nonlinear/tensor contractions are promoted. FC5 bundles are also in-process typed artifacts:
+receipts serialize for identity and evidence inspection, while complete module/bundle
+`Deserialize`, JSON round trips, and wire-level digest stability are deferred until FC6 defines
+the concrete executable handoff.
 
 No named-physics opcode is permitted. A heat, elasticity, Maxwell, or flow form must decompose into
 general mathematical operations and explicit data dependencies.
@@ -190,6 +200,6 @@ role.
 
 ## Immediate work
 
-1. Lower FC4 indexed programs into Malleus `StructuredModule` artifacts.
-2. Validate primal/JVP/VJP/parameter kernels with the deterministic Malleus interpreter.
-3. Hand the complete Poisson local-kernel bundle to Finitum for FC6 realization.
+1. Hand the complete Poisson local-kernel bundle to Finitum for FC6 realization.
+2. Bind concrete basis, quadrature, geometry, and element tables around the point kernels.
+3. Expose assembled and matrix-free actions through Solverang's linear operator contract.

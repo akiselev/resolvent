@@ -17,6 +17,7 @@ pub mod scientific;
 pub mod semantic;
 pub mod source;
 pub mod structural;
+pub mod structured;
 pub mod tensor;
 pub mod tensor_interpreter;
 
@@ -72,6 +73,13 @@ pub use structural::{
     EquationDerivativeProfile, IncidenceSystem, IndexReductionPlan, Matching, Schedule,
     StructuralCompileError, StructuralError, analyze_aliases, compile_schedule,
     compile_schedule_without_tearing, derivative_profile, maximum_matching, pantelides_plan,
+};
+pub use structured::{
+    STRUCTURED_KERNEL_BUNDLE_SCHEMA, StructuredDerivativeContract, StructuredDerivativeEvidence,
+    StructuredDerivativePurpose, StructuredInputOperand, StructuredKernelLoweringMethod,
+    StructuredKernelReceipt, StructuredLoweringError, StructuredNumericPolicyReceipt,
+    StructuredOperatorKernels, StructuredPointKernelBundle, lower_operator_kernels,
+    lower_operator_kernels_with_policy,
 };
 pub use tensor::{
     BasisAdjoint, DerivativeConstructionMethod, DerivativeEvaluationPoint, DerivativeEvidence,

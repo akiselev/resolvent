@@ -4,7 +4,7 @@ Updated: 2026-08-20
 
 Branch: `master`
 
-Milestone: FC4 tensor programs and operator factorization complete
+Milestone: FC5 structured local kernels complete
 
 ## Role
 
@@ -87,6 +87,26 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
 - Deterministic QFunction and caller-supplied element-factorization interpreters implement the FC4
   reference semantics. An independent P1 triangle fixture validates generated Poisson element
   residuals and JVPs against its analytic tensor and a directional finite difference.
+- `lower_operator_kernels` lowers each accepted FC4 QFunction output into a digest-linked Malleus
+  `StructuredModule` containing primal, state-JVP, state-VJP, and frozen-input parameter-JVP
+  kernels. Tensor free/reduction axes become fixed structured iteration domains, tensor input
+  indices become affine maps, and reduction outputs carry explicit additive effects.
+- Each FC5 bundle records QFunction input-to-operand bindings, derivative modes/purposes/evidence,
+  numeric policy, source factorization/primal/symbolic-JVP digests, integral/output identity, and
+  the exact kernel index for each product. Malformed shapes, unsupported non-enclosing reduction
+  structure, precision mismatch, and broken derivative receipt chains are refused.
+- One Malleus operand currently has one affine index vector. If one FC4 QFunction output references
+  the same input through different index vectors (including distinct reduction-axis bindings),
+  FC5 refuses it with `KERNEL_INDEXING`; generalized access-local maps must land before such a
+  nonlinear or tensor contraction is admitted downstream.
+- FC5 bundles are deliberately in-process typed artifacts. Their schema-tagged receipts are
+  serializable for identity/evidence inspection, but `StructuredModule` and the complete bundle
+  have no JSON wire format or `Deserialize` contract yet. Wire round trips and digest-stability
+  claims are deferred until FC6 defines the concrete executable handoff.
+- All four products execute with Malleus's deterministic interpreter. The FC5 Poisson gate covers
+  three triangle geometries against independent analytic element tensors, Malleus-vs-FC4 JVP
+  agreement, directional finite differences, a VJP adjoint dot product, and property/source
+  parameter derivatives. No named-physics operation exists in the lowering or Malleus.
 - One `resolvent` CLI for check, format, parse, inspect, freeze, explain, coupling, structural
   analysis, forms, requirements, and operators. Multi-model modules require explicit selection;
   form/equation commands accept `Model:item` and model-wide commands accept `Model`.
@@ -108,7 +128,7 @@ Verified locally on 2026-08-20:
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 72 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 76 tests, 0 failed.
 - `cargo doc --no-deps` -- passed.
 - `cargo test --doc` -- passed.
 - `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
@@ -129,6 +149,9 @@ Verified locally on 2026-08-20:
   primal-QFunction, JVP-QFunction, and operator-factorization artifacts.
 - The repository-local FC4 Poisson gate passes an independent analytic P1 triangle residual and
   element-matrix JVP comparison plus a directional finite-difference JVP check.
+- The repository-local FC5 gate validates complete four-kernel Malleus modules and executes
+  generated Poisson primal/JVP/VJP/parameter products across three element geometries; analytic
+  tensors, FC4 symbolic JVPs, finite differences, and an adjoint identity agree.
 - Resolvent tests contain no compile-time or runtime path into Sinbad's product corpus; standalone
   validation uses only repository-local fixtures plus the declared Quantitas/Malleus dependencies.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
@@ -141,18 +164,18 @@ Verified locally on 2026-08-20:
   `734d78cd6ff516afee54201bc70cd59fd34e67e3`; API types used directly include `Dimension`,
   `Quantity`, `QuantityLiteral`, `QuantityKindId`, `UnitId`, and `UnitRegistry`.
 - Malleus path: `../malleus`, validated at
-  `cd24813b29e5909a01b654477de99e9d4adde79b`; Resolvent constructs `StructuredKernel` and uses
-  Malleus operands, indexing maps, scalar expressions, statements, and numeric policy directly.
+  `b55e3c919b98c36176cf66b53744492e5235cc5a`; Resolvent constructs Malleus modules, operands,
+  affine maps, expressions, derivative requests, statements, and numeric policies directly.
 - Public downstream sequence: `compile_variational_form`/`derive_variational_form` ->
-  `infer_form_requirements` -> `factor_operator`. The existing narrow scalar path remains
-  `factor_local_integral` -> `lower_local_program`, with `LoweredKernel { kernel, receipt }` rather
-  than a bare `StructuredKernel`.
+  `infer_form_requirements` -> `factor_operator` -> `lower_operator_kernels`. The existing narrow
+  scalar path remains `factor_local_integral` -> `lower_local_program`, with
+  `LoweredKernel { kernel, receipt }` rather than a bare `StructuredKernel`.
 - Finitum must map `LocalIterationContract::QuadraturePoint` across its selected element and
   quadrature points. Any later fixed-axis batching remains realization-owned and must preserve
   point-QFunction semantics; see `ITERATION-OWNERSHIP.md`.
 
 ## Next compiler work
 
-1. Lower FC4 tensor/QFunction programs into Malleus `StructuredModule` artifacts.
-2. Add and independently verify primal/JVP/VJP/parameter Malleus kernel products.
-3. Hand the complete Poisson kernel bundle to Finitum for FC6 realization.
+1. Hand the complete Poisson kernel bundle to Finitum for FC6 realization.
+2. Bind concrete element/basis/quadrature/geometry tables without moving traversal into Malleus.
+3. Compare assembled and matrix-free Poisson actions through Solverang's linear contract.
