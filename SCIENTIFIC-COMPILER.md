@@ -99,6 +99,35 @@ quadrature remains a Finitum responsibility. `required_evaluations` exposes the 
 evaluation-site bindings without requiring consumers to traverse the semantic arena. Form receipts
 record an explicit-conjugation-only convention; derivation inserts no implicit complex conjugate.
 
+## FC3 requirements boundary
+
+`infer_form_requirements` produces a mesh-free `FormRequirements` artifact before any concrete
+realization. It records per-binding H1, L2, Hcurl, Hdiv, DG, and trace needs; single or product
+argument-space composition; abstract element family/order/value shape; H1/L2/broken and Piola
+pullbacks; tangential, normal, and two-sided orientation; basis evaluation sites; geometry
+preprocessing; conservative quadrature intent; essential constraints; and boundary-partition
+obligations.
+
+Requirement inference follows model-defined value, property, and constitutive expressions to
+their physical-field dependencies. A Stokes stress chain therefore emits the velocity space and
+`sym_grad` basis evaluation rather than treating stress as an opaque coefficient. Inputs also say
+whether they are basis-backed, externally supplied, or computed by a model-defined value,
+property, or constitutive expression, so FC4 cannot confuse preprocessing outputs with basis data.
+
+Integral expressions are normalized without arena IDs or source spans and grouped only when the
+complete kernel signature matches: measure/domain/region, output type, input evaluations,
+geometry, quadrature intent, and typed integrand. The mathematical requirement digest is invariant
+to integral, domain, and field declaration ordering, while a separate receipt retains the exact
+parent form digest. Stable `REQ_*` diagnostics refuse non-scalar axes, cross-domain measures,
+incompatible continuity/differential/trace spaces, region kinds, and essential boundary data.
+
+This artifact does not select reference cells, meshes, basis tables, quadrature rules, DOFs, or
+assembly strategy. Those choices remain Finitum responsibilities.
+
+Structural incidence uses the same transitive field-dependency meaning as coupling analysis;
+indirection through model-defined values, properties, and constitutive laws cannot make an
+otherwise matched coupled system appear structurally singular.
+
 ## Malleus boundary
 
 `factor_local_integral` produces a realization-neutral `LocalFormProgram`; `lower_local_program`
@@ -116,7 +145,7 @@ symbolic loop. See [ITERATION-OWNERSHIP.md](ITERATION-OWNERSHIP.md).
 The remaining tensor/QFunction work belongs to the next compiler layer:
 
 1. expand differential operators into typed indexed tensor expressions;
-2. select basis, mapping, orientation, and quadrature requirements;
+2. consume the landed FC3 basis, mapping, orientation, and quadrature requirements;
 3. factor restriction, basis, geometry, pointwise QFunction, and accumulation work;
 4. lower only the local numerical regions to Malleus.
 
@@ -142,6 +171,6 @@ role.
 
 ## Immediate work
 
-1. Define indexed tensor/QFunction IR and basis/transformation requirements.
+1. Define indexed tensor/QFunction IR and operator factorization from `FormRequirements`.
 2. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
 3. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.

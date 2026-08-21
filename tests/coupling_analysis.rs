@@ -1,5 +1,8 @@
 use resolvent::scientific::CouplingReason;
-use resolvent::{derive_coupling_graph, parse_scientific_module, semantic_digest};
+use resolvent::{
+    IncidenceSystem, derive_coupling_graph, maximum_matching, parse_scientific_module,
+    semantic_digest,
+};
 
 fn source(reordered: bool) -> String {
     let fields = if reordered {
@@ -32,7 +35,7 @@ model Coupled {{
   property base_sigma = conductivity(T);
   property effective_sigma = 2 * base_sigma;
   constitutive current = effective_sigma * grad(V);
-  property joule = dot(current, current) / effective_sigma;
+  source joule = dot(current, current) / effective_sigma;
 {equations}
 }}
 "#
@@ -110,4 +113,28 @@ fn nested_property_and_constitutive_dependencies_reach_cross_blocks() {
     assert!(nonzero("thermal", "V"));
     assert!(nonzero("electrical", "T"));
     assert!(nonzero("electrical", "V"));
+}
+
+#[test]
+fn structural_incidence_agrees_with_transitive_coupling_dependencies() {
+    let module = parse_scientific_module(&source(false)).unwrap();
+    let model = &module.models[0];
+    let graph = derive_coupling_graph(model);
+    let incidence = IncidenceSystem::from_model(model).unwrap();
+
+    for (row, equation) in model.equations.iter().enumerate() {
+        for (column, variable) in incidence.variables.iter().enumerate() {
+            let coupled = graph
+                .edges
+                .iter()
+                .any(|edge| edge.from == *variable && edge.to == equation.name);
+            assert_eq!(
+                incidence.rows[row].contains(&column),
+                coupled,
+                "{variable} -> {}",
+                equation.name
+            );
+        }
+    }
+    assert!(maximum_matching(&incidence).is_perfect());
 }

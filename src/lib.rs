@@ -12,6 +12,7 @@ pub mod formulation;
 pub mod id;
 pub mod kernel;
 pub mod property_tensor;
+pub mod requirements;
 pub mod scientific;
 pub mod semantic;
 pub mod source;
@@ -39,6 +40,16 @@ pub use kernel::{
     factor_local_integral, lower_local_program,
 };
 pub use property_tensor::SymmetricTensor2;
+pub use requirements::{
+    BasisEvaluationRequirement, BoundaryPartitionRequirement, DerivativeEvaluation,
+    ElementFamilyRequirement, ElementRequirement, EssentialConstraintRequirement, EvaluationSite,
+    FormRequirements, GeometryPreprocessingRequirement, InputPreprocessingRequirement,
+    InputSourceRequirement, IntegralOccurrence, KernelSignature, MeasureRequirement,
+    NormalizedIntegralGroup, OrientationRequirement, PullbackRequirement, QuadratureIntent,
+    QuadraturePrecision, RequirementInferenceError, RequirementInferenceMethod,
+    RequirementInferenceReceipt, SpaceBindingRole, SpaceComposition, SpaceRequirement,
+    SpaceSystemRequirement, TraceMapping, TraceRequirement, infer_form_requirements,
+};
 pub use scientific::{
     CouplingGraph, PropertyDefinition, ScientificError, ScientificModel, ScientificModule,
     TimeStateSemantics, canonicalize_authored_quantity, derive_coupling_graph,

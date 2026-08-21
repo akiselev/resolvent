@@ -2364,6 +2364,7 @@ pub struct UnknownBlock {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CouplingReason {
     DirectFieldUse,
+    DefinedValueDependency(String),
     PropertyDependency(String),
     ConstitutiveDependency(String),
     InterfaceTerm,
@@ -2390,6 +2391,82 @@ pub struct CouplingGraph {
     pub derivatives: Vec<BlockDerivative>,
 }
 
+pub(crate) fn transitive_field_dependencies<'a>(
+    model: &'a ScientificModel,
+    expressions: impl IntoIterator<Item = &'a Expr>,
+) -> BTreeSet<String> {
+    let fields = model
+        .fields
+        .iter()
+        .filter(|field| matches!(field.role, FieldRole::State | FieldRole::Unknown))
+        .map(|field| field.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let definitions = model
+        .parameters
+        .iter()
+        .chain(model.constants.iter())
+        .chain(model.sources.iter())
+        .filter_map(|value| {
+            value
+                .value
+                .as_ref()
+                .map(|expression| (value.name.as_str(), expression))
+        })
+        .chain(
+            model
+                .properties
+                .iter()
+                .map(|property| (property.name.as_str(), &property.value)),
+        )
+        .chain(
+            model
+                .constitutive_laws
+                .iter()
+                .map(|law| (law.name.as_str(), &law.law)),
+        )
+        .collect::<BTreeMap<_, _>>();
+
+    fn trace(
+        symbol: &str,
+        fields: &BTreeSet<&str>,
+        definitions: &BTreeMap<&str, &Expr>,
+        expanding: &mut BTreeSet<String>,
+        dependencies: &mut BTreeSet<String>,
+    ) {
+        if fields.contains(symbol) {
+            dependencies.insert(symbol.to_owned());
+            return;
+        }
+        if !expanding.insert(symbol.to_owned()) {
+            return;
+        }
+        if let Some(expression) = definitions.get(symbol) {
+            let mut names = BTreeSet::new();
+            expression.names(&mut names);
+            for name in names {
+                trace(&name, fields, definitions, expanding, dependencies);
+            }
+        }
+        expanding.remove(symbol);
+    }
+
+    let mut dependencies = BTreeSet::new();
+    for expression in expressions {
+        let mut names = BTreeSet::new();
+        expression.names(&mut names);
+        for name in names {
+            trace(
+                &name,
+                &fields,
+                &definitions,
+                &mut BTreeSet::new(),
+                &mut dependencies,
+            );
+        }
+    }
+    dependencies
+}
+
 pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
     let field_names: BTreeSet<_> = model
         .fields
@@ -2402,6 +2479,18 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
         .iter()
         .map(|p| (p.name.clone(), p.value.clone()))
         .collect();
+    let value_map: BTreeMap<_, _> = model
+        .parameters
+        .iter()
+        .chain(model.constants.iter())
+        .chain(model.sources.iter())
+        .filter_map(|value| {
+            value
+                .value
+                .as_ref()
+                .map(|expression| (value.name.clone(), expression.clone()))
+        })
+        .collect();
     let constitutive_map: BTreeMap<_, _> = model
         .constitutive_laws
         .iter()
@@ -2410,6 +2499,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
 
     struct TraceContext<'a> {
         field_names: &'a BTreeSet<String>,
+        value_map: &'a BTreeMap<String, Expr>,
         property_map: &'a BTreeMap<String, Expr>,
         constitutive_map: &'a BTreeMap<String, Expr>,
     }
@@ -2437,7 +2527,23 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
         if !seen.insert(symbol.to_string()) {
             return;
         }
-        if let Some(expr) = context.property_map.get(symbol) {
+        if let Some(expr) = context.value_map.get(symbol) {
+            path.insert(0, symbol.to_string());
+            let mut names = BTreeSet::new();
+            expr.names(&mut names);
+            for name in names {
+                trace(
+                    &name,
+                    residual,
+                    context,
+                    path,
+                    seen,
+                    Some(CouplingReason::DefinedValueDependency(symbol.to_string())),
+                    out,
+                );
+            }
+            path.remove(0);
+        } else if let Some(expr) = context.property_map.get(symbol) {
             path.insert(0, symbol.to_string());
             let mut names = BTreeSet::new();
             expr.names(&mut names);
@@ -2492,6 +2598,7 @@ pub fn derive_coupling_graph(model: &ScientificModel) -> CouplingGraph {
     let mut edges = vec![];
     let context = TraceContext {
         field_names: &field_names,
+        value_map: &value_map,
         property_map: &property_map,
         constitutive_map: &constitutive_map,
     };

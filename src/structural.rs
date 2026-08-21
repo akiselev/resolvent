@@ -8,7 +8,7 @@ pub mod dae;
 pub mod scc;
 pub mod schedule;
 
-use crate::scientific::{Expr, FieldRole, ScientificModel};
+use crate::scientific::{Expr, FieldRole, ScientificModel, transitive_field_dependencies};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use thiserror::Error;
@@ -46,13 +46,11 @@ impl IncidenceSystem {
         }
         let mut rows = Vec::with_capacity(model.equations.len());
         for equation in &model.equations {
-            let mut symbols = BTreeSet::new();
-            collect_names(&equation.lhs, &mut symbols);
-            collect_names(&equation.rhs, &mut symbols);
+            let symbols = transitive_field_dependencies(model, [&equation.lhs, &equation.rhs]);
             rows.push(
                 symbols
                     .into_iter()
-                    .filter_map(|name| columns.get(name).copied())
+                    .filter_map(|name| columns.get(name.as_str()).copied())
                     .collect::<Vec<_>>(),
             )
         }

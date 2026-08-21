@@ -32,7 +32,9 @@ Resolvent currently provides:
   axes, Quantitas dimensions and quantity kinds, domain frames, and scientific roles;
 - stable structured diagnostics for malformed syntax, units, kinds, roles, names, axes, and frames;
 - property, constitutive, coupling, time/state, and evidence semantics;
-- structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning over the same model;
+- structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning over the same model,
+  including field dependencies hidden behind model-defined values, properties, and constitutive
+  laws;
 - compilation of authored forms and derivation of strong equations into `VariationalForm`, with
   `DeclarationId`, `SymbolId`, `DomainId`, `RegionId`, and `ExprId` identities plus transformation
   and boundary-term receipts;
@@ -40,13 +42,18 @@ Resolvent currently provides:
   conjugation operations with explicit cell, exterior, interior, interface, and point sides;
 - a deterministic form interpreter over caller-supplied point values, derivatives, traces,
   normals, and weights, plus `required_evaluations` for discovering the binding contract; and
+- FC3 `FormRequirements` inference for mesh-free H1, L2, product/mixed, Hcurl, Hdiv, DG, and trace
+  spaces, including element, pullback, orientation, quadrature, geometry/basis preprocessing,
+  essential-constraint, boundary-partition, and canonically grouped integral requirements;
+  constitutive/value chains expose their physical-field spaces and distinguish basis,
+  model-defined, and external inputs; and
 - realization-neutral `LocalFormProgram` factorization with typed input roles/evaluation needs,
   followed by explicit scalar point-kernel lowering into `malleus::StructuredKernel` and a
   digest-linked lowering receipt.
 
-Tensor/QFunction factorization, basis and transformation requirements, and derivative kernel
-generation remain active compiler work. Unsupported tensor or differential operations fail at the
-Malleus boundary instead of becoming opaque opcodes.
+Indexed tensor/QFunction factorization and derivative kernel generation remain active compiler
+work. Unsupported tensor or differential operations fail at the Malleus boundary instead of
+becoming opaque opcodes.
 
 Derived forms record that declared exterior regions are assumed to partition the domain boundary;
 Finitum must validate that assumption against mesh topology. A Neumann value is substituted at
@@ -65,12 +72,20 @@ cargo run --bin resolvent -- coupling examples/nonlinear_heat.res
 cargo run --bin resolvent -- structural examples/nonlinear_heat.res
 cargo run --bin resolvent -- form path/to/model.res form_name
 cargo run --bin resolvent -- derive-form path/to/model.res equation_name
+cargo run --bin resolvent -- requirements path/to/model.res form_name
+cargo run --bin resolvent -- derive-requirements path/to/model.res equation_name
+cargo run --bin resolvent -- requirements path/to/multi.res ModelName:form_name
+cargo run --bin resolvent -- structural path/to/multi.res ModelName
 ```
 
-`check`, `inspect`, `freeze`, `coupling`, `structural`, `explain`, and `form` all require successful
-typed elaboration. `parse` is intentionally syntax-only, while `elaborate` prints the canonical
-typed arena. An external scientific function with no declared signature receives an explicit
-`deferred` result constraint; it is never guessed to be scalar or dimensionless.
+All commands other than `parse` and `fmt` require successful typed elaboration. `parse` is
+intentionally syntax-only, while `elaborate` prints the canonical typed arena. An external
+scientific function with no declared signature receives an explicit `deferred` result constraint;
+it is never guessed to be scalar or dimensionless.
+
+Commands that select a form or equation accept `ModelName:item_name`. Coupling and structural
+commands accept `ModelName`. An unqualified item remains valid for a single-model module; a
+multi-model module requires an explicit model so the CLI never silently chooses the first one.
 
 The library is the authoritative API. See [SCIENTIFIC-COMPILER.md](SCIENTIFIC-COMPILER.md) for the
 artifact boundaries and [STATUS.md](STATUS.md) for the exact checked state and next work.
