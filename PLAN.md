@@ -5,7 +5,9 @@
 **Program authority:** [`docs/resolvent-vision/README.md`](docs/resolvent-vision/README.md) and the RV0-RV9 phase files  
 **Landed truth:** [`STATUS.md`](STATUS.md)
 
-Resolvent is evolving from the newly separated consumer-neutral exact algebra crate into a full embeddable computer algebra system. The target is not a clone of any one existing CAS. The target is a library-first mathematical kernel with Mathematica-class breadth and interactivity, Sage-class explicit mathematical domains, Rust-native embedding and performance, deterministic bounded execution, inspectable algorithm selection, and independently checkable results.
+Resolvent is evolving from the newly consolidated consumer-neutral exact algebra crate into a full embeddable computer algebra system. R1 has already moved CADabra's generic exact/scalar implementation into Resolvent, migrated CADabra directly, and deleted the old duplicate crates. That landed foundation is the starting point for this program, not future work.
+
+The target is not a clone of any one existing CAS. The target is a library-first mathematical kernel with Mathematica-class breadth and interactivity, Sage-class explicit mathematical domains, Rust-native embedding and performance, deterministic bounded execution, inspectable algorithm selection, and independently checkable results.
 
 The same kernel must serve:
 
@@ -56,10 +58,10 @@ Resolvent should explicitly separate four concepts that small CAS implementation
 
 1. **`Term`** - immutable retained symbolic structure in a caller/session-owned hash-consed store. Terms preserve structure for rewriting, printing, pattern matching, provenance and serialization.
 2. **`Domain` / `Element`** - canonical mathematical values with optimized representations: integers, rationals, polynomial rings, rational-function fields, algebraic numbers, balls, matrices, series, and later ideals/modules.
-3. **`Scalar`** - the lower-level numeric-kernel seam inherited from CADabra for writing the same numerical kernel over `f64`, certified exact reals and dual numbers. It is not the universal CAS abstraction.
+3. **`Scalar`** - the lower-level numeric-kernel seam already consolidated from CADabra for writing the same numerical kernel over `f64`, certified exact reals and dual numbers. It is not the universal CAS abstraction.
 4. **`Value` / `Outcome`** - session-facing results that can carry terms, domain elements, collections, graphics, plans, receipts and explicit exactness/conditional/unknown/resource-limit states.
 
-The CADabra lazy exact `Real` DAG becomes a backend for exact-real computation. It is not the general symbolic term store: lazy exact recipes may be pruned after forcing, while symbolic terms must remain inspectable and serializable.
+The existing lazy exact `Real` DAG is a backend for exact-real computation. It is not the general symbolic term store: lazy exact recipes may be pruned after forcing, while symbolic terms must remain inspectable and serializable.
 
 ## Exactness model
 
@@ -104,9 +106,11 @@ Users and agents should eventually be able to call `plan`, `explain`, force an a
 ## Program graph
 
 ```text
-RV0 exact/scalar consolidation
+R1 exact/scalar consolidation (landed)
   |
-  v
+  +--> RV0 exact-foundation stabilization -----------------------+
+  |                                                              |
+  v                                                              |
 RV1 term kernel + canonical wire format -------------------------+
   |                                                             |
   +--> RV2 domains/coercions --> RV3 plans/outcomes/evidence --> RV4 assumptions/evaluation/rewriting
@@ -129,13 +133,13 @@ RV1 term kernel + canonical wire format -------------------------+
                                  RV9 ecosystem/providers/scale
 ```
 
-RV8 begins incrementally after RV1 rather than waiting for RV6/RV7 breadth. CADabra R2 may proceed immediately after RV0's consolidation gate; it does not wait for the general CAS surface.
+RV0 is a short stabilization/baseline phase over the already-landed R1 foundation. It must not become a new blocker for CADabra R2 unless it finds a concrete correctness issue in the public exact-algebra substrate. RV8 begins incrementally after RV1 rather than waiting for RV6/RV7 breadth.
 
 ## Phase index
 
-| Phase | Title | Primary exit |
+| Phase | Title | State / primary exit |
 |---|---|---|
-| [RV0](docs/resolvent-vision/RV0-EXACT-FOUNDATION.md) | Exact Foundation Consolidation | CADabra exact/scalar machinery has one owner in Resolvent; Scientia and CADabra consume it directly; duplicate crates are gone |
+| [RV0](docs/resolvent-vision/RV0-EXACT-FOUNDATION.md) | Exact Foundation Stabilization | short post-R1 hardening: audited public contracts, budgets, serialization, performance/evidence baseline and downstream consumer gate |
 | [RV1](docs/resolvent-vision/RV1-TERM-KERNEL.md) | Immutable Term Kernel and Wire Format | deterministic caller-owned term store, stable digests/wire representation, exact literals, full structural expression surface |
 | [RV2](docs/resolvent-vision/RV2-DOMAINS-COERCIONS.md) | Domains, Elements, Capabilities and Coercions | explicit mathematical parents/domains with canonical coercion graphs and specialized storage |
 | [RV3](docs/resolvent-vision/RV3-PLANS-EVIDENCE.md) | Algebra Plans, Outcomes, Receipts and Certificates | deterministic algorithm planner and replayable evidence-bearing outcomes wrap the existing algebra vertical slice |
@@ -148,24 +152,24 @@ RV8 begins incrementally after RV1 rather than waiting for RV6/RV7 breadth. CADa
 
 ## First implementation sequence
 
-1. **RV0-A: finish the active CADabra R1 consolidation.** Move the mature exact/scalar implementation and tests into Resolvent, adopt stable serialization, migrate consumers directly and delete `cadabra-exact`/`cadabra-scalar`. Do not redesign the expression model in the same cut.
+1. **RV0-A/B: audit and freeze the landed exact foundation.** R1 already consolidated rational/scalar/interval/filter/root/radical/lazy-real/Bernstein/matrix machinery and migrated CADabra. RV0 records the public exactness/serialization/budget invariants, closes residual panic/resource gaps, and establishes repeatable integration/performance baselines. It is intentionally short.
 2. **RV1-A: specify canonical values and term wire format before implementing the new store.** Exact integers/rationals/decimals, symbols, heads, binders, relations, conditions, canonical bytes and digests must be fixed together.
 3. **RV1-B/C: implement the caller-owned hash-consed term store and coordinated Scientia bridge.** Replace lossy `f64` round-tripping and preserve relations rather than lowering comparisons to zero.
 4. **RV3-A may start as soon as RV1 identity is stable.** Wrap current canonicalization, differentiation, sign, resultant and root-isolation operations in request/plan/outcome/receipt v2 contracts. This exercises the final execution architecture early.
 5. **RV2 and RV4 continue in parallel.** Domain machinery and assumption/rewrite machinery should not block protocol prototyping once term identity is stable.
 6. **RV8-A/B start after RV1 wire-format freeze.** Ship the CLI/kernel protocol/Jupyter path while the algebra breadth lanes proceed.
-7. **CADabra R2 starts after RV0.** New reusable algebra discovered by R2 enters RV5-C instead of being copied back into CADabra.
+7. **CADabra R2 may proceed from the already-landed R1 substrate.** New reusable algebra discovered by R2 enters RV5-C instead of being copied back into CADabra. Coordinate only when an RV0 hardening fix changes exact decision behavior.
 8. **Scientia moves onto the lossless term bridge during RV1 and consumes RV5-S incrementally.** Sinbad continues to consume Scientia rather than acquiring its own symbolic layer.
 
 ## Parallel work streams
 
 ### Core semantics
 
-RV1 -> RV2/RV3 -> RV4 is the critical API path. One-way data-model decisions need tight review and cross-consumer fixtures before broad algorithm fan-out.
+RV0 is a short stabilization pass. RV1 -> RV2/RV3 -> RV4 is the critical API path. One-way data-model decisions need tight review and cross-consumer fixtures before broad algorithm fan-out.
 
 ### CADabra
 
-After RV0, CADabra continues R2-R7 independently. Resolvent work is pulled by generic algebra requirements only. Geometry/topology semantics never move down into Resolvent.
+CADabra can continue R2-R7 against the landed exact substrate while RV0/RV1 work proceeds. Resolvent work is pulled by generic algebra requirements only. Geometry/topology semantics never move down into Resolvent.
 
 ### Scientia and Sinbad
 
@@ -241,6 +245,6 @@ Oracle output is evidence, not semantic authority. Commercial/copyleft systems r
 - [`FEDERATION-OWNERSHIP.md`](docs/resolvent-vision/FEDERATION-OWNERSHIP.md) is authoritative for repository ownership and Methodus/Solverang boundaries.
 - [`PRIOR-ART.md`](docs/resolvent-vision/PRIOR-ART.md) records the design precedents behind the roadmap.
 - Each RV phase file is authoritative for its own work packages, exit gate and non-goals.
-- CADabra's active R1 consolidation gate remains authoritative for the cross-repository exact/scalar migration until RV0 exits.
+- The landed R1 consolidation in `STATUS.md` is the baseline fact for RV0 and CADabra's continuing provider roadmap.
 
 Historical Resolvent CAS planning remains available in Git history. Useful earlier decisions may be reintroduced only when reconciled with the current consumers and this program; old documents are not automatically normative.
