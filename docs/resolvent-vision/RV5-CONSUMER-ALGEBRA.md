@@ -2,15 +2,17 @@
 
 ## Goal
 
-Use the first real consumers to drive Resolvent from a sound CAS kernel into a practically valuable algebra system, while preventing consumer-specific semantics from leaking into the library.
+Use real consumers to pull Resolvent toward practical algebra capability while preventing consumer-specific semantics from leaking into the library.
 
-RV5 runs as parallel lanes over the same RV1-RV4 contracts:
+RV5 is a **cross-cutting consumer-pull namespace**, not a barrier that starts only after RV4. Each work package starts when its actual lower-level prerequisite exists:
 
-- **RV5-C:** CADabra exact geometry algebra;
-- **RV5-S:** Scientia/Sinbad symbolic compiler algebra;
-- **RV5-E:** evidence/oracle infrastructure shared by both.
+- **RV5-C:** CADabra exact-geometry algebra; some packages may start immediately from the landed R1/RV0 exact substrate.
+- **RV5-S:** Scientia/Sinbad compiler algebra; packages start from the required RV1/RV2/RV3/RV4 pieces individually.
+- **RV5-E:** evidence/oracle infrastructure shared by both; packages may start as soon as the operation under test exists.
 
 Methodus and Solverang are secondary consumers where generic algebra proves useful, but they do not redefine the phase around numerical or constraint semantics.
+
+The authoritative cross-roadmap interpretation is [`CROSS-ROADMAP-CONTRACT.md`](CROSS-ROADMAP-CONTRACT.md).
 
 ## Shared placement rule
 
@@ -19,11 +21,16 @@ A consumer request moves into Resolvent only when:
 - the API can be stated in generic mathematical terms;
 - correctness can be graded independently of the consumer's semantic acceptance;
 - it does not require geometry, physics, constraints or simulation runtime types;
-- it has a second use case or a sufficiently general mathematical-domain justification.
+- it has a second use case or a sufficiently general mathematical-domain justification;
+- it does not create a second scientific semantic IR, executable numeric IR, plugin host, or artifact lifecycle system already owned elsewhere.
 
 ## RV5-C - CADabra lane
 
+CADabra R2 is already unblocked by the landed R1 exact substrate. An RV5-C package starts when a concrete CADabra predicate or geometry workflow exposes a generic algebra need; it does not wait for the RV5 phase exit or unrelated RV1/RV4 work.
+
 ### RV5-C1 - Subresultant and polynomial remainder infrastructure
+
+**Minimum prerequisite:** landed exact rational/polynomial substrate. RV2/RV3 wrappers may be adopted incrementally but do not block the correctness implementation.
 
 Implement production-quality:
 
@@ -34,7 +41,7 @@ Implement production-quality:
 - square-free decomposition;
 - exact coefficient/content normalization.
 
-Use the simpler existing routes as correctness oracles before optimizing coefficient growth.
+Use simpler existing routes as correctness oracles before optimizing coefficient growth.
 
 Acceptance:
 
@@ -45,9 +52,9 @@ Acceptance:
 
 ### RV5-C2 - Algebraic real identity, ordering and sign
 
-Promote the RV0 exact-root implementation into the RV2 domain/evidence model.
+**Minimum prerequisite:** landed exact-root substrate. RV2 domain identity and RV3 evidence integrate as they become available.
 
-Provide:
+Promote/harden:
 
 - immutable serialized algebraic-real certificates;
 - exact equality/ordering;
@@ -91,7 +98,9 @@ Promote bivariate resultants/elimination only when an actual CADabra R2-R6 predi
 - an independent oracle;
 - a performance target based on measured degree/sparsity/coefficient size.
 
-Avoid a generic multivariate-elimination project merely because CAD uses low-degree resultants today. Broader multivariate work belongs in RV6 and should use the same API when it arrives.
+This package may start as soon as those requirements and its exact-polynomial prerequisites exist. It does not wait for general multivariate RV6 or unrelated CAS frontend work.
+
+Avoid a generic multivariate-elimination project merely because CAD uses low-degree resultants today. Broader multivariate work belongs in RV6 and should share the same eventual domain/evidence contracts.
 
 ### RV5-C6 - Geometry consumer gate
 
@@ -105,20 +114,24 @@ For every promoted algebraic operation, maintain:
 
 ## RV5-S - Scientia/Sinbad lane
 
-### RV5-S1 - Lossless scalar term integration
+### RV5-S1 - Lossless scalar algebra projection
 
-Complete the RV1 bridge so Scientia's semantic arena can refer to Resolvent scalar algebra without reimplementing its own algebraically authoritative expression tree.
+**Minimum prerequisite:** RV1 structural Term identity plus the coordinated Scientia source/semantic projection contract.
+
+Scientia retains the one canonical `SemanticModel`/`ExprId` arena. Supported scalar mathematical subproblems project into Resolvent Terms/domain elements for generic algebra and results are re-embedded or attached under Scientia-owned semantics.
 
 Support:
 
-- exact authored numeric values;
+- exact authored numeric values once Scientia preserves them at the source/schema boundary;
 - arithmetic/functions;
-- comparisons and conditions;
+- comparisons and conditions where meaningful to the requested algebra operation;
 - piecewise scalar expressions;
-- indexed/tensor scalar leaves via explicit opaque/scientific references where generic algebra cannot own their meaning;
-- sidecar source/scientific identities.
+- indexed/tensor scientific leaves only through explicit projection variables/opaque leaves where generic algebra does not own their meaning;
+- sidecar source/scientific identities retained by Scientia.
 
-### RV5-S2 - Symbolic differentiation and derivative programs
+Do not make a Resolvent `TermId` the durable identity of a scientific expression.
+
+### RV5-S2 - Symbolic differentiation and derivative expressions
 
 Expand generic differentiation beyond the current small function set:
 
@@ -131,9 +144,9 @@ Expand generic differentiation beyond the current small function set:
 - user/extension function derivative rules;
 - common special functions needed by scientific source models.
 
-Scientia owns which scientific variables are active/frozen and what a derivative means for fields, forms and moving domains. Resolvent owns the generic scalar calculus once the active symbolic problem is specified.
+Scientia owns which scientific variables are active/frozen and what a derivative means for fields, forms and moving domains. Resolvent owns the generic scalar calculus once the active algebraic projection is specified.
 
-### RV5-S3 - Rational normalization and symbolic linear algebra
+### RV5-S3 - Rational normalization and exact symbolic linear algebra
 
 Deliver compiler-critical algebra:
 
@@ -141,22 +154,24 @@ Deliver compiler-critical algebra:
 - denominator/content management;
 - exact small symbolic matrices;
 - determinant/rank/solve over exact and rational-function domains;
-- symbolic block/algebra utilities useful for compiler structural transformations.
+- symbolic block/algebra utilities useful for compiler transformations.
 
-Large numerical linear solves remain Methodus-owned.
+Large finite-precision numerical linear solves remain Methodus-owned.
 
-### RV5-S4 - CSE, Hornerization and neutral numeric programs
+### RV5-S4 - CSE, Hornerization and algebraic evaluation schedules
 
-Provide deterministic symbolic optimization:
+Provide deterministic algebraic optimization:
 
 - common-subexpression elimination;
 - algebraic strength reduction where exact semantics permit it;
 - Horner form / polynomial evaluation planning;
 - constant folding;
-- temporary scheduling;
-- a neutral scalar/tensor-free numeric SSA/program artifact suitable for downstream lowering.
+- explicit temporary/let-binding schedules;
+- cost metadata for downstream lowering.
 
-Malleus owns backend-oriented finite-precision lowering and kernel execution. Resolvent must not acquire target-specific GPU/CPU backend policy.
+**Do not create a second general numeric SSA/kernel IR.** Resolvent's output remains an optimized algebraic Term/domain expression plus optional let schedule. Scientia/Malleus lower that algebra into Malleus-owned finite-precision structured computation.
+
+Malleus owns loop/iteration domains, operands/index maps, effects/reductions, AD execution products, backend lowering and generated kernels.
 
 ### RV5-S5 - Series and local expansions
 
@@ -167,11 +182,11 @@ Implement enough exact/formal series machinery for compiler/response workflows:
 - order/truncation as explicit domain data;
 - remainder/validity metadata when claiming more than a formal series.
 
-This becomes an early substrate for Sinbad response/model-reduction work without moving simulation semantics into Resolvent.
+This supports Sinbad response/model-reduction work without moving simulation semantics or numerical reduction algorithms into Resolvent. Methodus owns physics-neutral numerical reduction algorithms.
 
 ### RV5-S6 - Scientia/Sinbad acceptance
 
-Acceptance cases should include generic algebra extracted from:
+Acceptance cases should include generic algebra projected from:
 
 - nonlinear heat/property expressions;
 - elasticity/Stokes/Maxwell scalar coefficients;
@@ -180,7 +195,7 @@ Acceptance cases should include generic algebra extracted from:
 - Jacobian/JVP reference expressions;
 - response/local expansion fixtures.
 
-The scientific compiler remains authoritative for units, shapes, axes, forms and method programs.
+The scientific compiler remains authoritative for source spans, units, shapes, axes, forms, methods, active sets and derivative conventions.
 
 ## RV5-E - Evidence lane
 
@@ -206,6 +221,8 @@ Each adapter records:
 
 No external system is a production semantic dependency merely because it grades tests.
 
+External executable discovery/worker lifecycle may use Outboard through an optional adapter rather than creating a second plugin framework.
+
 ### RV5-E2 - Certificate/mutant corpora
 
 Extend RV3's evidence system with deliberately incorrect variants for:
@@ -214,7 +231,7 @@ Extend RV3's evidence system with deliberately incorrect variants for:
 - algebraic comparison;
 - cancellation under zero denominators;
 - branch-sensitive differentiation;
-- CSE/code transformation that changes evaluation order where semantics forbid it;
+- CSE/algebraic optimization that changes semantics;
 - resultant convention/sign errors.
 
 ### RV5-E3 - Consumer promotion gate
@@ -228,6 +245,8 @@ A consumer-pulled operation is marked stable only when:
 - the public API contains no consumer-domain nouns;
 - ownership documentation remains correct.
 
+Durable large oracle outputs/certificates may use Artifactum when cross-repository lineage/distribution is needed; ordinary core tests do not require Artifactum.
+
 ## Optional Methodus/Solverang use
 
 Resolvent may be used by Methodus or Solverang for:
@@ -235,34 +254,40 @@ Resolvent may be used by Methodus or Solverang for:
 - exact small-system baselines;
 - symbolic Jacobians/Hessians supplied to numerical least-squares/nonlinear methods;
 - exact polynomial constraint subproblems;
-- generic algebraic conflict certificates;
+- generic algebraic witnesses consumed by constraint diagnostics;
 - expression simplification before finite-precision evaluation.
 
 But:
 
-- Methodus owns iterative numerical solution, convergence and time integration;
-- Solverang owns constraint graphs, activation, DOF/rank/conflict semantics and 2D/3D constraint vocabulary;
+- Methodus owns iterative numerical solution, convergence, time integration, optimization/sampling/reduction algorithms and related numerical policy;
+- Solverang owns constraint graphs, activation, DOF/rank/conflict/redundancy semantics and 2-D/3-D constraint vocabulary;
 - CADabra owns authoritative geometric acceptance of constraint candidates.
 
 ## Exit gate
 
-RV5 exits when:
+RV5 reaches mature status when:
 
 - CADabra has a materially stronger generic algebra substrate without duplicate exact math;
-- Scientia uses lossless shared scalar algebra for differentiation/optimization workflows;
-- generic algebra demanded by consumers goes through RV3 planning/evidence contracts;
+- Scientia can project/re-embed scalar algebra losslessly while retaining canonical scientific semantic identity;
+- generic algebra demanded by consumers adopts RV3 planning/evidence contracts as those contracts become available;
 - at least one operation in each consumer lane is validated by both a real consumer fixture and an independent generic oracle/certificate;
-- no geometry/scientific/numerical-solver/constraint semantics have migrated into Resolvent.
+- no geometry/scientific/numerical-solver/constraint semantics have migrated into Resolvent;
+- no second executable numeric IR has been introduced.
+
+RV5 maturity is **not** a prerequisite for starting unrelated RV6 algorithm families.
 
 ## Parallelism
 
-RV5-C and RV5-S are intentionally independent except where they share RV2 domain primitives. RV5-E can fan out across oracle/certificate families. Within each lane, correctness baselines precede performance optimization.
+RV5-C starts immediately from the landed R1/RV0 exact substrate where possible. RV5-S starts package-by-package from the required RV1/RV2/RV3/RV4 pieces. RV5-E can fan out across oracle/certificate families. Within each operation, correctness baselines precede performance optimization.
 
 ## Non-goals
 
+- making RV5 a global phase barrier;
 - complete general CAS breadth (RV6/RV7);
 - CAD branch/topology algorithms;
 - scientific method-family selection;
+- replacing Scientia's expression arena;
+- executable numeric/kernel IR;
 - Methodus numerical solver implementation;
 - Solverang generic or geometry constraint engine implementation;
 - native notebook UI.
