@@ -2,7 +2,7 @@
 
 Updated: 2026-08-20
 
-Branch: `fc3-review-fixes`
+Branch: `master`
 
 Milestone: FC3 spaces, mappings, and preprocessing complete
 
