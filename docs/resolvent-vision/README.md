@@ -1,14 +1,16 @@
 # Resolvent Vision architecture and execution
 
-This directory is the implementation authority for the RV0-RV9 program described in the root [`PLAN.md`](../../PLAN.md).
+This directory defines the RV0-RV9 capability program described in the root [`PLAN.md`](../../PLAN.md).
+
+Cross-repository implementation order is governed by [`CROSS-ROADMAP-CONTRACT.md`](CROSS-ROADMAP-CONTRACT.md). RV numbers are capability namespaces and maturity targets, not a blanket global sequence.
 
 ## Product target
 
-Resolvent becomes a full embeddable CAS with one kernel shared by library users, Scientia, CADabra, agents and interactive frontends. It should eventually provide Mathematica-class symbolic breadth and notebook ergonomics without adopting Mathematica's most difficult architectural coupling: global evaluation semantics, opaque algorithm choice, and frontend/kernel behavior that is hard for embedding consumers to reason about.
+Resolvent becomes a full embeddable CAS with one mathematical kernel shared by library users, algebra projections from Scientia, CADabra, agents, and interactive frontends. It should eventually provide Mathematica-class symbolic breadth and notebook ergonomics without adopting global evaluator coupling, opaque algorithm choice, or frontend-defined kernel semantics.
 
 The core design combines:
 
-- a uniform symbolic `Term` surface for retained symbolic structure;
+- a uniform **structural** symbolic `Term` surface for retained symbolic structure;
 - specialized mathematical `Domain`/`Element` representations for efficient algebra;
 - a lower-level `Scalar` seam for reusable numeric kernels over approximate/exact/differentiable values;
 - typed `Value`/`Outcome` results that preserve exactness, conditions, uncertainty, refusals and resource limits;
@@ -32,8 +34,8 @@ The core design combines:
           +--------------------------+--------------------------+
           |                          |                          |
           v                          v                          v
-     symbolic terms            dynamic values             evidence
-  TermStore / patterns       Domain / Element       plans / receipts / certs
+     structural Terms          dynamic values             evidence
+       TermStore            Domain / Element       plans / receipts / certs
           |                          |                          |
           +--------------------------+--------------------------+
                                      |
@@ -43,12 +45,15 @@ The core design combines:
                  |                                       |
                  v                                       v
           canonical Rust paths                    optional providers
-    exact/algorithms/certified numerics        FLINT/etc. when justified
+      exact/general algebra                   in-process or external
 
 Federation consumers remain above this boundary:
 
 Quantitas -----> Scientia -----> Malleus -----> Finitum -----> Krasis -----> Sinbad
                     ^
+                    |
+          operation-specific
+          algebra projections
                     |
                  Resolvent
                     ^
@@ -56,18 +61,18 @@ Quantitas -----> Scientia -----> Malleus -----> Finitum -----> Krasis -----> Sin
                  CADabra
 
 Methodus: consumer-neutral numerical algorithms
-Solverang: generic constraint engine + 2D/3D constraint vocabularies, numerics via Methodus
+Solverang: generic constraint engine + 2-D/3-D constraint vocabularies, numerics via Methodus
 ```
 
-The arrows are capability dependencies, not a demand that every repository directly import every lower repository. In particular, Sinbad should continue to receive scientific algebra through Scientia rather than acquiring an alternate symbolic IR.
+The arrows express ownership/consumption, not permission to replace another repository's semantic IR.
 
-R1 already consolidated CADabra's generic exact/scalar implementation into Resolvent. RV0 hardens that landed substrate; it does not repeat the migration.
+R1 already consolidated CADabra's generic exact/scalar implementation into Resolvent. RV0 hardens that landed substrate; it does not repeat the migration and does not block CADabra R2 absent a concrete correctness problem.
 
-## Four core abstractions
+## Five identity boundaries
 
-### 1. `Term`
+### 1. Resolvent `Term`
 
-A term is retained symbolic structure stored in a caller/session-owned hash-consed `TermStore`.
+A Term is retained **structural** symbolic syntax stored in a caller/session-owned hash-consed `TermStore`.
 
 Properties:
 
@@ -77,14 +82,30 @@ Properties:
 - structural identity independent of source spans;
 - exact literals as first-class nodes;
 - binders, relations, logic, conditions, arrays, rules and generic calls;
-- arbitrary symbolic powers;
-- deterministic canonical bytes;
+- deterministic canonical structural bytes;
 - iterative traversal and teardown;
-- bounded store growth mechanisms suitable for long notebook sessions.
+- bounded store-growth mechanisms suitable for long notebook sessions.
 
-Source locations belong in sidecar origin maps because the same interned term may occur at multiple source locations.
+Structural identity is not mathematical equivalence. RV1 must not sort, commute, flatten, cancel, factor, or reassociate expressions merely to make hashes canonical. Those are explicit domain/rewrite operations in later layers.
 
-### 2. `Domain` and `Element`
+### 2. Scientia scientific identity
+
+Scientia keeps one canonical `SemanticModel`/`ExprId` arena. Resolvent Terms do not replace it.
+
+Generic algebra integration is an operation-specific projection:
+
+```text
+Scientia ExprId
+  -> supported scalar algebra projection
+Resolvent Term / Domain Element
+  -> generic algebra operation
+result + receipt/certificate
+  -> re-embed or attach under Scientia-owned semantics
+```
+
+Scientia therefore retains source spans, units, roles, shapes, axes, field/differential meaning, and scientific expression identity.
+
+### 3. `Domain` and `Element`
 
 Mathematical values carry an explicit parent/domain. Examples:
 
@@ -104,28 +125,23 @@ PowerSeries(QQ, x, order = 32)
 
 `Element` storage is specialized per domain. A sparse multivariate polynomial is not encoded as a generic `Add` tree merely because it can be printed as one.
 
-The API provides both:
+The API provides both statically typed Rust paths and a type-erased dynamic path for sessions/bindings.
 
-- statically typed Rust paths for hot consumers and generic algorithms;
-- a type-erased dynamic path for sessions, notebooks and foreign bindings.
+### 4. `Scalar`
 
-Dynamic values still expose their precise domain and capability set.
+R1 consolidated CADabra's exact/approximate scalar seam and dual numbers into Resolvent. The seam serves numeric kernels that legitimately need the same implementation over `f64`, certified exact values, intervals and dual numbers.
 
-### 3. `Scalar`
+It is not the parent/domain abstraction and not a substitute for Methodus numerical-method contracts.
 
-R1 already consolidated CADabra's exact/approximate scalar seam and dual numbers into Resolvent. RV0 stabilizes those public contracts. The seam serves numeric kernels that legitimately need the same implementation over `f64`, certified exact values, intervals and dual numbers.
+### 5. Malleus executable computation identity
 
-It is deliberately not the parent/domain abstraction. Polynomial rings, quotient fields, matrices, power series and symbolic terms need stronger mathematical structure.
+Resolvent may optimize algebraic Terms/domain expressions and emit explicit CSE/let schedules. It does not own a second executable numeric SSA/kernel IR.
 
-### 4. `Value` and `Outcome`
-
-A session-facing `Value` can contain a term, domain element, matrix, collection, table, plot/graphic, plan, receipt, certificate or opaque extension value.
-
-An operation returns an outcome that states its epistemic status explicitly. Exact requests never degrade invisibly to approximation.
+Malleus owns finite-precision structured operation semantics, iteration/index maps, reductions/effects, AD execution products, scheduling, backend lowering and portable generated kernels.
 
 ## Numeric literal semantics
 
-The parser and wire format distinguish:
+Resolvent surface syntax distinguishes:
 
 - integers;
 - rational literals;
@@ -135,7 +151,9 @@ The parser and wire format distinguish:
 - arbitrary-precision approximate values;
 - interval/ball values.
 
-This distinction fixes the current Scientia bridge behavior where an authored decimal may be converted through `f64` and then admitted as the exact binary rational represented by that float.
+A Resolvent-authored exact `0.1` is `1/10`.
+
+For `.res`, however, Scientia owns preserving authored literal meaning because Scientia owns parsing. Its current source expression representation stores numbers as `f64`, so a coordinated Scientia schema/parser change is required before exact decimal intent can reach Resolvent. Resolvent cannot reconstruct source lexical exactness after it has been discarded upstream.
 
 ## Catalog model
 
@@ -169,7 +187,7 @@ verification strategy
 provenance/version
 ```
 
-Rules may be grouped into explicit packs. There is no unbounded global `simplify` that applies hidden heuristics indefinitely.
+Rules may be grouped into explicit packs. There is no unbounded global `simplify` applying hidden heuristics indefinitely.
 
 ### Algorithm catalog
 
@@ -192,9 +210,9 @@ Selection starts deterministic and rule-based. Learned selection may be added la
 
 ## Evaluation model
 
-Construction, evaluation, canonicalization, rewriting, simplification, expansion, factorization, approximation and code optimization are different operations.
+Construction, evaluation, canonicalization, rewriting, simplification, expansion, factorization, approximation and code optimization are distinct operations.
 
-The session may own definitions and assumptions, but term construction itself does not repeatedly invoke an ambient evaluator. This is a deliberate departure from traditional global-evaluation CAS designs and is important for embedding, reproducibility and consumer-owned semantics.
+The session may own definitions and assumptions, but Term construction itself does not repeatedly invoke an ambient evaluator or silently invoke algebraic laws.
 
 ## Assumption model
 
@@ -213,9 +231,9 @@ Conditional answers are first-class outcomes.
 
 ## Rewriting and e-graphs
 
-Resolvent owns an ordinary bounded rewrite engine with structural/typed patterns, associative/commutative matching where justified, guards, explicit strategies, traces, cycle detection and budgets.
+Resolvent owns an ordinary bounded rewrite engine with structural/typed patterns, associative/commutative matching only where a mathematical operation/domain contract justifies it, guards, explicit strategies, traces, cycle detection and budgets.
 
-Equality saturation is optional and transient. It is appropriate for bounded code optimization, Hornerization, CSE, stability-oriented transformations and identity exploration. It is not the canonical term representation and not the default evaluation engine.
+Equality saturation is optional and transient. It is suitable for bounded code optimization, Hornerization, CSE, stability-oriented transformations and identity exploration. It is not the canonical Term representation and not the default evaluator.
 
 ## Evidence model
 
@@ -243,9 +261,19 @@ Certificates are operation-specific. Examples include Bezout witnesses for GCD, 
 
 Not every result has a compact proof. The outcome states whether evidence is a proof/certificate, independent verification, certified enclosure, probabilistic check or heuristic validation.
 
+## Provider and artifact boundaries
+
+Resolvent owns mathematical provider semantics: operation/algorithm identity, supported domains, exactness/evidence guarantees and provider identity in plans/receipts.
+
+It does not need a second generic process-plugin framework. External executable discovery, manifest compatibility, persistent workers, progress, cancellation and process isolation may use **Outboard** through an optional adapter.
+
+Resolvent owns ephemeral/local mathematical memoization. Durable large certificates, provider outputs, cross-repository lineage, distribution and long-lived content-addressed evidence may use **Artifactum** through an optional adapter.
+
+Neither project is a mandatory dependency of core Resolvent.
+
 ## Kernel and frontend boundary
 
-The internal kernel protocol is transport-neutral. Expected operations include:
+The internal kernel protocol is transport-neutral. Expected mature operations include:
 
 - evaluate;
 - cancel;
@@ -254,26 +282,26 @@ The internal kernel protocol is transport-neutral. Expected operations include:
 - format/render;
 - request/explain plan;
 - verify receipt/certificate;
-- retrieve/store artifact;
+- retrieve/store artifact reference;
 - snapshot session;
 - replay cell/request;
 - package/environment inspection.
 
 Jupyter is an adapter to this protocol, not the protocol itself.
 
-The native notebook eventually supports code, Markdown, typeset math, tables, plots/scenes, algorithm inspection, dependency history, local/remote kernels, receipts/certificates and deterministic replay. Sequential cells are the default; explicitly pure cells may participate in a reactive dependency graph.
-
-## Phase dependency summary
+## Capability-start graph
 
 - R1 exact/scalar consolidation is landed.
-- RV0 is a short stabilization/baseline phase and does not block CADabra R2 absent a discovered correctness issue.
-- RV1's wire identity is the blocker for durable Scientia term integration and frontend protocol work.
-- RV2 and RV3 can overlap after the RV1 identity decisions.
-- RV4 builds on RV1-RV3 semantics.
-- RV5 contains parallel CADabra, Scientia/Sinbad and evidence lanes.
-- RV6/RV7 broaden the standalone CAS after the execution/evidence contracts are exercised by real consumers.
-- RV8 starts early at the CLI/protocol/Jupyter layers and matures throughout the program.
-- RV9 packages the mature system for broad external use.
+- RV0 is a short stabilization/baseline program and does not block CADabra R2 absent a discovered correctness issue.
+- CADabra-pulled `RV5-C*` algebra may start immediately from the landed exact substrate when its own minimum prerequisites are present.
+- RV1 freezes structural Term identity, not scientific or algebraic semantic identity.
+- RV2 and RV3 overlap after the relevant RV1 identity decisions; RV3 may wrap existing exact typed operations before the full RV2 catalog exists.
+- RV4 subfeatures begin when the needed RV1/RV2/RV3 contracts exist.
+- RV5-S is demand-driven from Scientia and uses projection/re-embedding rather than a second canonical scientific IR.
+- RV6 families begin individually when their RV2/RV3 primitives exist; they do not wait for RV5 maturity.
+- RV7 families begin individually from their actual Term/domain/evaluation/function prerequisites; they do not wait for all RV6 families.
+- RV8 parser/formatter/simple CLI prototypes can start with RV1; stable protocol/Jupyter needs coherent initial RV2 dynamic values and RV3 outcome/plan/receipt schemas; stateful definitions/assumptions/rules need RV4.
+- RV9 package/provider/cache/scale lanes start from local prerequisites rather than a final global gate.
 
 ## Work-package convention
 
@@ -285,7 +313,9 @@ RV<phase>-<lane><number>
 
 Examples: `RV1-A1`, `RV3-C2`, `RV5-S4`.
 
-A work package is complete only after its stated acceptance gate lands. Plans are not status. [`../../STATUS.md`](../../STATUS.md) remains the only concise record of implemented truth.
+A work package is complete only after its stated acceptance gate lands. Plans are not status. [`../../STATUS.md`](../../STATUS.md) remains the record of implemented truth.
+
+Agents must name the **minimum typed prerequisites** for a package rather than relying on phase-number ordering. [`CROSS-ROADMAP-CONTRACT.md`](CROSS-ROADMAP-CONTRACT.md) is authoritative when a phase file could otherwise be read as a blanket sequencing rule.
 
 ## Parallel implementation rules
 
@@ -297,7 +327,16 @@ A work package is complete only after its stated acceptance gate lands. Plans ar
 6. Schema/wire changes are explicitly versioned and have round-trip and migration tests.
 7. Cross-repository cuts record the exact consumer fixture and preserve downstream gates.
 8. Optimized provider paths never become the only way to verify correctness.
+9. Do not duplicate Scientia scientific IR, Malleus executable IR, Outboard plugin lifecycle or Artifactum durable artifact lifecycle.
 
 ## Definition of the first useful standalone CAS milestone
 
-Resolvent is a coherent early standalone CAS when the RV0 stabilization gate is complete, RV1 is complete, the first RV2 domains exist, RV3's existing-operation vertical slice is complete, and RV8's CLI/Jupyter path is usable. That milestone does not require Mathematica-class algorithm breadth. It proves that the architecture scales from embedded Rust through scientific/CAD consumers to an interactive environment before large breadth work begins.
+Resolvent is a coherent early standalone CAS when:
+
+- the RV0 stabilization gate is complete;
+- RV1 structural Term identity is complete;
+- initial RV2 domains/dynamic values exist;
+- RV3's existing-operation vertical slice is complete;
+- RV8 has a usable stable CLI/protocol/Jupyter subset over those schemas.
+
+That milestone does not require Mathematica-class algorithm breadth. It proves that the architecture scales from embedded Rust through real algebra consumers to an interactive environment before large breadth work finishes.

@@ -1,6 +1,6 @@
 # Resolvent federation ownership
 
-This document is authoritative for ownership boundaries used by the Resolvent Vision roadmap.
+This document is authoritative for ownership boundaries used by the Resolvent Vision roadmap. Sequencing across consumer roadmaps is defined by [`CROSS-ROADMAP-CONTRACT.md`](CROSS-ROADMAP-CONTRACT.md).
 
 ## Principle
 
@@ -16,7 +16,7 @@ A capability does not belong in Resolvent merely because another repository need
 
 Owns:
 
-- retained symbolic term representation;
+- retained structural symbolic term representation;
 - exact and arbitrary-precision scalar mathematics;
 - interval/ball/certified scalar evaluation;
 - algebraic domains and canonical coercions;
@@ -26,19 +26,22 @@ Owns:
 - assumptions and generic mathematical rewriting;
 - operation/rule/algorithm catalogs;
 - budgets, plans, outcomes, receipts and mathematical certificates;
-- neutral symbolic/numeric-program preparation before backend-specific lowering;
+- algebraic expression optimization, including CSE/Horner/factorization and explicit temporary/let schedules;
 - CAS session and kernel protocol semantics.
 
 Does not own:
 
 - physical units or dimensions;
-- scientific source/model semantics;
+- `.res` source semantics or Scientia's canonical scientific expression/semantic arena;
 - CAD geometry or topology;
 - finite-element/mesh realization;
+- executable numeric/kernel IR or backend lowering;
 - general numerical solver policy;
 - constraint-system semantics;
 - coupled simulation state;
-- product campaigns or promotion policy.
+- product campaigns or promotion policy;
+- generic external-executable plugin lifecycle;
+- general durable artifact/provenance lifecycle.
 
 ### Quantitas
 
@@ -50,7 +53,8 @@ A Resolvent scalar may be used inside a Quantitas quantity, but Resolvent does n
 
 Owns:
 
-- `.res` syntax/module semantics;
+- `.res` syntax/module semantics and authored source-literal meaning;
+- one canonical `SemanticModel` arena and its scientific `ExprId` identity;
 - scientific fields, parameters, sources, properties and constitutive laws;
 - equations and forms;
 - differential/spatial scientific operators and scientific tensor meaning;
@@ -58,7 +62,11 @@ Owns:
 - scientific derivative requests, objectives, controls, ports and verification obligations;
 - moving-domain/contact/event meaning at the scientific-model level.
 
-Scientia may reference Resolvent terms for scalar algebra and delegate generic algebraic transformations. Source spans and scientific identities stay in Scientia sidecars/artifacts.
+Scientia delegates generic algebra through **operation-specific projections** of supported scalar subexpressions into Resolvent Terms/domain elements. Resolvent results are then re-embedded or attached as evidence under Scientia-owned semantic identity.
+
+Resolvent Terms do not replace Scientia's canonical expression arena, and Resolvent arena-local handles never become scientific declaration/expression identity.
+
+Because Scientia owns `.res` parsing, Scientia also owns preserving exact authored numeric literals at the source/schema boundary. Resolvent supplies exact decimal/rational atoms and algebra after projection; it cannot reconstruct lexical exactness once the compiler has reduced a literal to `f64`.
 
 Resolvent must not acquire a second `.res` parser or a scientific semantic IR.
 
@@ -80,11 +88,20 @@ R1 already moved CADabra's generic exact/scalar machinery into Resolvent and del
 
 A resultant or algebraic-root operation used by an SSI algorithm may belong in Resolvent. The interpretation of those roots as intersection branches does not.
 
+A reusable algebra operation discovered by CADabra R2-R7 can start its `RV5-C*` work package as soon as that operation's actual lower-level prerequisites exist. CADabra does not wait for unrelated RV phase exits.
+
 ### Malleus
 
-Owns finite-precision local kernel IR, scheduling, backend-oriented lowering, AD products and generated numerical kernels.
+Owns:
 
-Resolvent may emit a neutral symbolic/numeric program or optimized expression graph. Malleus owns target-oriented executable lowering.
+- finite-precision structured local computation/IR;
+- iteration domains and affine operand/index maps;
+- reductions/effects;
+- AD execution products;
+- scheduling and backend-oriented lowering;
+- portable generated numerical kernels.
+
+Resolvent may emit optimized algebraic Terms/domain elements and explicit CSE/let schedules. It does **not** create a second general numeric SSA/kernel IR below Scientia. If an algebraic optimization must cross into code generation, Scientia/Malleus lower the optimized algebra into Malleus-owned structured computation.
 
 ### Methodus
 
@@ -97,11 +114,10 @@ Owns:
 - least-squares residual/Jacobian contracts;
 - DAE operator contracts and numerical event stepping;
 - block layouts and numerical coupling/preconditioning policies;
-- linear, nonlinear, least-squares, time-integration and other numerical algorithms as they are added.
+- linear, nonlinear, least-squares, time-integration and other numerical algorithms as they are added;
+- future physics-neutral Krylov, eigen, optimization, sampling, model-reduction and related numerical method families when concrete consumers require them.
 
-Resolvent may provide exact small-matrix baselines, symbolic Jacobians, expression optimization or certified scalar subroutines useful to Methodus. It does not own Methodus solve policy, convergence criteria, iteration histories or large-system numerical execution.
-
-General-purpose numerical ODE/DAE, nonlinear, eigen, optimization, sampling and related method families belong in Methodus as that library grows, not in Solverang and not in Resolvent.
+Resolvent may provide exact small-matrix baselines, symbolic Jacobians, expression optimization or certified scalar subroutines useful to Methodus. It does not own Methodus solve policy, convergence criteria, iteration histories, numerical event stepping or large-system numerical execution.
 
 ### Solverang
 
@@ -113,19 +129,21 @@ Owns:
 - equality and inequality activation;
 - candidate constraint solving orchestration;
 - rank and degree-of-freedom analysis;
-- conflict diagnostics;
+- redundancy/conflict diagnostics;
 - constraint-specific derivative checking;
 - reusable geometric constraint vocabulary;
 - `solverang-geometry-2d` primitives/constraints;
 - `solverang-geometry-3d` primitives/constraints.
 
-Resolvent may provide polynomial normalization, exact algebraic subproblems, symbolic elimination or certificates that are genuinely generic. It does not own constraint graph semantics, geometric constraint vocabulary, candidate acceptance policy or conflict/DOF meaning.
+Resolvent may provide polynomial normalization, exact algebraic subproblems, symbolic elimination, or generic algebraic witnesses consumed by Solverang. Resolvent does not decide that a witness constitutes a constraint conflict, redundancy, remaining DOF, or activation state; those are Solverang semantics.
 
 CADabra remains authoritative for whether a Solverang candidate is geometrically valid and may independently certify or refuse it before committing topology.
 
 ### Finitum
 
-Owns meshes, finite spaces, DOFs, topology, basis/quadrature realization, constraints, assembly, matrix-free global operators, transfer, transpose realization, geometry association and adaptivity.
+Owns meshes, finite spaces, DOFs, mesh/topology realization, basis/quadrature execution, **discretization/DOF constraints**, assembly, matrix-free global operators, transfer, transpose realization, geometry association and adaptivity.
+
+Finitum's discretization constraints are distinct from Solverang's user/model constraint graphs.
 
 ### Krasis
 
@@ -137,18 +155,35 @@ Owns simulation cases, studies, campaigns, catalogs, orchestration, results, com
 
 Sinbad should normally receive symbolic/scientific artifacts through Scientia. It should not grow a parallel CAS expression representation.
 
+### Outboard
+
+Outboard is the existing generic external executable-plugin framework. It owns reusable executable discovery, manifest/version compatibility, typed invocation, persistent-worker lifecycle, progress/cancellation and process isolation.
+
+Resolvent owns the mathematical provider contract and may use Outboard through an optional adapter when an out-of-process algorithm/provider needs those generic lifecycle capabilities. Resolvent should not rebuild an Outboard-equivalent plugin host in the CAS core.
+
+### Artifactum
+
+Artifactum is the existing local-first durable artifact lifecycle system. It owns reusable content-addressed storage, immutable large artifacts, action/execution history, lineage, verification, distribution and remote artifact handling.
+
+Resolvent may own ephemeral/local mathematical memoization and cache keys. Durable large certificates, provider outputs, cross-repository lineage and distributable evidence may use Artifactum through an optional adapter when needed. Resolvent should not recreate a general durable artifact lifecycle system in the CAS core.
+
+Neither Outboard nor Artifactum is a mandatory dependency of core Resolvent.
+
 ## Consumer matrix
 
 | Capability | Resolvent | Scientia | CADabra | Methodus | Solverang |
 |---|---:|---:|---:|---:|---:|
-| exact rational/algebraic scalar | owner | consume | consume | optional consume | optional consume |
-| symbolic term store | owner | consume/reference | optional consume | optional consume | optional consume |
+| exact rational/algebraic scalar | owner | consume via algebra projection | consume | optional consume | optional consume |
+| structural symbolic Term store | owner | project to/from; not semantic identity | optional consume | optional consume | optional consume |
+| scientific `SemanticModel` / `ExprId` | no | owner | no | no | no |
 | units/dimensions | no | consume Quantitas | consume Quantitas as needed | no semantic ownership | targets only as consumer data |
 | symbolic differentiation | generic owner | scientific request/interpretation | geometry-specific interpretation | numeric derivatives remain Methodus | constraint derivative semantics remain Solverang |
 | polynomial/resultant/root algebra | owner | consume | consume | optional baseline | optional exact subproblem |
+| executable local numeric IR | no | lower toward Malleus | no | numerical operators only | no | 
 | numerical linear/nonlinear/DAE algorithms | no | no | no | owner | consume |
 | generic constraint graph | no | no | no | no | owner |
-| 2D/3D geometric constraint vocabulary | no | no | CAD entity mapping/authority | no | owner |
+| conflict/redundancy/DOF semantics | no | no | no | no | owner |
+| 2-D/3-D geometric constraint vocabulary | no | no | CAD entity mapping/authority | no | owner |
 | CAD topology/events | no | no | owner | no | no |
 | scientific forms/method semantics | no | owner | no | numerical realization only | no |
 
@@ -162,8 +197,9 @@ Before moving a new capability into Resolvent, answer:
 4. Can its resource behavior be bounded or explicitly reported?
 5. Can correctness be graded independently of the consumer's semantic acceptance?
 6. Is there a second consumer/use case, or is the mathematical domain itself sufficiently general to justify ownership?
+7. Would implementing it create a second scientific semantic IR, executable numeric IR, plugin host, or durable artifact system already owned elsewhere?
 
-If the answer to 1, 2 or 5 is no, the capability stays with the consumer.
+If the answer to 1, 2 or 5 is no, the capability stays with the consumer. If 7 is yes, define only the Resolvent-specific semantic adapter and reuse the existing owner.
 
 ## Extension direction
 
