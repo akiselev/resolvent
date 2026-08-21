@@ -193,6 +193,20 @@ facets, Piola maps, compatible DOFs, exact-sequence checks, and condensation rem
 No named-physics opcode is permitted. A heat, elasticity, Maxwell, or flow form must decompose into
 general mathematical operations and explicit data dependencies.
 
+## FC10 sibling method programs
+
+Five method compilers consume the same typed `SemanticModule` as the form path and produce
+digest-linked `MethodProgram` artifacts for conservation-law finite volume, structured-stencil
+finite differences, network DAEs, particle systems, and boundary integrals. Their receipts retain
+typed declarations, Quantitas-backed state types, domains, regions, and the source expression
+arena while explicitly recording that no variational form was constructed. Stable `METHOD_*`
+refusals reject incompatible domains, equation structure, state shapes, or local-kernel requests.
+
+FV numerical fluxes and FD stencils lower to validated affine Malleus point kernels. Concrete
+cells, stencil neighborhoods, network matrices, particle pairs, boundary quadrature, and global
+actions remain Finitum-owned. The repository-local gate uses five independent source fixtures and
+executes the FV/FD kernels with Malleus reference semantics.
+
 ## Evidence and validation
 
 The compiler treats these as different claims:
@@ -212,5 +226,5 @@ role.
 
 ## Immediate work
 
-Start FC9 only from a concrete transfer, hp/hanging-node, partial-assembly, or accelerator
-acceptance case. Preserve point-QFunction semantics and keep realization choices downstream.
+Start FC11 artifact serialization and evidence hardening from the typed FC10 receipts; keep
+realization choices downstream and do not merge sibling programs into variational-form types.

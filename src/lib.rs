@@ -11,6 +11,7 @@ pub mod form_interpreter;
 pub mod formulation;
 pub mod id;
 pub mod kernel;
+pub mod method;
 pub mod property_tensor;
 pub mod requirements;
 pub mod scientific;
@@ -42,6 +43,14 @@ pub use kernel::{
     LocalFactorizationReceipt, LocalFormProgram, LocalInput, LocalInputRole,
     LocalIterationContract, LocalOutput, LocalOutputRole, LocalTransformation, LoweredKernel,
     factor_local_integral, lower_local_program,
+};
+pub use method::{
+    AFFINE_METHOD_KERNEL_SCHEMA, AffineMethodKernel, AffineMethodKernelSpec,
+    BoundaryIntegralMethod, ConservationLawMethod, FiniteDifferenceMethod, METHOD_PROGRAM_SCHEMA,
+    MethodCompileError, MethodFamily, MethodProgram, MethodProgramKind, MethodReceipt,
+    MethodStateBinding, NetworkDaeMethod, ParticleMethod, compile_boundary_integral_method,
+    compile_conservation_law_method, compile_finite_difference_method, compile_network_dae_method,
+    compile_particle_method,
 };
 pub use property_tensor::SymmetricTensor2;
 pub use requirements::{

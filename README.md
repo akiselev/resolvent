@@ -1,8 +1,8 @@
 # Resolvent
 
-Resolvent is the `.res` language and mathematical form compiler for Sinbad. It owns source
-parsing, scientific semantics, variational meaning, structural equation analysis, property and
-constitutive declarations, and evidence attached to semantic transformations.
+Resolvent is the `.res` language and mathematical compiler for Sinbad. It owns source parsing,
+scientific semantics, variational and sibling method-family meaning, structural equation analysis,
+property and constitutive declarations, and evidence attached to semantic transformations.
 
 The repository deliberately has a narrow dependency direction:
 
@@ -35,6 +35,10 @@ Resolvent currently provides:
 - structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning over the same model,
   including field dependencies hidden behind model-defined values, properties, and constitutive
   laws;
+- FC10 `MethodProgram` artifacts for conservation-law/FV, structured-stencil/FD, network DAE,
+  particle, and boundary-integral families. They retain typed arena identities, Quantitas-backed
+  state types, expression arenas, and source digests, never pass through `VariationalForm`, and
+  emit validated affine Malleus kernels for FV/FD local operations;
 - compilation of authored forms and derivation of strong equations into `VariationalForm`, with
   `DeclarationId`, `SymbolId`, `DomainId`, `RegionId`, and `ExprId` identities plus transformation
   and boundary-term receipts;

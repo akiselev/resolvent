@@ -4,7 +4,7 @@ Updated: 2026-08-21
 
 Branch: `master`
 
-Milestone: FC8 mixed, facet, and compatible operator systems complete
+Milestone: FC10 sibling method-family compilers complete
 
 ## Role
 
@@ -116,6 +116,13 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   active QFunction bindings own block columns, and the system digest covers every artifact link.
   Repository-local FC8 gates compile elasticity, Stokes, Darcy, split-complex Maxwell, and a
   two-sided DG facet form through the same contract.
+- Five digest-linked `MethodProgram` compilers consume the existing typed semantic arena for
+  conservation-law/FV, structured-stencil/FD, network DAE, particle, and boundary-integral
+  families. They retain typed source identities, Quantitas-backed state types, and expression
+  arenas while their receipts explicitly bypass `VariationalForm`.
+- FV numerical flux and FD stencil requests lower to validated affine Malleus point kernels;
+  concrete topology, matrices, pairs, and boundary quadrature remain downstream-owned. Stable
+  `METHOD_*` errors refuse incompatible domains, equation structure, shapes, and kernel requests.
 - One `resolvent` CLI for check, format, parse, inspect, freeze, explain, coupling, structural
   analysis, forms, requirements, and operators. Multi-model modules require explicit selection;
   form/equation commands accept `Model:item` and model-wide commands accept `Model`.
@@ -137,7 +144,7 @@ Verified locally on 2026-08-21:
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 78 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 81 tests, 0 failed.
 - `cargo doc --no-deps` -- passed.
 - `cargo test --doc` -- passed.
 - `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
@@ -165,6 +172,9 @@ Verified locally on 2026-08-21:
   operator systems plus a two-sided DG facet form into validated Malleus bundles. Stokes exposes
   three nonzero block coordinates, Darcy exposes H(div)-L2 rows, Maxwell exposes four coupled
   split-complex coordinates, and minus/plus trace inputs remain explicit.
+- The repository-local FC10 gate compiles all five method families from independent local source
+  fixtures, proves distinct artifact identities and nonvariational receipts, executes FV/FD affine
+  kernels with Malleus, and checks domain/stencil refusals.
 - Resolvent tests contain no compile-time or runtime path into Sinbad's product corpus; standalone
   validation uses only repository-local fixtures plus the declared Quantitas/Malleus dependencies.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
@@ -183,12 +193,15 @@ Verified locally on 2026-08-21:
   `infer_form_requirements` -> `factor_operator` -> `lower_operator_kernels`. The existing narrow
   scalar path remains `factor_local_integral` -> `lower_local_program`, with
   `LoweredKernel { kernel, receipt }` rather than a bare `StructuredKernel`.
+- Sibling downstream sequences start with the family-specific `compile_*_method` functions and
+  produce `MethodProgram` directly; Finitum consumes that artifact without form requirements or
+  FEM operator factorization.
 - Finitum maps `LocalIterationContract::QuadraturePoint` across selected elements and quadrature
   points in its landed FC6 reference realization. Any later fixed-axis batching remains
   realization-owned and must preserve point-QFunction semantics; see `ITERATION-OWNERSHIP.md`.
 
 ## Next compiler work
 
-1. Start FC9 only from a concrete transfer, hp, hanging-node, partial-assembly, or accelerator
-   acceptance case.
-2. Keep optimized batching realization-owned and preserve point-QFunction semantics.
+1. Start FC11 stable serialization, inspection, and cache identity for complete method/kernel
+   artifacts and product evidence.
+2. Keep optimized topology traversal realization-owned and preserve local-kernel semantics.
