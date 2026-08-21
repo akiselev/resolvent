@@ -4,7 +4,7 @@ Updated: 2026-08-21
 
 Branch: `master`
 
-Milestone: FC5 structured local kernels complete
+Milestone: FC8 mixed, facet, and compatible operator systems complete
 
 ## Role
 
@@ -23,7 +23,8 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
 - One typed `SemanticModel` arena with stable domain, region, symbol, expression, and declaration
   identities; resolved roles and references; shapes and axes; Quantitas dimensions/kinds/units;
   domain frames; typed declaration payloads; and presentation-invariant semantic digest. The
-  typed-declaration wire shape is `resolvent-semantic/3`.
+  typed-declaration wire shape is `resolvent-semantic/3`; variational forms are
+  `resolvent-variational-form/4` and record the physical source of generated test spaces.
 - Stable structured diagnostics with exact spans for malformed syntax, imports, domains, names,
   units, quantity kinds, roles, shapes, axes, dimensions, and frames.
 - `compile_semantics` is the complete FC1 library boundary. CLI `check`, `inspect`, `freeze`, and
@@ -46,6 +47,10 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   substitution, an explicit complex convention, typed boundary-partition/test-trace assumptions,
   and retained/substituted/eliminated boundary terms. Multiple flux terms cannot consume the same
   Neumann datum without explicit correspondence.
+- Mixed strong equations select test spaces from typed result shape and differentiated dependency
+  structure. Gradient terms integrate against H(div) divergence, curl terms integrate against
+  H(curl) curl with oriented tangential traces, and deferred source/flux shapes are refined from
+  the selected equation row without changing the canonical semantic arena.
 - The deterministic form interpreter evaluates scalar, complex, vector/tensor, differential,
   contraction, side/trace, indexing, and common scalar operations from caller-supplied point data.
   Caller-supplied weights are accumulated without taking ownership of quadrature traversal.
@@ -95,10 +100,9 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   numeric policy, source factorization/primal/symbolic-JVP digests, integral/output identity, and
   the exact kernel index for each product. Malformed shapes, unsupported non-enclosing reduction
   structure, precision mismatch, and broken derivative receipt chains are refused.
-- One Malleus operand currently has one affine index vector. If one FC4 QFunction output references
-  the same input through different index vectors (including distinct reduction-axis bindings),
-  FC5 refuses it with `KERNEL_INDEXING`; generalized access-local maps must land before such a
-  nonlinear or tensor contraction is admitted downstream.
+- One logical QFunction input may bind multiple Malleus operands when tensor contraction accesses
+  it through distinct affine index vectors; derivative contracts bind every access while receipts
+  retain each logical input once.
 - FC5 bundles are deliberately in-process typed artifacts. Finitum's FC6 realization now validates
   each `StructuredModule`, builds Malleus reference executables, and retains the complete typed
   bundle contract directly. Schema-tagged receipts serialize for identity/evidence inspection;
@@ -107,6 +111,11 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   three triangle geometries against independent analytic element tensors, Malleus-vs-FC4 JVP
   agreement, directional finite differences, a VJP adjoint dot product, and property/source
   parameter derivatives. No named-physics operation exists in the lowering or Malleus.
+- `OperatorSystem` compiles derived equations or authored forms through requirements,
+  factorization, and complete structured-kernel bundles. Typed test-space receipts own block rows,
+  active QFunction bindings own block columns, and the system digest covers every artifact link.
+  Repository-local FC8 gates compile elasticity, Stokes, Darcy, split-complex Maxwell, and a
+  two-sided DG facet form through the same contract.
 - One `resolvent` CLI for check, format, parse, inspect, freeze, explain, coupling, structural
   analysis, forms, requirements, and operators. Multi-model modules require explicit selection;
   form/equation commands accept `Model:item` and model-wide commands accept `Model`.
@@ -123,12 +132,12 @@ Git history is the archive. None of the removed implementation is an acceptance 
 
 ## Validation
 
-Verified locally on 2026-08-20:
+Verified locally on 2026-08-21:
 
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 76 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 78 tests, 0 failed.
 - `cargo doc --no-deps` -- passed.
 - `cargo test --doc` -- passed.
 - `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
@@ -152,6 +161,10 @@ Verified locally on 2026-08-20:
 - The repository-local FC5 gate validates complete four-kernel Malleus modules and executes
   generated Poisson primal/JVP/VJP/parameter products across three element geometries; analytic
   tensors, FC4 symbolic JVPs, finite differences, and an adjoint identity agree.
+- The repository-local FC8 gate compiles elasticity, Stokes, Darcy, and split-complex Maxwell
+  operator systems plus a two-sided DG facet form into validated Malleus bundles. Stokes exposes
+  three nonzero block coordinates, Darcy exposes H(div)-L2 rows, Maxwell exposes four coupled
+  split-complex coordinates, and minus/plus trace inputs remain explicit.
 - Resolvent tests contain no compile-time or runtime path into Sinbad's product corpus; standalone
   validation uses only repository-local fixtures plus the declared Quantitas/Malleus dependencies.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
@@ -176,8 +189,6 @@ Verified locally on 2026-08-20:
 
 ## Next compiler work
 
-1. Extend tensor/kernel contracts only when an FC7 transient or nonlinear acceptance case exposes
-   a concrete missing primitive.
-2. Generalize access-local affine maps before admitting outputs that reference one input through
-   distinct index vectors.
-3. Keep optimized batching realization-owned and preserve point-QFunction semantics.
+1. Start FC9 only from a concrete transfer, hp, hanging-node, partial-assembly, or accelerator
+   acceptance case.
+2. Keep optimized batching realization-owned and preserve point-QFunction semantics.

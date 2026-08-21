@@ -54,12 +54,14 @@ Resolvent currently provides:
 - deterministic QFunction and element-factorization interpreters, validated for Poisson against
   an independent analytic P1 triangle residual, element tensor, and directional finite
   difference; and
-- the retained narrow `LocalFormProgram` path for scalar point arithmetic into
-  `malleus::StructuredKernel`.
+- FC5 lowering of indexed programs into complete Malleus primal/JVP/VJP/parameter bundles,
+  including access-local affine maps when one logical tensor input is indexed several ways; and
+- FC8 `OperatorSystem` artifacts for derived equations or authored forms, with typed block
+  row/column ownership and complete form/requirements/factorization/kernel chains; plus the
+  retained narrow `LocalFormProgram` path for scalar point arithmetic.
 
-Lowering the indexed FC4 programs into complete Malleus structured modules and derivative kernel
-bundles is FC5 work. Unsupported tensor primitives return stable capability diagnostics instead
-of becoming opaque or named-physics opcodes.
+Unsupported primitives return stable capability diagnostics instead of becoming opaque or
+named-physics opcodes.
 
 Derived forms record that declared exterior regions are assumed to partition the domain boundary;
 Finitum must validate that assumption against mesh topology. A Neumann value is substituted at

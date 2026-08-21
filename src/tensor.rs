@@ -561,7 +561,15 @@ fn compile_primal_qfunction(
     group: &crate::requirements::NormalizedIntegralGroup,
 ) -> Result<(TensorProgram, QFunctionProgram), TensorCompileError> {
     let mut formal = Vec::new();
+    let integral = &form.integrals[integral_index];
+    let mut direct_symbols = BTreeSet::new();
+    collect_direct_symbols(&form.expressions, integral.integrand, &mut direct_symbols)?;
     for requirement in &group.signature.inputs {
+        if requirement.source != InputSourceRequirement::Basis
+            && !direct_symbols.contains(&requirement.symbol)
+        {
+            continue;
+        }
         for evaluation in &requirement.evaluations {
             let binding = TensorBinding {
                 symbol: requirement.symbol,
@@ -601,7 +609,6 @@ fn compile_primal_qfunction(
             });
         }
     }
-    let integral = &form.integrals[integral_index];
     let mut lowerer = Lowerer {
         form,
         inputs: &formal,
@@ -902,6 +909,20 @@ fn evaluation_shape(
         .find(|space| space.symbol == symbol)
         .map(|space| value_shape(&space.value_shape))
         .or_else(|| {
+            form.expressions.iter().find_map(|expression| {
+                matches!(expression.kind, SemanticExprKind::Symbol { symbol: candidate } if candidate == symbol)
+                    .then(|| semantic_value_shape(&expression.ty.shape))
+                    .flatten()
+                    .filter(|shape| {
+                        !shape.is_empty()
+                            || matches!(
+                                expression.ty.shape,
+                                crate::semantic::SemanticShape::Numeric(ValueShape::Scalar)
+                            )
+                    })
+            })
+        })
+        .or_else(|| {
             form.arguments
                 .iter()
                 .find(|argument| argument.symbol == symbol)
@@ -920,7 +941,7 @@ fn evaluation_shape(
         evaluation.derivative,
         DerivativeEvaluation::Value | DerivativeEvaluation::TimeDerivative
     ) {
-        return Ok(base);
+        return trace_shape(base, evaluation.trace_mapping);
     }
     let dimension = requirements
         .elements
@@ -931,34 +952,92 @@ fn evaluation_shape(
         .ok_or_else(|| {
             TensorCompileError::Shape(format!("symbol {symbol} has no domain extent"))
         })?;
-    match evaluation.derivative {
+    let evaluated = match evaluation.derivative {
         DerivativeEvaluation::Value | DerivativeEvaluation::TimeDerivative => unreachable!(),
         DerivativeEvaluation::Gradient => {
             let mut shape = base;
             shape.push(dimension);
-            Ok(shape)
+            shape
         }
         DerivativeEvaluation::Divergence => {
             require_domain_vector(symbol, evaluation.derivative, &base, dimension)?;
-            Ok(Vec::new())
+            Vec::new()
         }
         DerivativeEvaluation::Curl => {
             require_domain_vector(symbol, evaluation.derivative, &base, dimension)?;
-            Ok(if dimension == 2 {
+            if dimension == 2 {
                 Vec::new()
             } else {
                 vec![dimension]
-            })
+            }
         }
         DerivativeEvaluation::RotatedGradient => {
             require_scalar(symbol, evaluation.derivative, &base)?;
-            Ok(vec![dimension])
+            vec![dimension]
         }
         DerivativeEvaluation::SymmetricGradient => {
             require_domain_vector(symbol, evaluation.derivative, &base, dimension)?;
-            Ok(vec![dimension, dimension])
+            vec![dimension, dimension]
         }
+    };
+    trace_shape(evaluated, evaluation.trace_mapping)
+}
+
+fn trace_shape(
+    shape: Vec<usize>,
+    mapping: Option<TraceMapping>,
+) -> Result<Vec<usize>, TensorCompileError> {
+    match (mapping, shape.as_slice()) {
+        (Some(TraceMapping::Normal), [_]) => Ok(Vec::new()),
+        (Some(TraceMapping::Normal), [rows, _]) => Ok(vec![*rows]),
+        (Some(TraceMapping::Normal), _) => Err(TensorCompileError::Shape(
+            "normal trace requires a vector or rank-two tensor".into(),
+        )),
+        (Some(TraceMapping::Value | TraceMapping::Tangential) | None, _) => Ok(shape),
     }
+}
+
+fn collect_direct_symbols(
+    expressions: &[crate::semantic::SemanticExpr],
+    id: ExprId,
+    symbols: &mut BTreeSet<SymbolId>,
+) -> Result<(), TensorCompileError> {
+    let expression = expressions
+        .get(id.index())
+        .ok_or(TensorCompileError::InvalidExpression(id))?;
+    match &expression.kind {
+        SemanticExprKind::Symbol { symbol } => {
+            symbols.insert(*symbol);
+        }
+        SemanticExprKind::Unary { arg, .. }
+        | SemanticExprKind::Differential { arg, .. }
+        | SemanticExprKind::TensorTrace { value: arg, .. }
+        | SemanticExprKind::FacetTrace { value: arg, .. }
+        | SemanticExprKind::Jump { value: arg }
+        | SemanticExprKind::Average { value: arg }
+        | SemanticExprKind::Conjugate { value: arg }
+        | SemanticExprKind::NormalComponent { value: arg, .. } => {
+            collect_direct_symbols(expressions, *arg, symbols)?;
+        }
+        SemanticExprKind::Binary { lhs, rhs, .. }
+        | SemanticExprKind::Contraction { lhs, rhs, .. } => {
+            collect_direct_symbols(expressions, *lhs, symbols)?;
+            collect_direct_symbols(expressions, *rhs, symbols)?;
+        }
+        SemanticExprKind::Call { args, .. } | SemanticExprKind::Vector { elements: args } => {
+            for arg in args {
+                collect_direct_symbols(expressions, *arg, symbols)?;
+            }
+        }
+        SemanticExprKind::Index { value, indices } => {
+            collect_direct_symbols(expressions, *value, symbols)?;
+            for index in indices {
+                collect_direct_symbols(expressions, *index, symbols)?;
+            }
+        }
+        SemanticExprKind::Number { .. } | SemanticExprKind::String { .. } => {}
+    }
+    Ok(())
 }
 
 fn require_domain_vector(
@@ -1067,10 +1146,7 @@ impl Lowerer<'_> {
                 return self
                     .inputs
                     .iter()
-                    .find(|input| {
-                        input.input.binding.symbol == *symbol
-                            && input.input.binding.evaluation == evaluation
-                    })
+                    .find(|input| input_matches(input, *symbol, &evaluation))
                     .map(|input| input.input.shape.clone())
                     .ok_or(TensorCompileError::MissingInput {
                         symbol: *symbol,
@@ -1184,10 +1260,7 @@ impl Lowerer<'_> {
                 let input = self
                     .inputs
                     .iter()
-                    .find(|input| {
-                        input.input.binding.symbol == symbol
-                            && input.input.binding.evaluation == evaluation
-                    })
+                    .find(|input| input_matches(input, symbol, &evaluation))
                     .ok_or_else(|| TensorCompileError::MissingInput {
                         symbol,
                         evaluation: evaluation.clone(),
@@ -1539,6 +1612,19 @@ fn simplify(expression: TensorScalarExpr) -> TensorScalarExpr {
     match expression {
         TensorScalarExpr::Unary { op, arg } => {
             let arg = simplify(*arg);
+            if op == TensorUnaryOp::Neg
+                && let TensorScalarExpr::Reduction {
+                    op: reduction,
+                    axis,
+                    expression,
+                } = arg
+            {
+                return TensorScalarExpr::Reduction {
+                    op: reduction,
+                    axis,
+                    expression: Box::new(unary(TensorUnaryOp::Neg, *expression)),
+                };
+            }
             if op == TensorUnaryOp::Neg && is_zero(&arg) {
                 constant(0.0)
             } else if let TensorScalarExpr::Constant { value } = arg {
@@ -1599,6 +1685,20 @@ fn simplify(expression: TensorScalarExpr) -> TensorScalarExpr {
         }
         other => other,
     }
+}
+
+fn input_matches(
+    input: &FormalInput,
+    symbol: SymbolId,
+    evaluation: &BasisEvaluationRequirement,
+) -> bool {
+    let actual = &input.input.binding.evaluation;
+    input.input.binding.symbol == symbol
+        && actual.derivative == evaluation.derivative
+        && actual.site == evaluation.site
+        && (actual.trace_mapping == evaluation.trace_mapping
+            || (evaluation.trace_mapping.is_none()
+                && actual.trace_mapping == Some(TraceMapping::Value)))
 }
 
 fn depends_on(expression: &TensorScalarExpr, input: TensorInputId) -> bool {

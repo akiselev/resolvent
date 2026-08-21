@@ -170,13 +170,25 @@ Free/reduction axes, affine maps, dense layouts, access effects, finite-precisio
 source/derivative receipts are explicit. Malleus constructs derivatives as structured IR-to-IR
 passes and its deterministic interpreter executes every product before any optimized backend.
 
-The current structured boundary deliberately assigns one affine index vector to each input
-operand. Reusing one QFunction input with different index vectors, including separate reduction
-axis bindings, is refused as `KERNEL_INDEXING`; access-local indexing must be generalized before
-such nonlinear/tensor contractions are promoted. FC5 bundles are also in-process typed artifacts:
-receipts serialize for identity and evidence inspection, while complete module/bundle
-`Deserialize`, JSON round trips, and wire-level digest stability are deferred until FC6 defines
-the concrete executable handoff.
+Each distinct affine access to a logical QFunction input receives its own read operand. Derivative
+contracts bind all access operands, while receipts retain each logical input once. FC5 bundles are
+still in-process typed artifacts: receipts serialize for identity and evidence inspection, while
+complete module/bundle `Deserialize`, JSON round trips, and wire-level digest stability remain
+deferred.
+
+## FC8 mixed and facet systems
+
+`OperatorSystem` compiles selected derived equations or authored forms through the ordinary
+requirements, tensor factorization, and structured-kernel path. Generated test-space provenance
+owns each block row and active typed QFunction bindings own its columns; the system digest covers
+every child receipt. Test-field selection uses result shape and differentiated dependency depth,
+so Stokes, Darcy, and split-complex Maxwell rows are selected without source-name heuristics.
+
+Space-aware derivation now integrates gradients against H(div) divergence and curls against
+H(curl) curl with oriented tangential traces. Facet sites and natural value/tangential/normal
+trace mappings remain explicit through QFunction inputs. The repository-local gate compiles
+elasticity, Stokes, Darcy, Maxwell, and a two-sided DG form into complete Malleus bundles. Concrete
+facets, Piola maps, compatible DOFs, exact-sequence checks, and condensation remain Finitum-owned.
 
 No named-physics opcode is permitted. A heat, elasticity, Maxwell, or flow form must decompose into
 general mathematical operations and explicit data dependencies.
@@ -200,6 +212,5 @@ role.
 
 ## Immediate work
 
-1. Hand the complete Poisson local-kernel bundle to Finitum for FC6 realization.
-2. Bind concrete basis, quadrature, geometry, and element tables around the point kernels.
-3. Expose assembled and matrix-free actions through Solverang's linear operator contract.
+Start FC9 only from a concrete transfer, hp/hanging-node, partial-assembly, or accelerator
+acceptance case. Preserve point-QFunction semantics and keep realization choices downstream.

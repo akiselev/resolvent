@@ -117,8 +117,6 @@ pub enum StructuredLoweringError {
     DuplicateInput(TensorInputId),
     #[error("KERNEL_SOURCE_JVP: {0}")]
     SourceJvp(String),
-    #[error("KERNEL_INDEXING: input {input:?} has inconsistent index expressions")]
-    InconsistentIndexing { input: TensorInputId },
     #[error("KERNEL_VALIDATION: {0}")]
     Validation(#[from] malleus::ValidationError),
     #[error("KERNEL_DIFFERENTIATION: {0}")]
@@ -297,10 +295,14 @@ fn lower_output(
     let active_inputs = active_operands
         .iter()
         .map(|operand| input_by_operand[operand])
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
     let parameter_inputs = parameter_operands
         .iter()
         .map(|operand| input_by_operand[operand])
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
         .collect::<Vec<_>>();
     let numeric_policy_receipt = policy_receipt(numeric_policy);
     let artifact_digest = span_independent_digest(&KernelReceiptDigestPayload {
@@ -431,46 +433,48 @@ fn lower_primal_output(
         .map(|(index, axis)| (axis.id, AxisId::new(index)))
         .collect::<BTreeMap<_, _>>();
 
-    let mut uses = BTreeMap::<TensorInputId, Vec<TensorAxisId>>::new();
-    collect_input_uses(expression, &mut uses)?;
+    let mut uses = BTreeMap::<TensorInputId, Vec<Vec<TensorAxisId>>>::new();
+    collect_input_uses(expression, &mut uses);
     let mut operands = Vec::new();
     let mut indexing_maps = Vec::new();
     let mut primal_inputs = Vec::new();
-    let mut operand_by_input = BTreeMap::new();
+    let mut operand_by_access = BTreeMap::new();
     for input in &program.inputs {
-        let Some(indices) = uses.get(&input.id) else {
+        let Some(accesses) = uses.get(&input.id) else {
             continue;
         };
-        validate_input_shape(input, indices, &axis_definitions)?;
-        let operand = OperandId::new(operands.len());
-        operands.push(KernelOperand::tensor(
-            format!("input_{}", input.id.0),
-            input.shape.clone(),
-            AccessMode::Read,
-        ));
-        indexing_maps.push(IndexingMap::new(
-            operand,
-            indices
-                .iter()
-                .map(|axis| {
-                    axis_ids
-                        .get(axis)
-                        .copied()
-                        .map(IndexExpr::axis)
-                        .ok_or_else(|| {
-                            StructuredLoweringError::Axis(format!(
-                                "input {:?} references undeclared tensor axis {}",
-                                input.id, axis.0
-                            ))
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        ));
-        operand_by_input.insert(input.id, operand);
-        primal_inputs.push(StructuredInputOperand {
-            input: input.id,
-            operand,
-        });
+        for (access_index, indices) in accesses.iter().enumerate() {
+            validate_input_shape(input, indices, &axis_definitions)?;
+            let operand = OperandId::new(operands.len());
+            operands.push(KernelOperand::tensor(
+                format!("input_{}_access_{access_index}", input.id.0),
+                input.shape.clone(),
+                AccessMode::Read,
+            ));
+            indexing_maps.push(IndexingMap::new(
+                operand,
+                indices
+                    .iter()
+                    .map(|axis| {
+                        axis_ids
+                            .get(axis)
+                            .copied()
+                            .map(IndexExpr::axis)
+                            .ok_or_else(|| {
+                                StructuredLoweringError::Axis(format!(
+                                    "input {:?} references undeclared tensor axis {}",
+                                    input.id, axis.0
+                                ))
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ));
+            operand_by_access.insert((input.id, indices.clone()), operand);
+            primal_inputs.push(StructuredInputOperand {
+                input: input.id,
+                operand,
+            });
+        }
     }
 
     if output_shape.len() != free_axes.len()
@@ -504,7 +508,7 @@ fn lower_primal_output(
             .map(|axis| IndexExpr::axis(axis_ids[&axis.id]))
             .collect::<Vec<_>>(),
     ));
-    let value = lower_expression(expression, &operand_by_input, &axis_ids)?;
+    let value = lower_expression(expression, &operand_by_access, &axis_ids)?;
     let kernel = StructuredKernel {
         name: program.name.clone(),
         iteration_domain: IterationDomain::new(
@@ -599,24 +603,23 @@ fn contains_reduction(expression: &TensorScalarExpr) -> bool {
 
 fn collect_input_uses(
     expression: &TensorScalarExpr,
-    uses: &mut BTreeMap<TensorInputId, Vec<TensorAxisId>>,
-) -> Result<(), StructuredLoweringError> {
+    uses: &mut BTreeMap<TensorInputId, Vec<Vec<TensorAxisId>>>,
+) {
     match expression {
         TensorScalarExpr::Input { input, indices } => {
-            if let Some(previous) = uses.insert(*input, indices.clone())
-                && previous != *indices
-            {
-                return Err(StructuredLoweringError::InconsistentIndexing { input: *input });
+            let accesses = uses.entry(*input).or_default();
+            if !accesses.contains(indices) {
+                accesses.push(indices.clone());
+                accesses.sort();
             }
-            Ok(())
         }
         TensorScalarExpr::Unary { arg, .. } => collect_input_uses(arg, uses),
         TensorScalarExpr::Binary { lhs, rhs, .. } => {
-            collect_input_uses(lhs, uses)?;
+            collect_input_uses(lhs, uses);
             collect_input_uses(rhs, uses)
         }
         TensorScalarExpr::Reduction { expression, .. } => collect_input_uses(expression, uses),
-        _ => Ok(()),
+        _ => {}
     }
 }
 
@@ -652,14 +655,14 @@ fn validate_input_shape(
 
 fn lower_expression(
     expression: &TensorScalarExpr,
-    operands: &BTreeMap<TensorInputId, OperandId>,
+    operands: &BTreeMap<(TensorInputId, Vec<TensorAxisId>), OperandId>,
     axes: &BTreeMap<TensorAxisId, AxisId>,
 ) -> Result<ScalarExpr, StructuredLoweringError> {
     Ok(match expression {
         TensorScalarExpr::Constant { value } => ScalarExpr::Constant(*value),
-        TensorScalarExpr::Input { input, .. } => ScalarExpr::Load(
+        TensorScalarExpr::Input { input, indices } => ScalarExpr::Load(
             operands
-                .get(input)
+                .get(&(*input, indices.clone()))
                 .copied()
                 .ok_or(StructuredLoweringError::MissingInput(*input))?,
         ),

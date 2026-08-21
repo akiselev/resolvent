@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
-pub const VARIATIONAL_FORM_SCHEMA: &str = "resolvent-variational-form/3";
+pub const VARIATIONAL_FORM_SCHEMA: &str = "resolvent-variational-form/4";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormArity {
@@ -149,6 +149,9 @@ pub struct BoundaryTermReceipt {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormReceipt {
     pub source_declaration: DeclarationId,
+    /// Physical field whose space supplied the generated test argument. Authored forms have no
+    /// unique source field and therefore record `None`.
+    pub test_space_source: Option<SymbolId>,
     pub source_span: SourceSpan,
     pub complex_convention: FormComplexConvention,
     pub transformations: Vec<FormTransformation>,
@@ -330,6 +333,7 @@ pub fn compile_variational_form(
     };
     let receipt = FormReceipt {
         source_declaration: declaration.id,
+        test_space_source: None,
         source_span: declaration.span,
         complex_convention: FormComplexConvention::ExplicitConjugationOnly,
         transformations: vec![FormTransformation::Authored],
@@ -436,6 +440,19 @@ pub fn derive_variational_form(
             .collect::<Vec<_>>();
         if referenced.len() == 1 {
             candidates = std::mem::take(&mut referenced);
+        } else if !referenced.is_empty() {
+            let mut ranked = referenced
+                .into_iter()
+                .map(|symbol| Ok((equation_field_score(model, equation, symbol.id)?, symbol)))
+                .collect::<Result<Vec<_>, FormCompileError>>()?;
+            ranked.sort_by_key(|(score, symbol)| (*score, symbol.id));
+            if let Some((best_score, best)) = ranked.pop()
+                && ranked
+                    .last()
+                    .is_none_or(|(next_score, _)| *next_score != best_score)
+            {
+                candidates = vec![best];
+            }
         }
     }
     let test_field = match candidates.as_slice() {
@@ -525,6 +542,10 @@ pub fn derive_variational_form_for(
                 .as_ref()
                 .is_some_and(test_space_supports_gradient) =>
             {
+                arena.refine_deferred_shape(
+                    flux,
+                    divergence_operand_shape(&field.ty.shape, spatial_dimension),
+                );
                 transformations.push(FormTransformation::IntegrateByParts {
                     source: term,
                     operator: DifferentialOperator::Divergence,
@@ -567,8 +588,9 @@ pub fn derive_variational_form_for(
             } if field
                 .space
                 .as_ref()
-                .is_some_and(test_space_supports_gradient) =>
+                .is_some_and(test_space_supports_divergence) =>
             {
+                arena.refine_deferred_shape(scalar, SemanticShape::Numeric(ValueShape::Scalar));
                 transformations.push(FormTransformation::IntegrateByParts {
                     source: term,
                     operator: DifferentialOperator::Gradient,
@@ -607,15 +629,47 @@ pub fn derive_variational_form_for(
             }
             SemanticExprKind::Differential {
                 operator: DifferentialOperator::Curl,
-                ..
-            } => {
-                return Err(FormCompileError::UnsupportedStrongForm {
-                    code: "FORM_UNSUPPORTED_INTEGRATION_BY_PARTS",
-                    equation: equation_name.to_owned(),
-                    detail: "curl integration by parts requires oriented tangential traces".into(),
+                arg: flux,
+            } if field.space.as_ref().is_some_and(test_space_supports_curl) => {
+                arena.refine_deferred_shape(flux, field.ty.shape.clone());
+                transformations.push(FormTransformation::IntegrateByParts {
+                    source: term,
+                    operator: DifferentialOperator::Curl,
                 });
+                let curl = arena.differential(
+                    DifferentialOperator::Curl,
+                    argument_expr,
+                    domain,
+                    spatial_dimension,
+                    equation.span,
+                )?;
+                let cell = arena.pair(flux, curl, equation.span)?;
+                let cell = arena.with_sign(cell, sign, equation.span);
+                integrals.push(VariationalIntegral {
+                    measure: SemanticMeasure::Cell { domain },
+                    side: FormSide::Cell,
+                    integrand: cell,
+                    source_span: equation.span,
+                });
+                derive_boundary_terms(
+                    model,
+                    equation_name,
+                    equation.id,
+                    test_field,
+                    term,
+                    flux,
+                    argument_expr,
+                    sign,
+                    &mut arena,
+                    &mut integrals,
+                    &mut transformations,
+                    &mut assumptions,
+                    &mut boundary_terms,
+                    &mut substituted_neumann_fluxes,
+                )?;
             }
             _ => {
+                arena.refine_deferred_shape(term, field.ty.shape.clone());
                 let cell = arena.pair(term, argument_expr, equation.span)?;
                 let cell = arena.with_sign(cell, sign, equation.span);
                 integrals.push(VariationalIntegral {
@@ -643,6 +697,7 @@ pub fn derive_variational_form_for(
             &mut referenced,
         )?;
     }
+    referenced.extend(transitive_equation_fields(model, equation)?);
     let mut captures = vec![];
     for symbol_id in referenced {
         if symbol_id == argument_symbol {
@@ -683,6 +738,7 @@ pub fn derive_variational_form_for(
     }];
     let receipt = FormReceipt {
         source_declaration: equation.id,
+        test_space_source: Some(test_field),
         source_span: equation.span,
         complex_convention: FormComplexConvention::ExplicitConjugationOnly,
         transformations,
@@ -746,6 +802,137 @@ fn select_equation<'a>(
 
 fn test_space_supports_gradient(space: &SpaceSpec) -> bool {
     matches!(space.family, SpaceFamily::H1 | SpaceFamily::Dg)
+}
+
+fn test_space_supports_divergence(space: &SpaceSpec) -> bool {
+    matches!(
+        space.family,
+        SpaceFamily::H1 | SpaceFamily::HDiv | SpaceFamily::Dg
+    )
+}
+
+fn test_space_supports_curl(space: &SpaceSpec) -> bool {
+    matches!(
+        space.family,
+        SpaceFamily::H1 | SpaceFamily::HCurl | SpaceFamily::Dg
+    )
+}
+
+fn divergence_operand_shape(result: &SemanticShape, spatial_dimension: u8) -> SemanticShape {
+    match result {
+        SemanticShape::Numeric(ValueShape::Scalar) => {
+            SemanticShape::Numeric(ValueShape::Vector(spatial_dimension))
+        }
+        SemanticShape::Numeric(ValueShape::Vector(rows)) => {
+            SemanticShape::Numeric(ValueShape::Tensor {
+                rows: *rows,
+                cols: spatial_dimension,
+            })
+        }
+        _ => SemanticShape::Deferred,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+struct EquationFieldScore {
+    time_derivative_depth: usize,
+    spatial_derivative_depth: usize,
+    occurrences: usize,
+}
+
+fn equation_field_score(
+    model: &SemanticModel,
+    equation: &crate::semantic::SemanticDeclaration,
+    target: SymbolId,
+) -> Result<EquationFieldScore, FormCompileError> {
+    let SemanticDeclarationKind::Equation { lhs, rhs } = equation.kind else {
+        unreachable!("equation declaration was selected above")
+    };
+    let mut active_definitions = BTreeSet::new();
+    let left = expression_field_score(model, lhs, target, 0, 0, &mut active_definitions)?;
+    let right = expression_field_score(model, rhs, target, 0, 0, &mut active_definitions)?;
+    Ok(EquationFieldScore {
+        time_derivative_depth: left.time_derivative_depth.max(right.time_derivative_depth),
+        spatial_derivative_depth: left
+            .spatial_derivative_depth
+            .max(right.spatial_derivative_depth),
+        occurrences: left.occurrences + right.occurrences,
+    })
+}
+
+fn expression_field_score(
+    model: &SemanticModel,
+    id: ExprId,
+    target: SymbolId,
+    time_depth: usize,
+    spatial_depth: usize,
+    active_definitions: &mut BTreeSet<SymbolId>,
+) -> Result<EquationFieldScore, FormCompileError> {
+    let expression = model
+        .expressions
+        .get(id.index())
+        .ok_or(FormCompileError::InvalidExpression(id))?;
+    if let SemanticExprKind::Symbol { symbol } = expression.kind {
+        if symbol == target {
+            return Ok(EquationFieldScore {
+                time_derivative_depth: time_depth,
+                spatial_derivative_depth: spatial_depth,
+                occurrences: 1,
+            });
+        }
+        if !active_definitions.insert(symbol) {
+            return Ok(EquationFieldScore::default());
+        }
+        let definition = model
+            .declarations
+            .iter()
+            .find(|declaration| declaration.symbol == Some(symbol))
+            .and_then(|declaration| match declaration.kind {
+                SemanticDeclarationKind::Value { value: Some(value) }
+                | SemanticDeclarationKind::Property { value }
+                | SemanticDeclarationKind::ConstitutiveLaw { value } => Some(value),
+                _ => None,
+            });
+        let score = if let Some(definition) = definition {
+            expression_field_score(
+                model,
+                definition,
+                target,
+                time_depth,
+                spatial_depth,
+                active_definitions,
+            )?
+        } else {
+            EquationFieldScore::default()
+        };
+        active_definitions.remove(&symbol);
+        return Ok(score);
+    }
+    let (time_depth, spatial_depth) = match expression.kind {
+        SemanticExprKind::Differential {
+            operator: DifferentialOperator::TimeDerivative,
+            ..
+        } => (time_depth + 1, spatial_depth),
+        SemanticExprKind::Differential { .. } => (time_depth, spatial_depth + 1),
+        _ => (time_depth, spatial_depth),
+    };
+    let mut score = EquationFieldScore::default();
+    for child in expression_children(&expression.kind) {
+        let child = expression_field_score(
+            model,
+            child,
+            target,
+            time_depth,
+            spatial_depth,
+            active_definitions,
+        )?;
+        score.time_derivative_depth = score.time_derivative_depth.max(child.time_derivative_depth);
+        score.spatial_derivative_depth = score
+            .spatial_derivative_depth
+            .max(child.spatial_derivative_depth);
+        score.occurrences += child.occurrences;
+    }
+    Ok(score)
 }
 
 fn transitive_equation_fields(
@@ -911,7 +1098,11 @@ fn derive_boundary_terms(
                 let normal_test = arena.normal_component(test, TraceSide::Exterior, region.span)?;
                 arena.multiply(value, normal_test, region.span)?
             }
-            _ => unreachable!("only grad/div boundary terms are derived"),
+            DifferentialOperator::Curl => {
+                let flux_trace = arena.trace(operand, TraceSide::Exterior, region.span);
+                arena.pair(flux_trace, test_trace, region.span)?
+            }
+            _ => unreachable!("only grad/div/curl boundary terms are derived"),
         };
         let formal = arena.with_sign(formal, sign, region.span);
         let condition = model.declarations.iter().find(|declaration| {
@@ -966,7 +1157,14 @@ fn derive_boundary_terms(
                         region: region.id,
                     });
                 }
-                let substituted = arena.pair(*value, test_trace, region.span)?;
+                let boundary_test = match operator {
+                    DifferentialOperator::Divergence | DifferentialOperator::Curl => test_trace,
+                    DifferentialOperator::Gradient => {
+                        arena.normal_component(test, TraceSide::Exterior, region.span)?
+                    }
+                    _ => unreachable!("only grad/div/curl boundary terms are derived"),
+                };
+                let substituted = arena.pair(*value, boundary_test, region.span)?;
                 let substituted = arena.with_sign(substituted, sign, region.span);
                 let integral_index = integrals.len();
                 integrals.push(VariationalIntegral {
@@ -1038,6 +1236,16 @@ impl FormArena {
         id
     }
 
+    fn refine_deferred_shape(&mut self, id: ExprId, shape: SemanticShape) {
+        let expression = &mut self.expressions[id.index()];
+        if matches!(expression.ty.shape, SemanticShape::Deferred)
+            && !matches!(shape, SemanticShape::Deferred)
+        {
+            expression.ty.axes = axes_for_shape(&shape);
+            expression.ty.shape = shape;
+        }
+    }
+
     fn with_sign(&mut self, value: ExprId, sign: i8, span: SourceSpan) -> ExprId {
         if sign >= 0 {
             value
@@ -1087,6 +1295,21 @@ impl FormArena {
                     rows: *rows,
                     cols: spatial_dimension,
                 })
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(2)), DifferentialOperator::Curl)
+                if spatial_dimension == 2 =>
+            {
+                SemanticShape::Numeric(ValueShape::Scalar)
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(3)), DifferentialOperator::Curl)
+                if spatial_dimension == 3 =>
+            {
+                SemanticShape::Numeric(ValueShape::Vector(3))
+            }
+            (SemanticShape::Numeric(ValueShape::Scalar), DifferentialOperator::Curl)
+                if spatial_dimension == 2 =>
+            {
+                SemanticShape::Numeric(ValueShape::Vector(2))
             }
             (SemanticShape::Deferred, _) => SemanticShape::Deferred,
             _ => {

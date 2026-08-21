@@ -18,6 +18,7 @@ pub mod semantic;
 pub mod source;
 pub mod structural;
 pub mod structured;
+pub mod system;
 pub mod tensor;
 pub mod tensor_interpreter;
 
@@ -80,6 +81,10 @@ pub use structured::{
     StructuredKernelReceipt, StructuredLoweringError, StructuredNumericPolicyReceipt,
     StructuredOperatorKernels, StructuredPointKernelBundle, lower_operator_kernels,
     lower_operator_kernels_with_policy,
+};
+pub use system::{
+    OPERATOR_SYSTEM_SCHEMA, OperatorBlockCoordinate, OperatorSystem, OperatorSystemBlock,
+    OperatorSystemError, compile_authored_operator_system, compile_operator_system,
 };
 pub use tensor::{
     BasisAdjoint, DerivativeConstructionMethod, DerivativeEvaluationPoint, DerivativeEvidence,

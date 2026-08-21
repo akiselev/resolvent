@@ -448,11 +448,22 @@ fn malformed_fc4_shapes_and_derivative_receipts_are_refused() {
             indices: vec![free_axis],
         }),
     };
-    assert!(matches!(
-        lower_operator_kernels(&factorization),
-        Err(resolvent::StructuredLoweringError::InconsistentIndexing { input })
-            if input == active
-    ));
+    let integral_index = diffusion.integral_index;
+    let kernels = lower_operator_kernels(&factorization).unwrap();
+    let bundle = kernels
+        .bundles
+        .iter()
+        .find(|bundle| bundle.integral_index == integral_index)
+        .unwrap();
+    assert_eq!(
+        bundle
+            .primal_inputs
+            .iter()
+            .filter(|binding| binding.input == active)
+            .count(),
+        2,
+        "one logical tensor input must bind every distinct affine access map"
+    );
 
     let (factorization, _) = poisson();
     let f32_policy = malleus::NumericPolicy {
