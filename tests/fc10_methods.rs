@@ -227,6 +227,22 @@ fn fv_and_fd_affine_kernels_execute_with_malleus_reference_semantics() {
 }
 
 #[test]
+fn complete_method_program_round_trips_with_its_malleus_module() {
+    let program = compile_conservation_law_method(
+        &semantics(),
+        "Conservation",
+        "balance",
+        "q",
+        affine("flux", &["minus", "plus"], &[2.0, 0.0]),
+    )
+    .unwrap();
+    let encoded = serde_json::to_vec(&program).unwrap();
+    let decoded: resolvent::MethodProgram = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded, program);
+    validate_module(decoded.local_kernel.unwrap().module).unwrap();
+}
+
+#[test]
 fn compilers_refuse_wrong_method_domains_and_invalid_stencils() {
     let module = semantics();
     assert!(matches!(

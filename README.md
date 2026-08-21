@@ -62,7 +62,10 @@ Resolvent currently provides:
   including access-local affine maps when one logical tensor input is indexed several ways; and
 - FC8 `OperatorSystem` artifacts for derived equations or authored forms, with typed block
   row/column ownership and complete form/requirements/factorization/kernel chains; plus the
-  retained narrow `LocalFormProgram` path for scalar point arithmetic.
+  retained narrow `LocalFormProgram` path for scalar point arithmetic; and
+- FC11 complete Serde round trips for `MethodProgram`, structured kernel bundles, and
+  `OperatorSystem`, including every nested Malleus module. Product archives content-address the
+  complete representation and revalidate decoded Malleus modules.
 
 Unsupported primitives return stable capability diagnostics instead of becoming opaque or
 named-physics opcodes.

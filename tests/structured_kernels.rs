@@ -172,6 +172,17 @@ fn fc5_lowers_complete_validated_malleus_bundles_and_matches_fc4_jvp() {
 }
 
 #[test]
+fn complete_structured_kernel_bundle_round_trips_and_revalidates() {
+    let (_, kernels) = poisson();
+    let encoded = serde_json::to_vec(&kernels).unwrap();
+    let decoded: resolvent::StructuredOperatorKernels = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded, kernels);
+    for bundle in decoded.bundles {
+        validate_module(bundle.module).unwrap();
+    }
+}
+
+#[test]
 fn poisson_malleus_kernels_match_analytic_tensors_on_multiple_geometries() {
     let (factorization, kernels) = poisson();
     let diffusion = kernels

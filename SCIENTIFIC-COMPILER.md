@@ -171,10 +171,9 @@ source/derivative receipts are explicit. Malleus constructs derivatives as struc
 passes and its deterministic interpreter executes every product before any optimized backend.
 
 Each distinct affine access to a logical QFunction input receives its own read operand. Derivative
-contracts bind all access operands, while receipts retain each logical input once. FC5 bundles are
-still in-process typed artifacts: receipts serialize for identity and evidence inspection, while
-complete module/bundle `Deserialize`, JSON round trips, and wire-level digest stability remain
-deferred.
+contracts bind all access operands, while receipts retain each logical input once. Direct typed
+handoff remains the execution boundary. FC11 additionally serializes and deserializes complete
+modules and bundles for product archives; decoded modules must pass Malleus validation before use.
 
 ## FC8 mixed and facet systems
 
@@ -226,5 +225,6 @@ role.
 
 ## Immediate work
 
-Start FC11 artifact serialization and evidence hardening from the typed FC10 receipts; keep
-realization choices downstream and do not merge sibling programs into variational-form types.
+FC11 complete-artifact serialization is landed for method programs, structured kernel bundles,
+and operator systems. Keep realization choices downstream and do not merge sibling programs into
+variational-form types; future wire-schema changes must be explicit and retain receipt validation.

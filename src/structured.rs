@@ -13,25 +13,25 @@ use malleus::{
     ScalarType, Statement, StructuredKernel, StructuredModule, UnaryOp, differentiate,
     validate_module,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
 pub const STRUCTURED_KERNEL_BUNDLE_SCHEMA: &str = "resolvent-structured-kernel-bundle/1";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StructuredKernelLoweringMethod {
     IndexedQFunctionMalleusAd,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredInputOperand {
     pub input: TensorInputId,
     pub operand: OperandId,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredDerivativeContract {
     pub kernel_index: usize,
     pub mode: malleus::DerivativeMode,
@@ -40,21 +40,22 @@ pub struct StructuredDerivativeContract {
     pub dependent_operands: Vec<DerivativeOperand>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StructuredDerivativePurpose {
     StateDirection,
     StateAdjoint,
     FrozenParameterDirection,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StructuredDerivativeEvidence {
     SourceSymbolicJvpReceipt,
     StructuredChainRuleIdentity,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredKernelReceipt {
     pub schema: String,
     pub artifact_digest: Digest,
@@ -73,15 +74,15 @@ pub struct StructuredKernelReceipt {
 }
 
 /// Serializable projection of the Malleus-owned policy used in artifact identity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StructuredNumericPolicyReceipt {
-    pub scalar_type: &'static str,
-    pub fma: &'static str,
-    pub reassociation: &'static str,
-    pub reduction_order: &'static str,
+    pub scalar_type: String,
+    pub fma: String,
+    pub reassociation: String,
+    pub reduction_order: String,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StructuredPointKernelBundle {
     pub integral_index: usize,
     pub output_index: usize,
@@ -95,7 +96,7 @@ pub struct StructuredPointKernelBundle {
     pub receipt: StructuredKernelReceipt,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StructuredOperatorKernels {
     pub schema: String,
     pub source_factorization_digest: Digest,
@@ -321,7 +322,7 @@ fn lower_output(
         ],
         active_inputs: &active_inputs,
         parameter_inputs: &parameter_inputs,
-        numeric_policy: numeric_policy_receipt,
+        numeric_policy: numeric_policy_receipt.clone(),
     });
     let receipt = StructuredKernelReceipt {
         schema: STRUCTURED_KERNEL_BUNDLE_SCHEMA.into(),
@@ -397,19 +398,23 @@ fn policy_receipt(policy: NumericPolicy) -> StructuredNumericPolicyReceipt {
         scalar_type: match policy.scalar_type {
             ScalarType::F32 => "f32",
             ScalarType::F64 => "f64",
-        },
+        }
+        .into(),
         fma: match policy.fma {
             FmaPolicy::Forbidden => "forbidden",
             FmaPolicy::Allowed => "allowed",
-        },
+        }
+        .into(),
         reassociation: match policy.reassociation {
             Reassociation::Forbidden => "forbidden",
             Reassociation::Allowed => "allowed",
-        },
+        }
+        .into(),
         reduction_order: match policy.reduction_order {
             ReductionOrder::Canonical => "canonical",
             ReductionOrder::ScheduleDefined => "schedule_defined",
-        },
+        }
+        .into(),
     }
 }
 

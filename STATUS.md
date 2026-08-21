@@ -4,7 +4,7 @@ Updated: 2026-08-21
 
 Branch: `master`
 
-Milestone: FC10 sibling method-family compilers complete
+Milestone: FC11 complete compiler-artifact serialization
 
 ## Role
 
@@ -103,10 +103,10 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
 - One logical QFunction input may bind multiple Malleus operands when tensor contraction accesses
   it through distinct affine index vectors; derivative contracts bind every access while receipts
   retain each logical input once.
-- FC5 bundles are deliberately in-process typed artifacts. Finitum's FC6 realization now validates
-  each `StructuredModule`, builds Malleus reference executables, and retains the complete typed
-  bundle contract directly. Schema-tagged receipts serialize for identity/evidence inspection;
-  module/bundle JSON round trips remain deferred to later artifact hardening.
+- FC5 bundles retain their direct typed handoff into Finitum, and FC11 now also gives complete
+  `StructuredModule`, structured bundle, `MethodProgram`, and `OperatorSystem` artifacts stable
+  Serde round trips. Decoded Malleus modules are structurally revalidated before execution, while
+  executable schedules remain rebuilt downstream data.
 - All four products execute with Malleus's deterministic interpreter. The FC5 Poisson gate covers
   three triangle geometries against independent analytic element tensors, Malleus-vs-FC4 JVP
   agreement, directional finite differences, a VJP adjoint dot product, and property/source
@@ -144,7 +144,7 @@ Verified locally on 2026-08-21:
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 81 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 84 tests, 0 failed.
 - `cargo doc --no-deps` -- passed.
 - `cargo test --doc` -- passed.
 - `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
@@ -175,6 +175,9 @@ Verified locally on 2026-08-21:
 - The repository-local FC10 gate compiles all five method families from independent local source
   fixtures, proves distinct artifact identities and nonvariational receipts, executes FV/FD affine
   kernels with Malleus, and checks domain/stencil refusals.
+- FC11 round-trip gates serialize and deserialize a complete FV method program, a Poisson
+  primal/JVP/VJP/parameter bundle, and a mixed Stokes operator system, then revalidate every nested
+  Malleus module.
 - Resolvent tests contain no compile-time or runtime path into Sinbad's product corpus; standalone
   validation uses only repository-local fixtures plus the declared Quantitas/Malleus dependencies.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
@@ -187,7 +190,7 @@ Verified locally on 2026-08-21:
   `734d78cd6ff516afee54201bc70cd59fd34e67e3`; API types used directly include `Dimension`,
   `Quantity`, `QuantityLiteral`, `QuantityKindId`, `UnitId`, and `UnitRegistry`.
 - Malleus path: `../malleus`, validated at
-  `b55e3c919b98c36176cf66b53744492e5235cc5a`; Resolvent constructs Malleus modules, operands,
+  `09e27a6a23a6a5eab6f881ac0bec9db23046d58e`; Resolvent constructs Malleus modules, operands,
   affine maps, expressions, derivative requests, statements, and numeric policies directly.
 - Public downstream sequence: `compile_variational_form`/`derive_variational_form` ->
   `infer_form_requirements` -> `factor_operator` -> `lower_operator_kernels`. The existing narrow
@@ -202,6 +205,5 @@ Verified locally on 2026-08-21:
 
 ## Next compiler work
 
-1. Start FC11 stable serialization, inspection, and cache identity for complete method/kernel
-   artifacts and product evidence.
-2. Keep optimized topology traversal realization-owned and preserve local-kernel semantics.
+1. Keep optimized topology traversal realization-owned and preserve local-kernel semantics.
+2. Evolve serialized schemas only with explicit versioning and receipt-chain validation.

@@ -7,19 +7,19 @@ use crate::{
     infer_form_requirements, lower_operator_kernels,
 };
 use crate::{SemanticModule, VariationalForm};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
 pub const OPERATOR_SYSTEM_SCHEMA: &str = "resolvent-operator-system/1";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct OperatorBlockCoordinate {
     pub row: SymbolId,
     pub column: SymbolId,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OperatorSystemBlock {
     pub equation: String,
     pub row: SymbolId,
@@ -31,7 +31,7 @@ pub struct OperatorSystemBlock {
     pub kernels: StructuredOperatorKernels,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OperatorSystem {
     pub schema: String,
     pub model: String,

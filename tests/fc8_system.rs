@@ -150,6 +150,27 @@ fn mixed_gate_models_compile_complete_block_kernel_chains() {
 }
 
 #[test]
+fn complete_operator_system_round_trips_with_every_compiler_stage() {
+    let compilation = compile_semantics(FC8_SYSTEMS, &UnitRegistry::si_bootstrap()).unwrap();
+    let system = compile_operator_system(
+        &compilation.semantic,
+        "Stokes",
+        &["momentum", "incompressibility"],
+    )
+    .unwrap();
+    let encoded = serde_json::to_vec(&system).unwrap();
+    let decoded: resolvent::OperatorSystem = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded, system);
+    for bundle in decoded
+        .blocks
+        .into_iter()
+        .flat_map(|block| block.kernels.bundles)
+    {
+        validate_module(bundle.module).unwrap();
+    }
+}
+
+#[test]
 fn dg_two_sided_traces_lower_through_the_same_tensor_and_kernel_contracts() {
     let compilation = compile_semantics(DG_FACET, &UnitRegistry::si_bootstrap()).unwrap();
     let system = compile_authored_operator_system(

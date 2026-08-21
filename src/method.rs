@@ -54,7 +54,7 @@ pub struct AffineMethodKernelSpec {
     pub constant: f64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AffineMethodKernel {
     pub schema: String,
     pub artifact_digest: Digest,
@@ -180,7 +180,7 @@ impl MethodProgramKind {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MethodProgram {
     pub schema: String,
     pub model: String,
