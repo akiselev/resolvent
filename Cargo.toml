@@ -1,16 +1,17 @@
 [package]
 name = "resolvent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.93"
 license = "MIT OR Apache-2.0"
-description = "Scientific language and semantic compiler for multiphysics models"
+description = "Deterministic exact algebra for scientific and geometric consumers"
 repository = "https://github.com/akiselev/resolvent"
 
 [dependencies]
 blake3 = "1"
-malleus = { path = "../malleus" }
-quantitas = { path = "../quantitas" }
-serde = { version = "1", features = ["derive", "rc"] }
-serde_json = { version = "1", features = ["float_roundtrip"] }
+num-bigint = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", features = ["num-bigint", "serde"] }
+num-traits = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
