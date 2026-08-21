@@ -128,6 +128,28 @@ Structural incidence uses the same transitive field-dependency meaning as coupli
 indirection through model-defined values, properties, and constitutive laws cannot make an
 otherwise matched coupled system appear structurally singular.
 
+## FC4 tensor and operator boundary
+
+`factor_operator` consumes a form and its digest-linked `FormRequirements`. Each integral retains
+an indexed `TensorProgram` for the scalar integrand. Shapes, cell/facet side, real scalar
+semantics, free component axes, and canonical sum-reduction axes are explicit. Differentiating
+the integrand with respect to each test evaluation creates basis-dual `QFunctionProgram` outputs;
+the test basis itself is therefore not smuggled into the point function.
+
+The resulting `OperatorFactorization` orders restriction/gather, basis evaluation, model-defined
+or external preprocessing, geometry, QFunction, quadrature weighting, basis transpose, scatter,
+and essential-constraint stages without choosing a mesh, basis table, quadrature rule, or global
+map. JVP point programs are obtained by symbolic directional differentiation of active
+trial/unknown/state evaluations. Their receipts identify the primal, active and frozen inputs,
+runtime evaluation point, complex convention, stateless transaction meaning, construction method,
+and algebraic evidence.
+
+The deterministic reference interpreters execute indexed QFunctions and caller-supplied element
+factorizations. The FC4 gate uses a repository-local P1 triangle fixture to compare generated
+Poisson residuals with the independent analytic element tensor and generated JVPs with both that
+tensor action and directional finite differences. No Poisson operation exists in the compiler or
+interpreter.
+
 ## Malleus boundary
 
 `factor_local_integral` produces a realization-neutral `LocalFormProgram`; `lower_local_program`
@@ -142,12 +164,9 @@ The local artifact is explicitly a one-quadrature-point QFunction. Finitum owns 
 and traversal; Malleus's empty iteration domain therefore means one invocation, never an omitted
 symbolic loop. See [ITERATION-OWNERSHIP.md](ITERATION-OWNERSHIP.md).
 
-The remaining tensor/QFunction work belongs to the next compiler layer:
-
-1. expand differential operators into typed indexed tensor expressions;
-2. consume the landed FC3 basis, mapping, orientation, and quadrature requirements;
-3. factor restriction, basis, geometry, pointwise QFunction, and accumulation work;
-4. lower only the local numerical regions to Malleus.
+FC5 lowers only FC4's local indexed numerical regions to Malleus structured modules. It must add
+validated buffer/index/layout/effect contracts and complete primal, JVP, VJP, and parameter
+kernel bundles before optimized backends.
 
 No named-physics opcode is permitted. A heat, elasticity, Maxwell, or flow form must decompose into
 general mathematical operations and explicit data dependencies.
@@ -171,6 +190,6 @@ role.
 
 ## Immediate work
 
-1. Define indexed tensor/QFunction IR and operator factorization from `FormRequirements`.
-2. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
-3. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.
+1. Lower FC4 indexed programs into Malleus `StructuredModule` artifacts.
+2. Validate primal/JVP/VJP/parameter kernels with the deterministic Malleus interpreter.
+3. Hand the complete Poisson local-kernel bundle to Finitum for FC6 realization.

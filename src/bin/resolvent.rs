@@ -2,8 +2,8 @@ use quantitas::UnitRegistry;
 use resolvent::{
     IncidenceSystem, SemanticModel, SemanticModule, SourceDiagnostic, compile_schedule,
     compile_variational_form, derive_coupling_graph, derive_variational_form, elaborate_module,
-    format_scientific_module, infer_form_requirements, parse_scientific_module_diagnostics,
-    semantic_arena_digest, semantic_digest,
+    factor_operator, format_scientific_module, infer_form_requirements,
+    parse_scientific_module_diagnostics, semantic_arena_digest, semantic_digest,
 };
 use std::{env, fs, process::ExitCode};
 
@@ -247,6 +247,38 @@ fn run() -> Result<(), String> {
                 .map_err(|error| error.to_string())?
             );
         }
+        "operator" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
+            let (model, form_name) = select_model_item(&semantic, selector, "operator")?;
+            let form = compile_variational_form(&semantic, &model.name, form_name)
+                .map_err(|error| error.to_string())?;
+            let requirements =
+                infer_form_requirements(&semantic, &form).map_err(|error| error.to_string())?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &factor_operator(&form, &requirements).map_err(|error| error.to_string())?
+                )
+                .map_err(|error| error.to_string())?
+            );
+        }
+        "derive-operator" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
+            let (model, equation_name) = select_model_item(&semantic, selector, "derive-operator")?;
+            let form = derive_variational_form(&semantic, &model.name, equation_name)
+                .map_err(|error| error.to_string())?;
+            let requirements =
+                infer_form_requirements(&semantic, &form).map_err(|error| error.to_string())?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &factor_operator(&form, &requirements).map_err(|error| error.to_string())?
+                )
+                .map_err(|error| error.to_string())?
+            );
+        }
         "elaborate" => {
             let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
                 .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
@@ -261,7 +293,7 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: resolvent <check|fmt|parse|elaborate|inspect|freeze|explain|coupling|structural|form|derive-form|requirements|derive-requirements> [--json] <model.res> [model|model:item] [detail]".into()
+    "usage: resolvent <check|fmt|parse|elaborate|inspect|freeze|explain|coupling|structural|form|derive-form|requirements|derive-requirements|operator|derive-operator> [--json] <model.res> [model|model:item] [detail]".into()
 }
 
 fn select_model<'a>(

@@ -4,7 +4,7 @@ Updated: 2026-08-20
 
 Branch: `master`
 
-Milestone: FC3 spaces, mappings, and preprocessing complete
+Milestone: FC4 tensor programs and operator factorization complete
 
 ## Role
 
@@ -71,8 +71,24 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   essential boundary data.
 - Scalar point-QFunction lowering returns Malleus IR with a lowering receipt. Finitum owns
   quadrature selection/traversal; the empty Malleus iteration domain means one point invocation.
+- `factor_operator` consumes a typed form and its digest-linked `FormRequirements`, retaining one
+  indexed `TensorProgram` per integral with explicit shapes, cell/facet sides, real scalar
+  semantics, free component axes, and canonical sum-reduction axes.
+- Symbolic differentiation with respect to test evaluations produces basis-dual
+  `QFunctionProgram` outputs. Operator artifacts factor gather/restriction, basis actions,
+  external/model-defined preprocessing, geometry, point functions, quadrature weight, basis
+  transpose, scatter, and essential-constraint stages without concrete mesh or DOF types.
+- Symbolic directional differentiation produces JVP QFunctions with receipts naming the primal,
+  active and frozen inputs, runtime evaluation point, complex convention, stateless semantics,
+  construction method, and algebraic evidence.
+- Tensor input shapes are resolved by the complete symbol/evaluation/site/mapping binding rather
+  than evaluation declaration order. Invalid differential base shapes and active non-basis
+  inputs are refused before artifact generation and again at the interpreter boundary.
+- Deterministic QFunction and caller-supplied element-factorization interpreters implement the FC4
+  reference semantics. An independent P1 triangle fixture validates generated Poisson element
+  residuals and JVPs against its analytic tensor and a directional finite difference.
 - One `resolvent` CLI for check, format, parse, inspect, freeze, explain, coupling, structural
-  analysis, forms, and requirements. Multi-model modules require explicit model selection;
+  analysis, forms, requirements, and operators. Multi-model modules require explicit selection;
   form/equation commands accept `Model:item` and model-wide commands accept `Model`.
 
 ## Removed
@@ -92,7 +108,7 @@ Verified locally on 2026-08-20:
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 65 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 72 tests, 0 failed.
 - `cargo doc --no-deps` -- passed.
 - `cargo test --doc` -- passed.
 - `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
@@ -107,7 +123,12 @@ Verified locally on 2026-08-20:
 - The electrothermal corpus model's coupling graph includes Joule-source and constitutive
   dependencies, and structural analysis returns a nonsingular coupled 2x2 schedule.
 - A three-model CLI fixture passes qualified form, requirement, coupling, structural, and explain
-  selection and refuses ambiguous unqualified item selection.
+  selection plus authored/derived operator selection, and refuses ambiguous unqualified item
+  selection.
+- `derive-operator` passes on Sinbad's Poisson corpus model and emits digest-linked tensor,
+  primal-QFunction, JVP-QFunction, and operator-factorization artifacts.
+- The repository-local FC4 Poisson gate passes an independent analytic P1 triangle residual and
+  element-matrix JVP comparison plus a directional finite-difference JVP check.
 - Resolvent tests contain no compile-time or runtime path into Sinbad's product corpus; standalone
   validation uses only repository-local fixtures plus the declared Quantitas/Malleus dependencies.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
@@ -123,15 +144,15 @@ Verified locally on 2026-08-20:
   `cd24813b29e5909a01b654477de99e9d4adde79b`; Resolvent constructs `StructuredKernel` and uses
   Malleus operands, indexing maps, scalar expressions, statements, and numeric policy directly.
 - Public downstream sequence: `compile_variational_form`/`derive_variational_form` ->
-  `infer_form_requirements` -> indexed tensor/QFunction work. The existing narrow scalar path
-  remains `factor_local_integral` -> `lower_local_program`, with `LoweredKernel { kernel, receipt }`
-  rather than a bare `StructuredKernel`.
+  `infer_form_requirements` -> `factor_operator`. The existing narrow scalar path remains
+  `factor_local_integral` -> `lower_local_program`, with `LoweredKernel { kernel, receipt }` rather
+  than a bare `StructuredKernel`.
 - Finitum must map `LocalIterationContract::QuadraturePoint` across its selected element and
   quadrature points. Any later fixed-axis batching remains realization-owned and must preserve
   point-QFunction semantics; see `ITERATION-OWNERSHIP.md`.
 
 ## Next compiler work
 
-1. Add indexed tensor/QFunction factorization and operator factorization from `FormRequirements`.
-2. Lower Poisson completely through Malleus and bind it to a Finitum realization.
-3. Add primal/JVP/VJP/parameter kernel products and verify them independently.
+1. Lower FC4 tensor/QFunction programs into Malleus `StructuredModule` artifacts.
+2. Add and independently verify primal/JVP/VJP/parameter Malleus kernel products.
+3. Hand the complete Poisson kernel bundle to Finitum for FC6 realization.

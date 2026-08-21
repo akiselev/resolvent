@@ -49,11 +49,17 @@ fn model_qualified_selectors_address_every_model_aware_command() {
     let cases = [
         ("form", "Mixed:mixed_form", "\"model\": \"Mixed\""),
         ("requirements", "Mixed:mixed_form", "\"model\": \"Mixed\""),
+        ("operator", "Mixed:mixed_form", "resolvent-tensor-program/1"),
         ("derive-form", "Maxwell:balance", "\"model\": \"Maxwell\""),
         (
             "derive-requirements",
             "Maxwell:balance",
             "\"model\": \"Maxwell\"",
+        ),
+        (
+            "derive-operator",
+            "Maxwell:balance",
+            "resolvent-operator-factorization/1",
         ),
         ("coupling", "Mixed", "mixed_form"),
         ("structural", "Maxwell", "\"n_equations\": 1"),

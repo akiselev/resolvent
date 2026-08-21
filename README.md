@@ -47,13 +47,19 @@ Resolvent currently provides:
   essential-constraint, boundary-partition, and canonically grouped integral requirements;
   constitutive/value chains expose their physical-field spaces and distinguish basis,
   model-defined, and external inputs; and
-- realization-neutral `LocalFormProgram` factorization with typed input roles/evaluation needs,
-  followed by explicit scalar point-kernel lowering into `malleus::StructuredKernel` and a
-  digest-linked lowering receipt.
+- FC4 `TensorProgram`, `QFunctionProgram`, and `OperatorFactorization` artifacts with explicit
+  shapes, free/reduction axes, sides, scalar semantics, restriction, basis, geometry, quadrature,
+  transpose, scatter, and constraint stages; symbolic test differentiation produces basis-dual
+  point outputs and symbolic directional differentiation produces digest-linked JVP programs;
+- deterministic QFunction and element-factorization interpreters, validated for Poisson against
+  an independent analytic P1 triangle residual, element tensor, and directional finite
+  difference; and
+- the retained narrow `LocalFormProgram` path for scalar point arithmetic into
+  `malleus::StructuredKernel`.
 
-Indexed tensor/QFunction factorization and derivative kernel generation remain active compiler
-work. Unsupported tensor or differential operations fail at the Malleus boundary instead of
-becoming opaque opcodes.
+Lowering the indexed FC4 programs into complete Malleus structured modules and derivative kernel
+bundles is FC5 work. Unsupported tensor primitives return stable capability diagnostics instead
+of becoming opaque or named-physics opcodes.
 
 Derived forms record that declared exterior regions are assumed to partition the domain boundary;
 Finitum must validate that assumption against mesh topology. A Neumann value is substituted at
@@ -74,6 +80,8 @@ cargo run --bin resolvent -- form path/to/model.res form_name
 cargo run --bin resolvent -- derive-form path/to/model.res equation_name
 cargo run --bin resolvent -- requirements path/to/model.res form_name
 cargo run --bin resolvent -- derive-requirements path/to/model.res equation_name
+cargo run --bin resolvent -- operator path/to/model.res form_name
+cargo run --bin resolvent -- derive-operator path/to/model.res equation_name
 cargo run --bin resolvent -- requirements path/to/multi.res ModelName:form_name
 cargo run --bin resolvent -- structural path/to/multi.res ModelName
 ```

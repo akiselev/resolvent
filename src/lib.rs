@@ -17,6 +17,8 @@ pub mod scientific;
 pub mod semantic;
 pub mod source;
 pub mod structural;
+pub mod tensor;
+pub mod tensor_interpreter;
 
 pub use evidence::{
     EmpiricalGrade, EvidenceArtifact, EvidenceAxis, EvidenceGrade, EvidenceItem, EvidenceProfile,
@@ -70,4 +72,19 @@ pub use structural::{
     EquationDerivativeProfile, IncidenceSystem, IndexReductionPlan, Matching, Schedule,
     StructuralCompileError, StructuralError, analyze_aliases, compile_schedule,
     compile_schedule_without_tearing, derivative_profile, maximum_matching, pantelides_plan,
+};
+pub use tensor::{
+    BasisAdjoint, DerivativeConstructionMethod, DerivativeEvaluationPoint, DerivativeEvidence,
+    DerivativeMode, DerivativeReceipt, DerivativeStateSemantics, IndexedTensorExpression,
+    IntegralOperatorFactorization, OperatorFactorization, OperatorFactorizationMethod,
+    OperatorFactorizationReceipt, OperatorStage, QFunctionConstruction, QFunctionInput,
+    QFunctionOutput, QFunctionOutputRole, QFunctionProgram, QFunctionReceipt, RestrictionDirection,
+    TensorAxis, TensorAxisId, TensorAxisRole, TensorBinaryOp, TensorBinding, TensorCompileError,
+    TensorInputId, TensorInputRole, TensorProgram, TensorProgramConstruction, TensorProgramInput,
+    TensorProgramInputRole, TensorProgramReceipt, TensorReductionOp, TensorScalarExpr,
+    TensorScalarSemantics, TensorSide, TensorUnaryOp, factor_operator,
+};
+pub use tensor_interpreter::{
+    DenseTensor, ElementExecutionContext, OperatorAction, TensorInterpretError,
+    interpret_element_operator, interpret_qfunction,
 };
