@@ -2,9 +2,11 @@
 
 ## Goal
 
-Make the full Resolvent kernel usable interactively and remotely without letting any frontend define the CAS semantics.
+Make the Resolvent kernel usable interactively and remotely without letting any frontend define CAS semantics.
 
-RV8 starts early after RV1's canonical wire identity. It progresses from parser/CLI to a transport-neutral kernel protocol, Jupyter, foreign bindings and finally a native notebook. Algorithm breadth continues in parallel through RV5-RV7.
+RV8 starts early, but **different RV8 lanes have different prerequisites**. RV1 structural Term identity is enough for parser/formatter/simple-CLI prototypes. It is not enough to freeze a protocol that transports dynamic values, plans, outcomes and receipts.
+
+Algorithm breadth continues in parallel through RV5-RV7.
 
 ## Principles
 
@@ -15,6 +17,22 @@ RV8 starts early after RV1's canonical wire identity. It progresses from parser/
 - Sequential cells are the default; reactive cells are explicitly pure/declared.
 - Local and remote kernels use the same protocol semantics.
 - Frontend cancellation/timeouts do not redefine deterministic mathematical results.
+- Protocol prototyping may precede protocol stability; compatibility promises follow the schemas they transport.
+
+## Prerequisite ladder
+
+| RV8 surface | Minimum prerequisite |
+|---|---|
+| structural parser/formatter | RV1 atom/Term syntax and structural identity |
+| simple batch CLI over existing typed Rust APIs | RV1 plus the operations it invokes |
+| dynamic domain/value inspection | corresponding RV2 `Domain`/`Element` schemas |
+| plan/explain/receipt commands | corresponding RV3 request/outcome/plan/receipt schemas |
+| stateful definitions/assumptions/rules | relevant RV4 session/evaluation semantics |
+| stable transport-neutral protocol | coherent initial RV1 Term + RV2 dynamic value + RV3 outcome/plan/receipt schemas |
+| Jupyter compatibility promise | stable protocol subset plus rich-display schema |
+| native notebook | exercised CLI/protocol/Jupyter semantics |
+
+No RV8 work package should cite only a phase number when a narrower typed prerequisite can be named.
 
 ## Work packages
 
@@ -22,7 +40,9 @@ RV8 starts early after RV1's canonical wire identity. It progresses from parser/
 
 #### RV8-A1 - Minimal mathematical syntax
 
-Define a small language over RV1 terms and RV2 values:
+May start as RV1 structural syntax stabilizes.
+
+Define a small language over available RV1 Terms and, incrementally, RV2 values:
 
 - exact integer/rational/decimal literals;
 - explicit approximate literals/precision forms;
@@ -31,17 +51,17 @@ Define a small language over RV1 terms and RV2 values:
 - function calls;
 - lists/tuples/maps;
 - indexing;
-- assignments/definitions;
-- assumptions;
+- assignments/definitions once RV4 defines their semantics;
+- assumptions once RV4 defines their semantics;
 - rules/pattern syntax once RV4 is available;
-- package imports;
-- explicit algorithm/precision/budget options.
+- package imports once package semantics exist;
+- explicit algorithm/precision/budget options once RV3 provides those request fields.
 
 Do not begin with a large general-purpose programming language. Add control constructs only when concrete notebook/package use requires them.
 
 #### RV8-A2 - Lossless parser/formatter contract
 
-The parser produces RV1 term/session commands without passing exact literals through `f64`.
+The Resolvent parser produces RV1 Terms/session commands without passing exact literals through `f64`.
 
 Provide:
 
@@ -49,16 +69,18 @@ Provide:
 - structured diagnostics;
 - deterministic formatter;
 - syntax-only parse mode;
-- canonical/debug term inspection;
-- source-to-term origin sidecars.
+- canonical/debug structural Term inspection;
+- source-to-Term origin sidecars.
 
 Formatting is presentation canonicalization, not semantic evaluation.
+
+This parser does not replace Scientia's `.res` parser. A Scientia notebook extension invokes Scientia for `.res` semantics.
 
 ### RV8-B - CLI and REPL
 
 #### RV8-B1 - Batch CLI
 
-Support commands such as:
+A narrow CLI can start early over whichever typed operations have landed:
 
 ```text
 resolvent eval 'factor(x^4 - 1)'
@@ -70,30 +92,38 @@ resolvent verify <certificate>
 resolvent render --format latex|mathml|json
 ```
 
-Exact command shape may change, but every important kernel artifact should be inspectable without a GUI.
+Commands appear only when the underlying semantic contract exists. For example, `plan`/`explain` stability follows RV3 rather than being invented independently in the CLI.
 
 #### RV8-B2 - Interactive REPL
 
-Provide:
+Provide incrementally:
 
-- persistent session definitions/assumptions;
+- persistent session definitions/assumptions after RV4;
 - multiline editing;
 - completion/inspection;
 - history;
 - rich text/LaTeX-capable terminal fallbacks where supported;
 - interrupt/cancellation;
-- plan/receipt inspection.
+- plan/receipt inspection after RV3.
 
-The REPL uses the same session API as remote kernels.
+The REPL uses the same session API as remote kernels once that API is stable.
 
 ### RV8-C - Transport-neutral kernel protocol
 
-#### RV8-C1 - Protocol schema
+#### RV8-C0 - Prototype envelope
 
-Define versioned request/response messages for:
+Before protocol stability, prototype request IDs, framing, errors and cancellation using structural Terms and mock/draft dynamic payloads.
+
+The prototype is explicitly unstable and exists to discover mistakes before public schemas freeze.
+
+#### RV8-C1 - Stable protocol schema
+
+Freeze versioned request/response messages only after the initial RV1/RV2/RV3 schemas they carry are coherent.
+
+Messages cover:
 
 - create/close session;
-- evaluate command/term;
+- evaluate command/Term;
 - cancel request;
 - completion;
 - inspect/documentation;
@@ -105,7 +135,9 @@ Define versioned request/response messages for:
 - package/environment inspection;
 - progress/events for long operations.
 
-Messages carry stable request IDs, session IDs and RV1/RV3 artifact digests. Large payloads may be out-of-band content-addressed artifacts.
+Messages carry stable request IDs, session IDs and semantic artifact digests. They never put arena-local handles on the wire.
+
+Large payloads may use content-addressed references. When durable cross-process/cross-repository storage and lineage are required, an optional Artifactum adapter is preferred to creating a second general artifact store.
 
 #### RV8-C2 - In-process transport
 
@@ -139,15 +171,16 @@ Define structured display values independent of Jupyter MIME specifics:
 - SVG/vector graphics;
 - raster images;
 - plots;
-- 2D/3D scene descriptions;
-- tree/term inspector data;
+- extension-defined 2-D/3-D display payloads;
+- tree/Term inspector data;
+- domain/coercion inspector data;
 - plan/receipt/certificate inspector data.
 
-Adapters choose their native presentation (MIME bundles for Jupyter, widgets for native UI).
+Resolvent owns the generic rich-display envelope. CADabra/Astoria/other extensions own domain-specific scene semantics rather than moving geometry/world models into the CAS core.
 
 ### RV8-E - Jupyter kernel
 
-Build a Jupyter adapter over the Resolvent protocol.
+Build a Jupyter adapter over the **stable subset** of the Resolvent protocol.
 
 Support:
 
@@ -160,31 +193,31 @@ Support:
 - kernel metadata/version;
 - notebook persistence through standard `.ipynb` source/output cells.
 
-Jupyter becomes the first serious interactive frontend because it immediately unlocks JupyterLab, VS Code and remote notebook workflows.
+Jupyter becomes the first serious interactive frontend because it unlocks JupyterLab, VS Code and remote notebook workflows without forcing the native notebook to define kernel semantics.
 
-Acceptance notebooks exercise:
+Acceptance notebooks exercise only capabilities whose underlying contracts have landed, eventually including:
 
 - exact arithmetic;
 - polynomial/domain operations;
 - assumptions/rewrite;
 - algorithm plan inspection;
 - receipts/certificate verification;
-- at least one Scientia extension command once that integration exists.
+- at least one Scientia extension command.
 
 ### RV8-F - Foreign language bindings
 
 #### RV8-F1 - Python
 
-Provide Python objects for:
+Provide structured Python objects for landed concepts:
 
 - session;
-- term;
+- Term;
 - domain/element;
 - outcome;
 - plan;
 - receipt/certificate.
 
-Avoid hiding everything behind `eval(str)`. Structured construction/inspection must be available.
+Avoid hiding everything behind `eval(str)`.
 
 #### RV8-F2 - C ABI
 
@@ -223,8 +256,8 @@ Core surfaces:
 
 - code/math/Markdown cells;
 - typeset input/output;
-- table/plot/scene cells;
-- term tree inspector;
+- table/plot/extension-display cells;
+- Term tree inspector;
 - domain/coercion inspector;
 - active assumption/definition browser;
 - algorithm plan inspector showing chosen algorithm, applicability reasons, fallbacks, budgets and provider;
@@ -233,7 +266,7 @@ Core surfaces:
 - execution/dependency history;
 - local/remote kernel selector.
 
-The algorithm inspector is a first-class differentiator: CAS users and agents should be able to see not only the answer but how Resolvent decided to compute it.
+The algorithm inspector is a first-class differentiator: users and agents should be able to see not only the answer but how Resolvent decided to compute it.
 
 ### RV8-I - Reactive pure cells
 
@@ -283,14 +316,14 @@ Examples:
 
 - a Solverang extension may construct/inspect a constraint solve while Solverang remains authority for constraint semantics and Methodus supplies numerical solving;
 - a CADabra extension may display a B-rep/constraint-driven geometry while CADabra remains geometry authority;
-- a Scientia extension may compile a `.res` model and expose embedded Resolvent scalar terms.
+- a Scientia extension may compile a `.res` model and display Resolvent algebra projections without making Resolvent Terms Scientia's canonical scientific expression identity.
 
 ## Exit gate
 
-RV8 exits when:
+RV8 reaches mature status when:
 
-- a stable transport-neutral kernel protocol exists;
-- CLI and REPL use the same session/evaluation contracts as remote clients;
+- a stable transport-neutral kernel protocol exists over stable initial Term/value/outcome schemas;
+- CLI and REPL use the same session/evaluation contracts as remote clients for their stable features;
 - Jupyter is a first-class usable frontend;
 - Python and C APIs provide structured access rather than string-only evaluation;
 - native notebook documents are replayable and environment-aware;
@@ -300,12 +333,14 @@ RV8 exits when:
 
 ## Parallelism
 
-A parser/CLI lane can start as RV1 stabilizes. Protocol schema/in-process transport can run in parallel with later RV2/RV3 work once term/outcome identity is known. Jupyter follows the protocol. Native UI starts last. Binding lanes can fan out after protocol/dynamic-value APIs settle.
+RV8-A parser/formatter and a narrow RV8-B1 CLI can start with RV1. RV8-C0 protocol prototyping can also start early. Stable RV8-C1/C2 semantics wait for the initial RV2 dynamic-value and RV3 outcome/plan/receipt contracts. Jupyter follows that stable subset. Stateful REPL features wait for RV4. Binding lanes fan out as the dynamic/value/protocol surfaces settle. Native UI starts last.
 
 ## Non-goals
 
+- treating RV1 completion alone as a full protocol freeze;
 - making Jupyter protocol the internal kernel protocol;
 - serializing opaque process state as notebook truth;
 - requiring network/runtime dependencies in core algebra crates;
 - duplicating Scientia/CADabra/Methodus/Solverang/Sinbad semantics in the frontend;
+- duplicating Artifactum for durable artifact lifecycle;
 - blocking CAS algorithm breadth on native UI completion.
