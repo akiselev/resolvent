@@ -1,26 +1,6 @@
-use crate::{AlgebraBudget, AlgebraError, Rational};
-use num_traits::{One, Signed, Zero};
+use crate::{AlgebraBudget, AlgebraError, ExactRing, Rational, RingOps, Sign};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Sign {
-    Negative,
-    Zero,
-    Positive,
-}
-
-impl Sign {
-    pub fn of(value: &Rational) -> Self {
-        if value.is_negative() {
-            Self::Negative
-        } else if value.is_zero() {
-            Self::Zero
-        } else {
-            Self::Positive
-        }
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Expr {
@@ -34,7 +14,7 @@ pub enum Expr {
 
 impl Expr {
     pub fn integer(value: i64) -> Self {
-        Self::Rational(Rational::from_integer(value.into()))
+        Self::Rational(Rational::from_i64(value))
     }
     pub fn symbol(name: impl Into<String>) -> Self {
         Self::Symbol(name.into())
@@ -81,10 +61,10 @@ impl Expr {
                 .cloned()
                 .ok_or_else(|| AlgebraError::MissingSymbol(name.clone())),
             Self::Add(terms) => terms.iter().try_fold(Rational::zero(), |sum, term| {
-                Ok(sum + term.evaluate(environment)?)
+                Ok(sum.add(&term.evaluate(environment)?))
             }),
             Self::Mul(factors) => factors.iter().try_fold(Rational::one(), |product, factor| {
-                Ok(product * factor.evaluate(environment)?)
+                Ok(product.mul(&factor.evaluate(environment)?))
             }),
             Self::Pow { base, exponent } => {
                 let value = base.evaluate(environment)?;
@@ -101,7 +81,7 @@ impl Expr {
         &self,
         environment: &BTreeMap<String, Rational>,
     ) -> Result<Sign, AlgebraError> {
-        self.evaluate(environment).map(|value| Sign::of(&value))
+        self.evaluate(environment).map(|value| value.sign())
     }
 }
 
@@ -126,13 +106,13 @@ fn canonicalize(expr: &Expr, limit: usize, visited: &mut usize) -> Result<Expr, 
                     Expr::Add(nested) => {
                         for value in nested {
                             if let Expr::Rational(value) = value {
-                                constant += value;
+                                constant = constant.add(&value);
                             } else {
                                 flat.push(value);
                             }
                         }
                     }
-                    Expr::Rational(value) => constant += value,
+                    Expr::Rational(value) => constant = constant.add(&value),
                     value => flat.push(value),
                 }
             }
@@ -154,13 +134,13 @@ fn canonicalize(expr: &Expr, limit: usize, visited: &mut usize) -> Result<Expr, 
                     Expr::Mul(nested) => {
                         for value in nested {
                             if let Expr::Rational(value) = value {
-                                constant *= value;
+                                constant = constant.mul(&value);
                             } else {
                                 flat.push(value);
                             }
                         }
                     }
-                    Expr::Rational(value) => constant *= value,
+                    Expr::Rational(value) => constant = constant.mul(&value),
                     value => flat.push(value),
                 }
             }
@@ -242,7 +222,7 @@ fn differentiate(
                 "exp" => Expr::function("exp", [arg]),
                 "log" | "ln" => arg.pow(-1),
                 "sqrt" => Expr::mul([
-                    Expr::Rational(Rational::new(1.into(), 2.into())),
+                    Expr::Rational(Rational::from_ratio(1, 2)),
                     Expr::function("sqrt", [arg]).pow(-1),
                 ]),
                 _ => return Err(AlgebraError::UnsupportedFunction(name.clone())),

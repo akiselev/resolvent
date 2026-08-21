@@ -36,4 +36,6 @@ pub enum AlgebraError {
     ResultantDimension { actual: usize, limit: usize },
     #[error("root isolation requires a nonzero polynomial")]
     ZeroPolynomialRoots,
+    #[error("failed to serialize algebra receipt payload: {0}")]
+    Serialization(String),
 }
