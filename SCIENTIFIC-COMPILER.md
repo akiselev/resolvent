@@ -72,18 +72,32 @@ still enforced around them; no scalar, unit, axis, or frame meaning is invented.
 codes and byte spans cover parsing, module imports, names, domains, units, quantity kinds, roles,
 axes, shapes, dimensions, and frames. Semantic arena digests exclude presentation spans.
 
-Authored forms compile to `VariationalForm`, which retains canonical expressions and adds only
-form-specific organization:
+Authored forms and derived strong equations compile to `VariationalForm`, which retains canonical
+expressions and adds only form-specific organization:
 
 - the selected semantic declaration and parent semantic digest;
 - test/trial arguments and captures keyed by `SymbolId`, with roles, types, spaces, and domains;
-- cell/facet measures keyed by `DomainId` or `RegionId`;
+- cell, exterior/interior-facet, interface, and point measures keyed by `DomainId` or `RegionId`;
 - integrands keyed by `ExprId`; and
 - an artifact digest and receipt recording the source declaration and transformation history.
 
-Strong-form derivation will target the same artifact. It must emit explicit integration-by-parts,
-boundary-term, sign, and assumption receipts. Until that pass exists, the compiler rejects requests
-to infer a weak form rather than guessing.
+Strong-form derivation residualizes equations, selects or accepts an explicit physical field for
+the test space, applies integration by parts only when that space supports the resulting
+derivative, and records boundary terms as retained, substituted, or eliminated by an essential
+condition. The receipt explicitly assumes that its resolved exterior regions partition the domain
+boundary; Finitum must discharge that assumption against topology. A Neumann value may substitute
+only one integrated flux per region and field until the language can express per-term
+correspondence. Ambiguous test spaces or fluxes, missing boundary partitions, invalid derived
+differentials, curl orientation requirements, and unsupported Robin flux laws return stable
+capability errors rather than guessed forms.
+
+Differential, contraction, tensor/facet trace, jump, average, normal-component, and conjugation
+operations are typed semantic nodes rather than string opcodes. Two-sided facets require explicit
+minus/plus restrictions (or jump/average). The deterministic form interpreter evaluates these
+nodes over caller-supplied point values, derivatives, traces, normals, and weights; constructing
+quadrature remains a Finitum responsibility. `required_evaluations` exposes the expression and
+evaluation-site bindings without requiring consumers to traverse the semantic arena. Form receipts
+record an explicit-conjugation-only convention; derivation inserts no implicit complex conjugate.
 
 ## Malleus boundary
 
@@ -99,13 +113,12 @@ The local artifact is explicitly a one-quadrature-point QFunction. Finitum owns 
 and traversal; Malleus's empty iteration domain therefore means one invocation, never an omitted
 symbolic loop. See [ITERATION-OWNERSHIP.md](ITERATION-OWNERSHIP.md).
 
-Those operations belong to the next compiler layer:
+The remaining tensor/QFunction work belongs to the next compiler layer:
 
-1. classify arguments, coefficients, domains, measures, sides, and traces;
-2. expand differential operators into typed indexed tensor expressions;
-3. select transformations and basis evaluation requirements;
-4. factor restriction, basis, geometry, pointwise QFunction, and accumulation work;
-5. lower only the local numerical regions to Malleus.
+1. expand differential operators into typed indexed tensor expressions;
+2. select basis, mapping, orientation, and quadrature requirements;
+3. factor restriction, basis, geometry, pointwise QFunction, and accumulation work;
+4. lower only the local numerical regions to Malleus.
 
 No named-physics opcode is permitted. A heat, elasticity, Maxwell, or flow form must decompose into
 general mathematical operations and explicit data dependencies.
@@ -129,7 +142,6 @@ role.
 
 ## Immediate work
 
-1. Derive variational forms from strong equations with explicit transformation receipts.
-2. Define indexed tensor/QFunction IR and basis/transformation requirements.
-3. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
-4. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.
+1. Define indexed tensor/QFunction IR and basis/transformation requirements.
+2. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
+3. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.

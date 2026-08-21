@@ -1,10 +1,13 @@
 //! Typed variational-form artifacts projected from the canonical semantic arena.
 
 use crate::id::{Digest, span_independent_digest};
-use crate::scientific::{FieldRole, SpaceSpec};
+use crate::scientific::{
+    BinaryOp, BoundaryConditionKind, FieldRole, SpaceFamily, SpaceSpec, UnaryOp, ValueShape,
+};
 use crate::semantic::{
-    DeclarationId, DomainId, ExprId, SemanticDeclarationKind, SemanticExpr, SemanticExprKind,
-    SemanticMeasure, SemanticModel, SemanticModule, SemanticRole, SemanticType, SymbolId,
+    AxisContraction, DeclarationId, DifferentialOperator, DomainId, ExprId, Frame, RegionId,
+    RegionKind, SemanticDeclarationKind, SemanticExpr, SemanticExprKind, SemanticMeasure,
+    SemanticModel, SemanticModule, SemanticRole, SemanticShape, SemanticType, SymbolId, TraceSide,
     semantic_arena_digest,
 };
 use crate::source::SourceSpan;
@@ -12,7 +15,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
-pub const VARIATIONAL_FORM_SCHEMA: &str = "resolvent-variational-form/1";
+pub const VARIATIONAL_FORM_SCHEMA: &str = "resolvent-variational-form/3";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormArity {
+    pub test: u16,
+    pub trial: u16,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -55,23 +64,96 @@ pub struct FormCapture {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VariationalIntegral {
     pub measure: SemanticMeasure,
+    pub side: FormSide,
     pub integrand: ExprId,
     pub source_span: SourceSpan,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormSide {
+    Cell,
+    Exterior,
+    Interior,
+    Interface,
+    Point,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FormTransformation {
     Authored,
+    ResidualizeEquation {
+        equation: DeclarationId,
+    },
+    MultiplyByTest {
+        argument: SymbolId,
+    },
+    IntegrateByParts {
+        source: ExprId,
+        operator: DifferentialOperator,
+    },
+    SubstituteBoundaryCondition {
+        declaration: DeclarationId,
+    },
+    EliminateEssentialBoundaryTerm {
+        declaration: DeclarationId,
+    },
+}
+
+/// Complex-valued forms never gain an implicit conjugation during FC2 derivation. Authored or
+/// later compiler passes must carry each conjugation explicitly in the semantic expression arena.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormComplexConvention {
+    ExplicitConjugationOnly,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormAssumption {
+    ExteriorRegionsPartitionBoundary {
+        domain: DomainId,
+        regions: Vec<RegionId>,
+    },
+    TestTraceVanishes {
+        argument: SymbolId,
+        region: RegionId,
+        condition: DeclarationId,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoundaryTermDisposition {
+    Retained {
+        integral_index: usize,
+    },
+    Substituted {
+        declaration: DeclarationId,
+        integral_index: usize,
+    },
+    EliminatedByEssentialCondition {
+        declaration: DeclarationId,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundaryTermReceipt {
+    pub region: RegionId,
+    pub source: ExprId,
+    pub integrand: ExprId,
+    pub disposition: BoundaryTermDisposition,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormReceipt {
     pub source_declaration: DeclarationId,
     pub source_span: SourceSpan,
+    pub complex_convention: FormComplexConvention,
     pub transformations: Vec<FormTransformation>,
-    pub assumptions: Vec<String>,
-    pub boundary_terms: Vec<ExprId>,
+    pub assumptions: Vec<FormAssumption>,
+    pub boundary_terms: Vec<BoundaryTermReceipt>,
 }
 
 /// A typed form retains canonical semantic expressions and resolved identities. Display names are
@@ -84,6 +166,7 @@ pub struct VariationalForm {
     pub source_semantic_digest: Digest,
     pub artifact_digest: Digest,
     pub declaration: DeclarationId,
+    pub arity: FormArity,
     pub arguments: Vec<FormArgument>,
     pub captures: Vec<FormCapture>,
     pub expressions: Vec<SemanticExpr>,
@@ -115,6 +198,41 @@ pub enum FormCompileError {
     InvalidExpression(ExprId),
     #[error("semantic symbol id {0} is outside the canonical arena")]
     InvalidSymbol(SymbolId),
+    #[error("model `{model}` has no equation named `{equation}`")]
+    MissingEquation { model: String, equation: String },
+    #[error("model `{model}` declares equation `{equation}` more than once")]
+    DuplicateEquation { model: String, equation: String },
+    #[error("equation `{equation}` has no integration domain")]
+    EquationWithoutDomain { equation: String },
+    #[error("equation `{equation}` has no unambiguous physical field for its test space")]
+    AmbiguousTestField { equation: String },
+    #[error("field {symbol} cannot supply a test space for equation `{equation}`")]
+    InvalidTestField { equation: String, symbol: SymbolId },
+    #[error("{code}: equation `{equation}` requires unsupported formulation capability: {detail}")]
+    UnsupportedStrongForm {
+        code: &'static str,
+        equation: String,
+        detail: String,
+    },
+    #[error("{code}: form `{form}` has invalid side semantics: {detail}")]
+    InvalidSideSemantics {
+        code: &'static str,
+        form: String,
+        detail: String,
+    },
+    #[error(
+        "FORM_AMBIGUOUS_NEUMANN_FLUX: equation `{equation}` has multiple integrated flux terms for field {field} on region {region}"
+    )]
+    AmbiguousNeumannFlux {
+        equation: String,
+        field: SymbolId,
+        region: RegionId,
+    },
+    #[error("FORM_INVALID_DERIVED_DIFFERENTIAL: cannot apply {operator:?} to shape {shape:?}")]
+    InvalidDerivedDifferential {
+        operator: DifferentialOperator,
+        shape: SemanticShape,
+    },
 }
 
 /// Compile one authored form exclusively from typed semantic declarations and identities.
@@ -213,6 +331,7 @@ pub fn compile_variational_form(
     let receipt = FormReceipt {
         source_declaration: declaration.id,
         source_span: declaration.span,
+        complex_convention: FormComplexConvention::ExplicitConjugationOnly,
         transformations: vec![FormTransformation::Authored],
         assumptions: vec![],
         boundary_terms: vec![],
@@ -221,16 +340,29 @@ pub fn compile_variational_form(
         .iter()
         .map(|integral| VariationalIntegral {
             measure: integral.measure.clone(),
+            side: side_for_measure(&integral.measure),
             integrand: integral.integrand,
             source_span: integral.span,
         })
         .collect::<Vec<_>>();
+    validate_form_sides(form_name, &model.expressions, &integrals)?;
+    let arity = FormArity {
+        test: arguments
+            .iter()
+            .filter(|argument| argument.role == FormArgumentRole::Test)
+            .count() as u16,
+        trial: arguments
+            .iter()
+            .filter(|argument| argument.role == FormArgumentRole::Trial)
+            .count() as u16,
+    };
     let artifact_digest = span_independent_digest(&FormDigestPayload {
         schema: VARIATIONAL_FORM_SCHEMA,
         model: &model.name,
         name: form_name,
         source_semantic_digest: &source_semantic_digest,
         declaration: declaration.id,
+        arity,
         arguments: &arguments,
         captures: &captures,
         expressions: &model.expressions,
@@ -244,12 +376,926 @@ pub fn compile_variational_form(
         source_semantic_digest,
         artifact_digest,
         declaration: declaration.id,
+        arity,
         arguments,
         captures,
         expressions: model.expressions.clone(),
         integrals,
         receipt,
     })
+}
+
+/// Derive a residual form from one strong equation. The test space is selected only when the
+/// equation result shape and domain identify one physical unknown/state field unambiguously.
+pub fn derive_variational_form(
+    module: &SemanticModule,
+    model_name: &str,
+    equation_name: &str,
+) -> Result<VariationalForm, FormCompileError> {
+    let model = module
+        .models
+        .iter()
+        .find(|model| model.name == model_name)
+        .ok_or_else(|| FormCompileError::MissingModel(model_name.to_owned()))?;
+    let equation = select_equation(model, equation_name)?;
+    let SemanticDeclarationKind::Equation { lhs, .. } = equation.kind else {
+        unreachable!("equation declaration was selected above")
+    };
+    let domain = equation
+        .domain
+        .ok_or_else(|| FormCompileError::EquationWithoutDomain {
+            equation: equation_name.to_owned(),
+        })?;
+    let direct = transitive_equation_fields(model, equation)?;
+    let result_shape = &model
+        .expressions
+        .get(lhs.index())
+        .ok_or(FormCompileError::InvalidExpression(lhs))?
+        .ty
+        .shape;
+    let mut candidates = model
+        .symbols
+        .iter()
+        .filter(|symbol| {
+            symbol.domain == Some(domain)
+                && symbol.space.is_some()
+                && matches!(
+                    symbol.ty.role,
+                    SemanticRole::PhysicalField(FieldRole::Unknown | FieldRole::State)
+                )
+        })
+        .filter(|symbol| {
+            matches!(result_shape, SemanticShape::Deferred) || symbol.ty.shape == *result_shape
+        })
+        .collect::<Vec<_>>();
+    if candidates.len() != 1 {
+        let mut referenced = candidates
+            .iter()
+            .copied()
+            .filter(|symbol| direct.contains(&symbol.id))
+            .collect::<Vec<_>>();
+        if referenced.len() == 1 {
+            candidates = std::mem::take(&mut referenced);
+        }
+    }
+    let test_field = match candidates.as_slice() {
+        [field] => field.id,
+        _ => {
+            return Err(FormCompileError::AmbiguousTestField {
+                equation: equation_name.to_owned(),
+            });
+        }
+    };
+    derive_variational_form_for(module, model_name, equation_name, test_field)
+}
+
+/// Derive a residual form with an explicit physical field supplying the test space.
+pub fn derive_variational_form_for(
+    module: &SemanticModule,
+    model_name: &str,
+    equation_name: &str,
+    test_field: SymbolId,
+) -> Result<VariationalForm, FormCompileError> {
+    let model = module
+        .models
+        .iter()
+        .find(|model| model.name == model_name)
+        .ok_or_else(|| FormCompileError::MissingModel(model_name.to_owned()))?;
+    let equation = select_equation(model, equation_name)?;
+    let domain = equation
+        .domain
+        .ok_or_else(|| FormCompileError::EquationWithoutDomain {
+            equation: equation_name.to_owned(),
+        })?;
+    let field = model
+        .symbols
+        .get(test_field.index())
+        .filter(|field| {
+            field.id == test_field
+                && field.domain == Some(domain)
+                && field.space.is_some()
+                && matches!(
+                    field.ty.role,
+                    SemanticRole::PhysicalField(FieldRole::Unknown | FieldRole::State)
+                )
+        })
+        .ok_or_else(|| FormCompileError::InvalidTestField {
+            equation: equation_name.to_owned(),
+            symbol: test_field,
+        })?;
+    let SemanticDeclarationKind::Equation { lhs, rhs } = equation.kind else {
+        unreachable!("equation declaration was selected above")
+    };
+
+    let mut arena = FormArena::new(model.expressions.clone());
+    let argument_symbol = SymbolId(model.symbols.len() as u32);
+    let mut argument_type = field.ty.clone();
+    argument_type.role = SemanticRole::PhysicalField(FieldRole::Test);
+    let argument_expr = arena.push(
+        SemanticExprKind::Symbol {
+            symbol: argument_symbol,
+        },
+        argument_type.clone(),
+        equation.span,
+    );
+    let mut terms = vec![];
+    flatten_residual_terms(&arena.expressions, lhs, 1, &mut terms)?;
+    flatten_residual_terms(&arena.expressions, rhs, -1, &mut terms)?;
+
+    let mut integrals = vec![];
+    let mut transformations = vec![
+        FormTransformation::ResidualizeEquation {
+            equation: equation.id,
+        },
+        FormTransformation::MultiplyByTest {
+            argument: argument_symbol,
+        },
+    ];
+    let mut assumptions = vec![];
+    let mut boundary_terms = vec![];
+    let mut substituted_neumann_fluxes = BTreeSet::new();
+    let spatial_dimension = model.domains[domain.index()].spatial_dimension;
+    for (term, sign) in terms {
+        match arena.expressions[term.index()].kind.clone() {
+            SemanticExprKind::Differential {
+                operator: DifferentialOperator::Divergence,
+                arg: flux,
+            } if field
+                .space
+                .as_ref()
+                .is_some_and(test_space_supports_gradient) =>
+            {
+                transformations.push(FormTransformation::IntegrateByParts {
+                    source: term,
+                    operator: DifferentialOperator::Divergence,
+                });
+                let gradient = arena.differential(
+                    DifferentialOperator::Gradient,
+                    argument_expr,
+                    domain,
+                    spatial_dimension,
+                    equation.span,
+                )?;
+                let cell = arena.contract(flux, gradient, true, equation.span)?;
+                let cell = arena.with_sign(cell, -sign, equation.span);
+                integrals.push(VariationalIntegral {
+                    measure: SemanticMeasure::Cell { domain },
+                    side: FormSide::Cell,
+                    integrand: cell,
+                    source_span: equation.span,
+                });
+                derive_boundary_terms(
+                    model,
+                    equation_name,
+                    equation.id,
+                    test_field,
+                    term,
+                    flux,
+                    argument_expr,
+                    sign,
+                    &mut arena,
+                    &mut integrals,
+                    &mut transformations,
+                    &mut assumptions,
+                    &mut boundary_terms,
+                    &mut substituted_neumann_fluxes,
+                )?;
+            }
+            SemanticExprKind::Differential {
+                operator: DifferentialOperator::Gradient,
+                arg: scalar,
+            } if field
+                .space
+                .as_ref()
+                .is_some_and(test_space_supports_gradient) =>
+            {
+                transformations.push(FormTransformation::IntegrateByParts {
+                    source: term,
+                    operator: DifferentialOperator::Gradient,
+                });
+                let divergence = arena.differential(
+                    DifferentialOperator::Divergence,
+                    argument_expr,
+                    domain,
+                    spatial_dimension,
+                    equation.span,
+                )?;
+                let cell = arena.multiply(scalar, divergence, equation.span)?;
+                let cell = arena.with_sign(cell, -sign, equation.span);
+                integrals.push(VariationalIntegral {
+                    measure: SemanticMeasure::Cell { domain },
+                    side: FormSide::Cell,
+                    integrand: cell,
+                    source_span: equation.span,
+                });
+                derive_boundary_terms(
+                    model,
+                    equation_name,
+                    equation.id,
+                    test_field,
+                    term,
+                    scalar,
+                    argument_expr,
+                    sign,
+                    &mut arena,
+                    &mut integrals,
+                    &mut transformations,
+                    &mut assumptions,
+                    &mut boundary_terms,
+                    &mut substituted_neumann_fluxes,
+                )?;
+            }
+            SemanticExprKind::Differential {
+                operator: DifferentialOperator::Curl,
+                ..
+            } => {
+                return Err(FormCompileError::UnsupportedStrongForm {
+                    code: "FORM_UNSUPPORTED_INTEGRATION_BY_PARTS",
+                    equation: equation_name.to_owned(),
+                    detail: "curl integration by parts requires oriented tangential traces".into(),
+                });
+            }
+            _ => {
+                let cell = arena.pair(term, argument_expr, equation.span)?;
+                let cell = arena.with_sign(cell, sign, equation.span);
+                integrals.push(VariationalIntegral {
+                    measure: SemanticMeasure::Cell { domain },
+                    side: FormSide::Cell,
+                    integrand: cell,
+                    source_span: equation.span,
+                });
+            }
+        }
+    }
+    if integrals.is_empty() {
+        return Err(FormCompileError::EmptyForm {
+            form: equation_name.to_owned(),
+        });
+    }
+
+    let mut referenced = BTreeSet::new();
+    let mut visited = BTreeSet::new();
+    for integral in &integrals {
+        collect_symbol_ids(
+            &arena.expressions,
+            integral.integrand,
+            &mut visited,
+            &mut referenced,
+        )?;
+    }
+    let mut captures = vec![];
+    for symbol_id in referenced {
+        if symbol_id == argument_symbol {
+            continue;
+        }
+        let symbol = model
+            .symbols
+            .get(symbol_id.index())
+            .ok_or(FormCompileError::InvalidSymbol(symbol_id))?;
+        let role = capture_role(&symbol.ty.role).ok_or_else(|| {
+            FormCompileError::InvalidReferenceRole {
+                form: equation_name.to_owned(),
+                symbol: symbol.id,
+                role: symbol.ty.role.clone(),
+            }
+        })?;
+        captures.push(FormCapture {
+            symbol: symbol.id,
+            role,
+            ty: symbol.ty.clone(),
+            domain: symbol.domain,
+            space: symbol.space.clone(),
+            source_span: symbol.span,
+        });
+    }
+
+    let source_semantic_digest = Digest {
+        algorithm: "blake3".into(),
+        hex: semantic_arena_digest(module),
+    };
+    let arguments = vec![FormArgument {
+        symbol: argument_symbol,
+        role: FormArgumentRole::Test,
+        ty: argument_type,
+        domain,
+        space: field.space.clone().expect("validated above"),
+        source_span: equation.span,
+    }];
+    let receipt = FormReceipt {
+        source_declaration: equation.id,
+        source_span: equation.span,
+        complex_convention: FormComplexConvention::ExplicitConjugationOnly,
+        transformations,
+        assumptions,
+        boundary_terms,
+    };
+    let name = format!("{equation_name}::weak");
+    let arity = FormArity { test: 1, trial: 0 };
+    validate_form_sides(&name, &arena.expressions, &integrals)?;
+    let artifact_digest = span_independent_digest(&FormDigestPayload {
+        schema: VARIATIONAL_FORM_SCHEMA,
+        model: &model.name,
+        name: &name,
+        source_semantic_digest: &source_semantic_digest,
+        declaration: equation.id,
+        arity,
+        arguments: &arguments,
+        captures: &captures,
+        expressions: &arena.expressions,
+        integrals: &integrals,
+        receipt: &receipt,
+    });
+    Ok(VariationalForm {
+        schema: VARIATIONAL_FORM_SCHEMA.into(),
+        model: model.name.clone(),
+        name,
+        source_semantic_digest,
+        artifact_digest,
+        declaration: equation.id,
+        arity,
+        arguments,
+        captures,
+        expressions: arena.expressions,
+        integrals,
+        receipt,
+    })
+}
+
+fn select_equation<'a>(
+    model: &'a SemanticModel,
+    equation_name: &str,
+) -> Result<&'a crate::semantic::SemanticDeclaration, FormCompileError> {
+    let mut matches = model.declarations.iter().filter(|declaration| {
+        declaration.name == equation_name
+            && matches!(declaration.kind, SemanticDeclarationKind::Equation { .. })
+    });
+    let equation = matches
+        .next()
+        .ok_or_else(|| FormCompileError::MissingEquation {
+            model: model.name.clone(),
+            equation: equation_name.to_owned(),
+        })?;
+    if matches.next().is_some() {
+        return Err(FormCompileError::DuplicateEquation {
+            model: model.name.clone(),
+            equation: equation_name.to_owned(),
+        });
+    }
+    Ok(equation)
+}
+
+fn test_space_supports_gradient(space: &SpaceSpec) -> bool {
+    matches!(space.family, SpaceFamily::H1 | SpaceFamily::Dg)
+}
+
+fn transitive_equation_fields(
+    model: &SemanticModel,
+    equation: &crate::semantic::SemanticDeclaration,
+) -> Result<BTreeSet<SymbolId>, FormCompileError> {
+    let SemanticDeclarationKind::Equation { lhs, rhs } = &equation.kind else {
+        unreachable!("equation declaration was selected above")
+    };
+    let mut fields = BTreeSet::new();
+    let mut expressions = BTreeSet::new();
+    let mut symbols = BTreeSet::new();
+    collect_transitive_fields(model, *lhs, &mut expressions, &mut symbols, &mut fields)?;
+    collect_transitive_fields(model, *rhs, &mut expressions, &mut symbols, &mut fields)?;
+    Ok(fields)
+}
+
+fn collect_transitive_fields(
+    model: &SemanticModel,
+    id: ExprId,
+    expressions: &mut BTreeSet<ExprId>,
+    symbols: &mut BTreeSet<SymbolId>,
+    fields: &mut BTreeSet<SymbolId>,
+) -> Result<(), FormCompileError> {
+    if !expressions.insert(id) {
+        return Ok(());
+    }
+    let expression = model
+        .expressions
+        .get(id.index())
+        .ok_or(FormCompileError::InvalidExpression(id))?;
+    if let SemanticExprKind::Symbol { symbol } = expression.kind {
+        let semantic_symbol = model
+            .symbols
+            .get(symbol.index())
+            .ok_or(FormCompileError::InvalidSymbol(symbol))?;
+        if matches!(semantic_symbol.ty.role, SemanticRole::PhysicalField(_)) {
+            fields.insert(symbol);
+        }
+        if symbols.insert(symbol)
+            && let Some(declaration) = model
+                .declarations
+                .iter()
+                .find(|declaration| declaration.symbol == Some(symbol))
+        {
+            let value = match declaration.kind {
+                SemanticDeclarationKind::Value { value } => value,
+                SemanticDeclarationKind::Property { value }
+                | SemanticDeclarationKind::ConstitutiveLaw { value } => Some(value),
+                _ => None,
+            };
+            if let Some(value) = value {
+                collect_transitive_fields(model, value, expressions, symbols, fields)?;
+            }
+        }
+    }
+    for child in expression_children(&expression.kind) {
+        collect_transitive_fields(model, child, expressions, symbols, fields)?;
+    }
+    Ok(())
+}
+
+fn flatten_residual_terms(
+    expressions: &[SemanticExpr],
+    id: ExprId,
+    sign: i8,
+    terms: &mut Vec<(ExprId, i8)>,
+) -> Result<(), FormCompileError> {
+    let expression = expressions
+        .get(id.index())
+        .ok_or(FormCompileError::InvalidExpression(id))?;
+    if matches!(
+        expression.kind,
+        SemanticExprKind::Number {
+            value: 0.0,
+            unit: None
+        }
+    ) {
+        return Ok(());
+    }
+    match expression.kind {
+        SemanticExprKind::Binary {
+            op: BinaryOp::Add,
+            lhs,
+            rhs,
+        } => {
+            flatten_residual_terms(expressions, lhs, sign, terms)?;
+            flatten_residual_terms(expressions, rhs, sign, terms)?;
+        }
+        SemanticExprKind::Binary {
+            op: BinaryOp::Sub,
+            lhs,
+            rhs,
+        } => {
+            flatten_residual_terms(expressions, lhs, sign, terms)?;
+            flatten_residual_terms(expressions, rhs, -sign, terms)?;
+        }
+        SemanticExprKind::Unary {
+            op: UnaryOp::Neg,
+            arg,
+        } => flatten_residual_terms(expressions, arg, -sign, terms)?,
+        _ => terms.push((id, sign)),
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn derive_boundary_terms(
+    model: &SemanticModel,
+    equation_name: &str,
+    _equation: DeclarationId,
+    test_field: SymbolId,
+    source: ExprId,
+    operand: ExprId,
+    test: ExprId,
+    sign: i8,
+    arena: &mut FormArena,
+    integrals: &mut Vec<VariationalIntegral>,
+    transformations: &mut Vec<FormTransformation>,
+    assumptions: &mut Vec<FormAssumption>,
+    boundary_terms: &mut Vec<BoundaryTermReceipt>,
+    substituted_neumann_fluxes: &mut BTreeSet<(RegionId, SymbolId)>,
+) -> Result<(), FormCompileError> {
+    let argument = match arena.expressions[test.index()].kind {
+        SemanticExprKind::Symbol { symbol } => symbol,
+        _ => unreachable!("derived test argument is a symbol expression"),
+    };
+    let domain = model.symbols[test_field.index()]
+        .domain
+        .expect("test field domain validated before derivation");
+    let regions = model
+        .regions
+        .iter()
+        .filter(|region| region.kind == RegionKind::ExteriorFacet && region.domain == Some(domain))
+        .collect::<Vec<_>>();
+    if regions.is_empty() {
+        return Err(FormCompileError::UnsupportedStrongForm {
+            code: "FORM_BOUNDARY_PARTITION_REQUIRED",
+            equation: equation_name.to_owned(),
+            detail: "integration by parts requires a resolved exterior boundary region".into(),
+        });
+    }
+    let partition_assumption = FormAssumption::ExteriorRegionsPartitionBoundary {
+        domain,
+        regions: regions.iter().map(|region| region.id).collect(),
+    };
+    if !assumptions.contains(&partition_assumption) {
+        assumptions.push(partition_assumption);
+    }
+    let operator = match arena.expressions[source.index()].kind {
+        SemanticExprKind::Differential { operator, .. } => operator,
+        _ => unreachable!("boundary derivation follows a differential operation"),
+    };
+    for region in regions {
+        let test_trace = arena.trace(test, TraceSide::Exterior, region.span);
+        let formal = match operator {
+            DifferentialOperator::Divergence => {
+                let normal = arena.normal_component(operand, TraceSide::Exterior, region.span)?;
+                arena.pair(normal, test_trace, region.span)?
+            }
+            DifferentialOperator::Gradient => {
+                let value = arena.trace(operand, TraceSide::Exterior, region.span);
+                let normal_test = arena.normal_component(test, TraceSide::Exterior, region.span)?;
+                arena.multiply(value, normal_test, region.span)?
+            }
+            _ => unreachable!("only grad/div boundary terms are derived"),
+        };
+        let formal = arena.with_sign(formal, sign, region.span);
+        let condition = model.declarations.iter().find(|declaration| {
+            matches!(
+                declaration.kind,
+                SemanticDeclarationKind::BoundaryCondition {
+                    region: condition_region,
+                    target: Some(target),
+                    ..
+                } if condition_region == region.id && target == test_field
+            )
+        });
+        match condition.map(|condition| (&condition.kind, condition.id)) {
+            Some((
+                SemanticDeclarationKind::BoundaryCondition {
+                    condition: BoundaryConditionKind::Dirichlet,
+                    ..
+                },
+                declaration,
+            )) => {
+                transformations
+                    .push(FormTransformation::EliminateEssentialBoundaryTerm { declaration });
+                let assumption = FormAssumption::TestTraceVanishes {
+                    argument,
+                    region: region.id,
+                    condition: declaration,
+                };
+                if !assumptions.contains(&assumption) {
+                    assumptions.push(assumption);
+                }
+                boundary_terms.push(BoundaryTermReceipt {
+                    region: region.id,
+                    source,
+                    integrand: formal,
+                    disposition: BoundaryTermDisposition::EliminatedByEssentialCondition {
+                        declaration,
+                    },
+                });
+            }
+            Some((
+                SemanticDeclarationKind::BoundaryCondition {
+                    condition: BoundaryConditionKind::Neumann,
+                    value,
+                    ..
+                },
+                declaration,
+            )) => {
+                if !substituted_neumann_fluxes.insert((region.id, test_field)) {
+                    return Err(FormCompileError::AmbiguousNeumannFlux {
+                        equation: equation_name.to_owned(),
+                        field: test_field,
+                        region: region.id,
+                    });
+                }
+                let substituted = arena.pair(*value, test_trace, region.span)?;
+                let substituted = arena.with_sign(substituted, sign, region.span);
+                let integral_index = integrals.len();
+                integrals.push(VariationalIntegral {
+                    measure: SemanticMeasure::ExteriorFacet { region: region.id },
+                    side: FormSide::Exterior,
+                    integrand: substituted,
+                    source_span: region.span,
+                });
+                transformations
+                    .push(FormTransformation::SubstituteBoundaryCondition { declaration });
+                boundary_terms.push(BoundaryTermReceipt {
+                    region: region.id,
+                    source,
+                    integrand: formal,
+                    disposition: BoundaryTermDisposition::Substituted {
+                        declaration,
+                        integral_index,
+                    },
+                });
+            }
+            Some((
+                SemanticDeclarationKind::BoundaryCondition {
+                    condition: BoundaryConditionKind::Robin,
+                    ..
+                },
+                _,
+            )) => {
+                return Err(FormCompileError::UnsupportedStrongForm {
+                    code: "FORM_UNSUPPORTED_ROBIN_TRANSFORMATION",
+                    equation: equation_name.to_owned(),
+                    detail: format!(
+                        "Robin condition on region {} needs an explicit flux law",
+                        region.id
+                    ),
+                });
+            }
+            _ => {
+                let integral_index = integrals.len();
+                integrals.push(VariationalIntegral {
+                    measure: SemanticMeasure::ExteriorFacet { region: region.id },
+                    side: FormSide::Exterior,
+                    integrand: formal,
+                    source_span: region.span,
+                });
+                boundary_terms.push(BoundaryTermReceipt {
+                    region: region.id,
+                    source,
+                    integrand: formal,
+                    disposition: BoundaryTermDisposition::Retained { integral_index },
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+struct FormArena {
+    expressions: Vec<SemanticExpr>,
+}
+
+impl FormArena {
+    fn new(expressions: Vec<SemanticExpr>) -> Self {
+        Self { expressions }
+    }
+
+    fn push(&mut self, kind: SemanticExprKind, ty: SemanticType, span: SourceSpan) -> ExprId {
+        let id = ExprId(self.expressions.len() as u32);
+        self.expressions.push(SemanticExpr { id, kind, ty, span });
+        id
+    }
+
+    fn with_sign(&mut self, value: ExprId, sign: i8, span: SourceSpan) -> ExprId {
+        if sign >= 0 {
+            value
+        } else {
+            let ty = self.expressions[value.index()].ty.clone();
+            self.push(
+                SemanticExprKind::Unary {
+                    op: UnaryOp::Neg,
+                    arg: value,
+                },
+                ty,
+                span,
+            )
+        }
+    }
+
+    fn differential(
+        &mut self,
+        operator: DifferentialOperator,
+        arg: ExprId,
+        domain: DomainId,
+        spatial_dimension: u8,
+        span: SourceSpan,
+    ) -> Result<ExprId, FormCompileError> {
+        let source = self
+            .expressions
+            .get(arg.index())
+            .ok_or(FormCompileError::InvalidExpression(arg))?;
+        let shape = match (&source.ty.shape, operator) {
+            (SemanticShape::Numeric(ValueShape::Scalar), DifferentialOperator::Gradient) => {
+                if spatial_dimension == 1 {
+                    SemanticShape::Numeric(ValueShape::Scalar)
+                } else {
+                    SemanticShape::Numeric(ValueShape::Vector(spatial_dimension))
+                }
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(_)), DifferentialOperator::Divergence) => {
+                SemanticShape::Numeric(ValueShape::Scalar)
+            }
+            (
+                SemanticShape::Numeric(ValueShape::Tensor { rows, .. })
+                | SemanticShape::Numeric(ValueShape::SymmetricTensor(rows)),
+                DifferentialOperator::Divergence,
+            ) => SemanticShape::Numeric(ValueShape::Vector(*rows)),
+            (SemanticShape::Numeric(ValueShape::Vector(rows)), DifferentialOperator::Gradient) => {
+                SemanticShape::Numeric(ValueShape::Tensor {
+                    rows: *rows,
+                    cols: spatial_dimension,
+                })
+            }
+            (SemanticShape::Deferred, _) => SemanticShape::Deferred,
+            _ => {
+                return Err(FormCompileError::InvalidDerivedDifferential {
+                    operator,
+                    shape: source.ty.shape.clone(),
+                });
+            }
+        };
+        let ty = SemanticType {
+            axes: axes_for_shape(&shape),
+            shape,
+            dimension: source.ty.dimension.and_then(|dimension| {
+                dimension
+                    .checked_quotient(quantitas::Dimension::LENGTH)
+                    .ok()
+            }),
+            quantity_kind: None,
+            frame: Frame::Domain(domain),
+            role: SemanticRole::Intrinsic,
+        };
+        Ok(self.push(SemanticExprKind::Differential { operator, arg }, ty, span))
+    }
+
+    fn multiply(
+        &mut self,
+        lhs: ExprId,
+        rhs: ExprId,
+        span: SourceSpan,
+    ) -> Result<ExprId, FormCompileError> {
+        let left = self
+            .expressions
+            .get(lhs.index())
+            .ok_or(FormCompileError::InvalidExpression(lhs))?;
+        let right = self
+            .expressions
+            .get(rhs.index())
+            .ok_or(FormCompileError::InvalidExpression(rhs))?;
+        let shape = match (&left.ty.shape, &right.ty.shape) {
+            (SemanticShape::Numeric(ValueShape::Scalar), other)
+            | (other, SemanticShape::Numeric(ValueShape::Scalar)) => other.clone(),
+            (left, right) if left == right => left.clone(),
+            (SemanticShape::Deferred, _) | (_, SemanticShape::Deferred) => SemanticShape::Deferred,
+            _ => SemanticShape::Deferred,
+        };
+        let ty = product_type(&left.ty, &right.ty, shape);
+        Ok(self.push(
+            SemanticExprKind::Binary {
+                op: BinaryOp::Mul,
+                lhs,
+                rhs,
+            },
+            ty,
+            span,
+        ))
+    }
+
+    fn pair(
+        &mut self,
+        lhs: ExprId,
+        rhs: ExprId,
+        span: SourceSpan,
+    ) -> Result<ExprId, FormCompileError> {
+        let left = self
+            .expressions
+            .get(lhs.index())
+            .ok_or(FormCompileError::InvalidExpression(lhs))?;
+        let right = self
+            .expressions
+            .get(rhs.index())
+            .ok_or(FormCompileError::InvalidExpression(rhs))?;
+        if matches!(left.ty.shape, SemanticShape::Numeric(ValueShape::Scalar))
+            || matches!(right.ty.shape, SemanticShape::Numeric(ValueShape::Scalar))
+            || (left.ty.axes.is_empty() && right.ty.axes.is_empty())
+        {
+            return self.multiply(lhs, rhs, span);
+        }
+        self.contract(lhs, rhs, true, span)
+    }
+
+    fn contract(
+        &mut self,
+        lhs: ExprId,
+        rhs: ExprId,
+        all_axes: bool,
+        span: SourceSpan,
+    ) -> Result<ExprId, FormCompileError> {
+        let left = self
+            .expressions
+            .get(lhs.index())
+            .ok_or(FormCompileError::InvalidExpression(lhs))?;
+        let right = self
+            .expressions
+            .get(rhs.index())
+            .ok_or(FormCompileError::InvalidExpression(rhs))?;
+        let count = if all_axes {
+            match (left.ty.axes.len(), right.ty.axes.len()) {
+                (0, right) => right,
+                (left, 0) => left,
+                (left, right) => left.min(right),
+            }
+        } else {
+            1
+        };
+        let ty = product_type(
+            &left.ty,
+            &right.ty,
+            SemanticShape::Numeric(ValueShape::Scalar),
+        );
+        Ok(self.push(
+            SemanticExprKind::Contraction {
+                lhs,
+                rhs,
+                axes: (0..count)
+                    .map(|axis| AxisContraction {
+                        lhs: axis as u8,
+                        rhs: axis as u8,
+                    })
+                    .collect(),
+                conjugate_lhs: false,
+            },
+            ty,
+            span,
+        ))
+    }
+
+    fn trace(&mut self, value: ExprId, side: TraceSide, span: SourceSpan) -> ExprId {
+        let mut ty = self.expressions[value.index()].ty.clone();
+        ty.frame = Frame::Neutral;
+        ty.role = SemanticRole::Intrinsic;
+        self.push(SemanticExprKind::FacetTrace { value, side }, ty, span)
+    }
+
+    fn normal_component(
+        &mut self,
+        value: ExprId,
+        side: TraceSide,
+        span: SourceSpan,
+    ) -> Result<ExprId, FormCompileError> {
+        let source = self
+            .expressions
+            .get(value.index())
+            .ok_or(FormCompileError::InvalidExpression(value))?;
+        let shape = match source.ty.shape {
+            SemanticShape::Numeric(ValueShape::Vector(_)) => {
+                SemanticShape::Numeric(ValueShape::Scalar)
+            }
+            SemanticShape::Numeric(ValueShape::Tensor { rows, .. })
+            | SemanticShape::Numeric(ValueShape::SymmetricTensor(rows)) => {
+                SemanticShape::Numeric(ValueShape::Vector(rows))
+            }
+            SemanticShape::Deferred => SemanticShape::Deferred,
+            _ => SemanticShape::Deferred,
+        };
+        let mut ty = source.ty.clone();
+        ty.shape = shape;
+        ty.axes = axes_for_shape(&ty.shape);
+        ty.frame = Frame::Neutral;
+        ty.role = SemanticRole::Intrinsic;
+        Ok(self.push(SemanticExprKind::NormalComponent { value, side }, ty, span))
+    }
+}
+
+fn product_type(left: &SemanticType, right: &SemanticType, shape: SemanticShape) -> SemanticType {
+    SemanticType {
+        axes: axes_for_shape(&shape),
+        shape,
+        dimension: match (left.dimension, right.dimension) {
+            (Some(left), Some(right)) => left.checked_product(right).ok(),
+            _ => None,
+        },
+        quantity_kind: None,
+        frame: match (&left.frame, &right.frame) {
+            (Frame::Neutral, frame) | (frame, Frame::Neutral) => frame.clone(),
+            (frame, _) => frame.clone(),
+        },
+        role: SemanticRole::Intrinsic,
+    }
+}
+
+fn axes_for_shape(shape: &SemanticShape) -> Vec<crate::semantic::Axis> {
+    match shape {
+        SemanticShape::Numeric(ValueShape::Scalar) => vec![],
+        SemanticShape::Numeric(ValueShape::Vector(extent)) => vec![crate::semantic::Axis {
+            position: 0,
+            extent: *extent,
+        }],
+        SemanticShape::Numeric(ValueShape::Tensor { rows, cols }) => vec![
+            crate::semantic::Axis {
+                position: 0,
+                extent: *rows,
+            },
+            crate::semantic::Axis {
+                position: 1,
+                extent: *cols,
+            },
+        ],
+        SemanticShape::Numeric(ValueShape::SymmetricTensor(extent)) => vec![
+            crate::semantic::Axis {
+                position: 0,
+                extent: *extent,
+            },
+            crate::semantic::Axis {
+                position: 1,
+                extent: *extent,
+            },
+        ],
+        _ => vec![],
+    }
 }
 
 #[derive(Serialize)]
@@ -259,11 +1305,221 @@ struct FormDigestPayload<'a> {
     name: &'a str,
     source_semantic_digest: &'a Digest,
     declaration: DeclarationId,
+    arity: FormArity,
     arguments: &'a [FormArgument],
     captures: &'a [FormCapture],
     expressions: &'a [SemanticExpr],
     integrals: &'a [VariationalIntegral],
     receipt: &'a FormReceipt,
+}
+
+fn side_for_measure(measure: &SemanticMeasure) -> FormSide {
+    match measure {
+        SemanticMeasure::Cell { .. } => FormSide::Cell,
+        SemanticMeasure::ExteriorFacet { .. } => FormSide::Exterior,
+        SemanticMeasure::InteriorFacet { .. } => FormSide::Interior,
+        SemanticMeasure::Interface { .. } => FormSide::Interface,
+        SemanticMeasure::Point { .. } => FormSide::Point,
+    }
+}
+
+fn validate_form_sides(
+    form: &str,
+    expressions: &[SemanticExpr],
+    integrals: &[VariationalIntegral],
+) -> Result<(), FormCompileError> {
+    for integral in integrals {
+        let mut visited = BTreeSet::new();
+        validate_expression_side(
+            form,
+            expressions,
+            integral.integrand,
+            integral.side,
+            false,
+            &mut visited,
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_expression_side(
+    form: &str,
+    expressions: &[SemanticExpr],
+    id: ExprId,
+    integral_side: FormSide,
+    explicitly_restricted: bool,
+    visited: &mut BTreeSet<(ExprId, bool)>,
+) -> Result<(), FormCompileError> {
+    if !visited.insert((id, explicitly_restricted)) {
+        return Ok(());
+    }
+    let expression = expressions
+        .get(id.index())
+        .ok_or(FormCompileError::InvalidExpression(id))?;
+    let invalid = |detail: String| FormCompileError::InvalidSideSemantics {
+        code: "FORM_INVALID_SIDE",
+        form: form.to_owned(),
+        detail,
+    };
+    match &expression.kind {
+        SemanticExprKind::FacetTrace { value, side }
+        | SemanticExprKind::NormalComponent { value, side } => {
+            match integral_side {
+                FormSide::Exterior if *side != TraceSide::Exterior => {
+                    return Err(invalid(format!(
+                        "exterior-facet integral uses {side:?} trace"
+                    )));
+                }
+                FormSide::Interior | FormSide::Interface
+                    if !matches!(side, TraceSide::Minus | TraceSide::Plus) =>
+                {
+                    return Err(invalid(
+                        "two-sided facet integral requires explicit minus/plus trace".into(),
+                    ));
+                }
+                FormSide::Cell | FormSide::Point => {
+                    return Err(invalid(
+                        "facet operation used outside a facet integral".into(),
+                    ));
+                }
+                _ => {}
+            }
+            validate_expression_side(form, expressions, *value, integral_side, true, visited)?;
+        }
+        SemanticExprKind::Jump { value } | SemanticExprKind::Average { value } => {
+            if !matches!(integral_side, FormSide::Interior | FormSide::Interface) {
+                return Err(invalid(
+                    "jump/average requires an interior-facet or interface integral".into(),
+                ));
+            }
+            validate_expression_side(form, expressions, *value, integral_side, true, visited)?;
+        }
+        SemanticExprKind::Unary { arg, .. }
+        | SemanticExprKind::Differential { arg, .. }
+        | SemanticExprKind::TensorTrace { value: arg, .. }
+        | SemanticExprKind::Conjugate { value: arg } => {
+            validate_expression_side(
+                form,
+                expressions,
+                *arg,
+                integral_side,
+                explicitly_restricted,
+                visited,
+            )?;
+        }
+        SemanticExprKind::Binary { lhs, rhs, .. }
+        | SemanticExprKind::Contraction { lhs, rhs, .. } => {
+            validate_expression_side(
+                form,
+                expressions,
+                *lhs,
+                integral_side,
+                explicitly_restricted,
+                visited,
+            )?;
+            validate_expression_side(
+                form,
+                expressions,
+                *rhs,
+                integral_side,
+                explicitly_restricted,
+                visited,
+            )?;
+        }
+        SemanticExprKind::Call { args, .. } | SemanticExprKind::Vector { elements: args } => {
+            for arg in args {
+                validate_expression_side(
+                    form,
+                    expressions,
+                    *arg,
+                    integral_side,
+                    explicitly_restricted,
+                    visited,
+                )?;
+            }
+        }
+        SemanticExprKind::Index { value, indices } => {
+            validate_expression_side(
+                form,
+                expressions,
+                *value,
+                integral_side,
+                explicitly_restricted,
+                visited,
+            )?;
+            for index in indices {
+                validate_expression_side(
+                    form,
+                    expressions,
+                    *index,
+                    integral_side,
+                    explicitly_restricted,
+                    visited,
+                )?;
+            }
+        }
+        SemanticExprKind::Symbol { .. }
+            if matches!(integral_side, FormSide::Interior | FormSide::Interface)
+                && !explicitly_restricted
+                && matches!(expression.ty.frame, Frame::Domain(_)) =>
+        {
+            return Err(invalid(
+                "two-sided facet field reference requires trace, jump, or average".into(),
+            ));
+        }
+        SemanticExprKind::Number { .. }
+        | SemanticExprKind::String { .. }
+        | SemanticExprKind::Symbol { .. } => {}
+    }
+    Ok(())
+}
+
+fn expression_children(kind: &SemanticExprKind) -> Vec<ExprId> {
+    match kind {
+        SemanticExprKind::Unary { arg, .. }
+        | SemanticExprKind::Differential { arg, .. }
+        | SemanticExprKind::TensorTrace { value: arg, .. }
+        | SemanticExprKind::FacetTrace { value: arg, .. }
+        | SemanticExprKind::Jump { value: arg }
+        | SemanticExprKind::Average { value: arg }
+        | SemanticExprKind::Conjugate { value: arg }
+        | SemanticExprKind::NormalComponent { value: arg, .. } => vec![*arg],
+        SemanticExprKind::Binary { lhs, rhs, .. }
+        | SemanticExprKind::Contraction { lhs, rhs, .. } => vec![*lhs, *rhs],
+        SemanticExprKind::Call { args, .. } | SemanticExprKind::Vector { elements: args } => {
+            args.clone()
+        }
+        SemanticExprKind::Index { value, indices } => {
+            let mut children = Vec::with_capacity(indices.len() + 1);
+            children.push(*value);
+            children.extend(indices.iter().copied());
+            children
+        }
+        SemanticExprKind::Number { .. }
+        | SemanticExprKind::String { .. }
+        | SemanticExprKind::Symbol { .. } => vec![],
+    }
+}
+
+fn collect_symbol_ids(
+    expressions: &[SemanticExpr],
+    id: ExprId,
+    visited: &mut BTreeSet<ExprId>,
+    symbols: &mut BTreeSet<SymbolId>,
+) -> Result<(), FormCompileError> {
+    if !visited.insert(id) {
+        return Ok(());
+    }
+    let expression = expressions
+        .get(id.index())
+        .ok_or(FormCompileError::InvalidExpression(id))?;
+    if let SemanticExprKind::Symbol { symbol } = expression.kind {
+        symbols.insert(symbol);
+    }
+    for child in expression_children(&expression.kind) {
+        collect_symbol_ids(expressions, child, visited, symbols)?;
+    }
+    Ok(())
 }
 
 fn collect_symbols(
@@ -286,7 +1542,20 @@ fn collect_symbols(
         SemanticExprKind::Unary { arg, .. } => {
             collect_symbols(model, *arg, visited, symbols)?;
         }
+        SemanticExprKind::Differential { arg, .. }
+        | SemanticExprKind::TensorTrace { value: arg, .. }
+        | SemanticExprKind::FacetTrace { value: arg, .. }
+        | SemanticExprKind::Jump { value: arg }
+        | SemanticExprKind::Average { value: arg }
+        | SemanticExprKind::Conjugate { value: arg }
+        | SemanticExprKind::NormalComponent { value: arg, .. } => {
+            collect_symbols(model, *arg, visited, symbols)?;
+        }
         SemanticExprKind::Binary { lhs, rhs, .. } => {
+            collect_symbols(model, *lhs, visited, symbols)?;
+            collect_symbols(model, *rhs, visited, symbols)?;
+        }
+        SemanticExprKind::Contraction { lhs, rhs, .. } => {
             collect_symbols(model, *lhs, visited, symbols)?;
             collect_symbols(model, *rhs, visited, symbols)?;
         }

@@ -1,7 +1,7 @@
 use quantitas::UnitRegistry;
 use resolvent::{
     IncidenceSystem, SourceDiagnostic, compile_schedule, compile_variational_form,
-    derive_coupling_graph, elaborate_module, format_scientific_module,
+    derive_coupling_graph, derive_variational_form, elaborate_module, format_scientific_module,
     parse_scientific_module_diagnostics, semantic_arena_digest, semantic_digest,
 };
 use std::{env, fs, process::ExitCode};
@@ -174,6 +174,20 @@ fn run() -> Result<(), String> {
                 .map_err(|e| e.to_string())?
             );
         }
+        "derive-form" => {
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
+                .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
+            let model = semantic.models.first().ok_or("module has no model")?;
+            let equation_name = selector.ok_or("derive-form command requires an equation name")?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &derive_variational_form(&semantic, &model.name, equation_name)
+                        .map_err(|e| e.to_string())?
+                )
+                .map_err(|e| e.to_string())?
+            );
+        }
         "elaborate" => {
             let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
                 .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
@@ -188,7 +202,7 @@ fn run() -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "usage: resolvent <check|fmt|parse|elaborate|inspect|freeze|explain|coupling|structural|form> [--json] <model.res> [selector]".into()
+    "usage: resolvent <check|fmt|parse|elaborate|inspect|freeze|explain|coupling|structural|form|derive-form> [--json] <model.res> [selector]".into()
 }
 
 fn render_diagnostics(source: &str, diagnostics: &[SourceDiagnostic], json: bool) -> String {

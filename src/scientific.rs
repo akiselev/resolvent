@@ -180,6 +180,8 @@ pub enum Measure {
     Cell(String),
     Boundary(String),
     InteriorFacet(String),
+    Interface(String),
+    Point(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1091,6 +1093,8 @@ impl Parser {
                 "cell" => Measure::Cell(target),
                 "boundary" => Measure::Boundary(target),
                 "interior_facet" => Measure::InteriorFacet(target),
+                "interface" => Measure::Interface(target),
+                "point" => Measure::Point(target),
                 _ => {
                     self.errors.push(ScientificError::Syntax {
                         message: format!("unknown measure `{measure_name}`"),
@@ -1545,6 +1549,8 @@ pub fn format_scientific_module(module: &ScientificModule) -> String {
                     Measure::Cell(target) => ("cell", target),
                     Measure::Boundary(target) => ("boundary", target),
                     Measure::InteriorFacet(target) => ("interior_facet", target),
+                    Measure::Interface(target) => ("interface", target),
+                    Measure::Point(target) => ("point", target),
                 };
                 out.push_str(&format!(
                     "        {measure}({target}): {};\n",

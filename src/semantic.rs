@@ -43,7 +43,7 @@ arena_id!(SymbolId);
 arena_id!(ExprId);
 arena_id!(DeclarationId);
 
-pub const SEMANTIC_SCHEMA: &str = "resolvent-semantic/2";
+pub const SEMANTIC_SCHEMA: &str = "resolvent-semantic/3";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SemanticModule {
@@ -99,6 +99,7 @@ pub enum RegionKind {
     ExteriorFacet,
     InteriorFacet,
     Interface,
+    Point,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +241,37 @@ pub enum SemanticExprKind {
         function: String,
         args: Vec<ExprId>,
     },
+    Differential {
+        operator: DifferentialOperator,
+        arg: ExprId,
+    },
+    Contraction {
+        lhs: ExprId,
+        rhs: ExprId,
+        axes: Vec<AxisContraction>,
+        conjugate_lhs: bool,
+    },
+    TensorTrace {
+        value: ExprId,
+        axes: AxisContraction,
+    },
+    FacetTrace {
+        value: ExprId,
+        side: TraceSide,
+    },
+    Jump {
+        value: ExprId,
+    },
+    Average {
+        value: ExprId,
+    },
+    Conjugate {
+        value: ExprId,
+    },
+    NormalComponent {
+        value: ExprId,
+        side: TraceSide,
+    },
     Index {
         value: ExprId,
         indices: Vec<ExprId>,
@@ -247,6 +279,31 @@ pub enum SemanticExprKind {
     Vector {
         elements: Vec<ExprId>,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DifferentialOperator {
+    Gradient,
+    Divergence,
+    Curl,
+    RotatedGradient,
+    SymmetricGradient,
+    TimeDerivative,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AxisContraction {
+    pub lhs: u8,
+    pub rhs: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceSide {
+    Exterior,
+    Minus,
+    Plus,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -307,6 +364,8 @@ pub enum SemanticMeasure {
     Cell { domain: DomainId },
     ExteriorFacet { region: RegionId },
     InteriorFacet { region: RegionId },
+    Interface { region: RegionId },
+    Point { region: RegionId },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -550,6 +609,12 @@ impl<'a> Elaborator<'a> {
                             None,
                             integral.target_span,
                         );
+                    }
+                    Measure::Interface(name) => {
+                        self.intern_region(RegionKind::Interface, name, None, integral.target_span);
+                    }
+                    Measure::Point(name) => {
+                        self.intern_region(RegionKind::Point, name, None, integral.target_span);
                     }
                 }
             }
@@ -879,6 +944,18 @@ impl<'a> Elaborator<'a> {
                         },
                         None,
                     )),
+                    Measure::Interface(name) => Some((
+                        SemanticMeasure::Interface {
+                            region: self.region_id(RegionKind::Interface, name),
+                        },
+                        None,
+                    )),
+                    Measure::Point(name) => Some((
+                        SemanticMeasure::Point {
+                            region: self.region_id(RegionKind::Point, name),
+                        },
+                        None,
+                    )),
                 };
                 let expression = self.elaborate_expr(&integral.integrand, diagnostics);
                 if let Some((_, Some(domain))) = &measure {
@@ -1197,13 +1274,7 @@ impl<'a> Elaborator<'a> {
                     .map(|arg| self.elaborate_expr(arg, diagnostics))
                     .collect();
                 let ty = self.call_type(function, &args, expression.span(), diagnostics);
-                (
-                    SemanticExprKind::Call {
-                        function: function.clone(),
-                        args,
-                    },
-                    ty,
-                )
+                (self.call_kind(function, args), ty)
             }
             Expr::Index { value, indices, .. } => {
                 let value = self.elaborate_expr(value, diagnostics);
@@ -1346,18 +1417,22 @@ impl<'a> Elaborator<'a> {
                 ty.role = SemanticRole::Intrinsic;
                 ty
             }
-            "grad" | "rotated_grad" => {
+            "grad" | "rotated_grad" | "sym_grad" => {
                 require_arity(function, args, 1, span, diagnostics);
                 self.derivative_type(arg(0), true, diagnostics, span)
             }
-            "div" => {
+            "div" | "curl" => {
                 require_arity(function, args, 1, span, diagnostics);
-                self.derivative_type(arg(0), false, diagnostics, span)
+                if function == "curl" {
+                    self.curl_type(arg(0), diagnostics, span)
+                } else {
+                    self.derivative_type(arg(0), false, diagnostics, span)
+                }
             }
-            "dot" => {
+            "dot" | "inner" => {
                 require_arity(function, args, 2, span, diagnostics);
                 if let (Some(left), Some(right)) = (arg(0), arg(1)) {
-                    dot_type(left, right, span, diagnostics)
+                    contraction_type(left, right, function == "inner", span, diagnostics)
                 } else {
                     SemanticType::deferred(SemanticRole::Intrinsic)
                 }
@@ -1398,16 +1473,39 @@ impl<'a> Elaborator<'a> {
                     .cloned()
                     .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic))
             }
-            "trace" => {
+            "trace" | "trace_minus" | "trace_plus" => {
                 require_arity(function, args, 1, span, diagnostics);
                 let mut ty = arg(0)
                     .cloned()
                     .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic));
-                // The side mapping is established by FC2; at source-semantics time a trace is
-                // explicitly detached from its volume frame so interface equality is legal.
-                ty.frame = Frame::Neutral;
+                if matches!(
+                    ty.shape,
+                    SemanticShape::Numeric(ValueShape::Tensor { .. })
+                        | SemanticShape::Numeric(ValueShape::SymmetricTensor(_))
+                ) && function == "trace"
+                {
+                    ty.shape = SemanticShape::Numeric(ValueShape::Scalar);
+                    ty.axes.clear();
+                } else {
+                    ty.frame = Frame::Neutral;
+                }
                 ty.role = SemanticRole::Intrinsic;
                 ty
+            }
+            "jump" | "average" | "conj" => {
+                require_arity(function, args, 1, span, diagnostics);
+                let mut ty = arg(0)
+                    .cloned()
+                    .unwrap_or_else(|| SemanticType::deferred(SemanticRole::Intrinsic));
+                if matches!(function, "jump" | "average") {
+                    ty.frame = Frame::Neutral;
+                }
+                ty.role = SemanticRole::Intrinsic;
+                ty
+            }
+            "normal_component" | "normal_component_minus" | "normal_component_plus" => {
+                require_arity(function, args, 1, span, diagnostics);
+                normal_component_type(arg(0), span, diagnostics)
             }
             "zero_vector" => {
                 require_arity(function, args, 1, span, diagnostics);
@@ -1455,6 +1553,154 @@ impl<'a> Elaborator<'a> {
                 )
             }
             _ => SemanticType::deferred(SemanticRole::Intrinsic),
+        }
+    }
+
+    fn call_kind(&self, function: &str, args: Vec<ExprId>) -> SemanticExprKind {
+        if args.is_empty() {
+            return SemanticExprKind::Call {
+                function: function.to_owned(),
+                args,
+            };
+        }
+        let unary_arg = || {
+            args.first()
+                .copied()
+                .expect("call arity diagnosed before kind")
+        };
+        match function {
+            "dt" => SemanticExprKind::Differential {
+                operator: DifferentialOperator::TimeDerivative,
+                arg: unary_arg(),
+            },
+            "grad" => SemanticExprKind::Differential {
+                operator: DifferentialOperator::Gradient,
+                arg: unary_arg(),
+            },
+            "div" => SemanticExprKind::Differential {
+                operator: DifferentialOperator::Divergence,
+                arg: unary_arg(),
+            },
+            "curl" => SemanticExprKind::Differential {
+                operator: DifferentialOperator::Curl,
+                arg: unary_arg(),
+            },
+            "rotated_grad" => SemanticExprKind::Differential {
+                operator: DifferentialOperator::RotatedGradient,
+                arg: unary_arg(),
+            },
+            "sym_grad" => SemanticExprKind::Differential {
+                operator: DifferentialOperator::SymmetricGradient,
+                arg: unary_arg(),
+            },
+            "dot" | "inner" if args.len() >= 2 => {
+                let lhs = args[0];
+                let rhs = args[1];
+                let count = if function == "inner" {
+                    self.expressions[lhs.index()]
+                        .ty
+                        .axes
+                        .len()
+                        .max(self.expressions[rhs.index()].ty.axes.len())
+                } else {
+                    1
+                };
+                SemanticExprKind::Contraction {
+                    lhs,
+                    rhs,
+                    axes: (0..count)
+                        .map(|axis| AxisContraction {
+                            lhs: axis as u8,
+                            rhs: axis as u8,
+                        })
+                        .collect(),
+                    conjugate_lhs: function == "inner",
+                }
+            }
+            "trace"
+                if args.first().is_some_and(|value| {
+                    matches!(
+                        self.expressions[value.index()].ty.shape,
+                        SemanticShape::Numeric(ValueShape::Tensor { .. })
+                            | SemanticShape::Numeric(ValueShape::SymmetricTensor(_))
+                    )
+                }) =>
+            {
+                SemanticExprKind::TensorTrace {
+                    value: unary_arg(),
+                    axes: AxisContraction { lhs: 0, rhs: 1 },
+                }
+            }
+            "trace" | "trace_minus" | "trace_plus" => SemanticExprKind::FacetTrace {
+                value: unary_arg(),
+                side: match function {
+                    "trace_minus" => TraceSide::Minus,
+                    "trace_plus" => TraceSide::Plus,
+                    _ => TraceSide::Exterior,
+                },
+            },
+            "jump" => SemanticExprKind::Jump { value: unary_arg() },
+            "average" => SemanticExprKind::Average { value: unary_arg() },
+            "conj" => SemanticExprKind::Conjugate { value: unary_arg() },
+            "normal_component" | "normal_component_minus" | "normal_component_plus" => {
+                SemanticExprKind::NormalComponent {
+                    value: unary_arg(),
+                    side: match function {
+                        "normal_component_minus" => TraceSide::Minus,
+                        "normal_component_plus" => TraceSide::Plus,
+                        _ => TraceSide::Exterior,
+                    },
+                }
+            }
+            _ => SemanticExprKind::Call {
+                function: function.to_owned(),
+                args,
+            },
+        }
+    }
+
+    fn curl_type(
+        &self,
+        arg: Option<&SemanticType>,
+        diagnostics: &mut Vec<SourceDiagnostic>,
+        span: SourceSpan,
+    ) -> SemanticType {
+        let Some(arg) = arg else {
+            return SemanticType::deferred(SemanticRole::Intrinsic);
+        };
+        let Frame::Domain(domain) = arg.frame else {
+            return SemanticType::deferred(SemanticRole::Intrinsic);
+        };
+        let spatial = self.domains[domain.index()].spatial_dimension;
+        let shape = match (&arg.shape, spatial) {
+            (SemanticShape::Numeric(ValueShape::Vector(2)), 2) => {
+                SemanticShape::Numeric(ValueShape::Scalar)
+            }
+            (SemanticShape::Numeric(ValueShape::Vector(3)), 3) => {
+                SemanticShape::Numeric(ValueShape::Vector(3))
+            }
+            (SemanticShape::Numeric(ValueShape::Scalar), 2) => {
+                SemanticShape::Numeric(ValueShape::Vector(2))
+            }
+            (SemanticShape::Deferred, _) => SemanticShape::Deferred,
+            _ => {
+                diagnostics.push(error(
+                    "TYPE_SHAPE_MISMATCH",
+                    "curl requires a scalar in 2D or a vector in 2D/3D",
+                    span,
+                ));
+                SemanticShape::Deferred
+            }
+        };
+        SemanticType {
+            axes: semantic_axes(&shape),
+            shape,
+            dimension: arg
+                .dimension
+                .and_then(|dimension| dimension.checked_quotient(Dimension::LENGTH).ok()),
+            quantity_kind: None,
+            frame: Frame::Domain(domain),
+            role: SemanticRole::Intrinsic,
         }
     }
 
@@ -1812,34 +2058,48 @@ fn known_kind_dimension(kind: &QuantityKindId) -> Option<Dimension> {
     }
 }
 
-fn dot_type(
+fn contraction_type(
     left: &SemanticType,
     right: &SemanticType,
+    all_axes: bool,
     span: SourceSpan,
     diagnostics: &mut Vec<SourceDiagnostic>,
 ) -> SemanticType {
-    match (&left.shape, &right.shape) {
-        (
-            SemanticShape::Numeric(ValueShape::Vector(left)),
-            SemanticShape::Numeric(ValueShape::Vector(right)),
-        ) if left != right => {
+    if !matches!(left.shape, SemanticShape::Deferred)
+        && !matches!(right.shape, SemanticShape::Deferred)
+    {
+        let valid_shape = if all_axes {
+            left.shape == right.shape
+                && matches!(
+                    left.shape,
+                    SemanticShape::Numeric(ValueShape::Vector(_))
+                        | SemanticShape::Numeric(ValueShape::Tensor { .. })
+                        | SemanticShape::Numeric(ValueShape::SymmetricTensor(_))
+                )
+        } else {
+            matches!(
+                (&left.shape, &right.shape),
+                (
+                    SemanticShape::Numeric(ValueShape::Vector(left)),
+                    SemanticShape::Numeric(ValueShape::Vector(right))
+                ) if left == right
+            )
+        };
+        if !valid_shape {
             diagnostics.push(error(
-                "TYPE_AXIS_MISMATCH",
-                format!("dot product axis extents differ: {left} and {right}"),
+                if left.axes.len() == right.axes.len() {
+                    "TYPE_SHAPE_MISMATCH"
+                } else {
+                    "TYPE_AXIS_MISMATCH"
+                },
+                if all_axes {
+                    "inner product requires equal vector or tensor operands"
+                } else {
+                    "dot product requires equal vector operands"
+                },
                 span,
             ));
         }
-        (
-            SemanticShape::Numeric(ValueShape::Vector(_)),
-            SemanticShape::Numeric(ValueShape::Vector(_)),
-        )
-        | (SemanticShape::Deferred, _)
-        | (_, SemanticShape::Deferred) => {}
-        _ => diagnostics.push(error(
-            "TYPE_SHAPE_MISMATCH",
-            "dot product requires vector operands",
-            span,
-        )),
     }
     check_frame_compatibility(left, right, span, diagnostics);
     SemanticType::numeric(
@@ -1851,6 +2111,40 @@ fn dot_type(
         merge_frame(&left.frame, &right.frame, span, diagnostics),
         SemanticRole::Intrinsic,
     )
+}
+
+fn normal_component_type(
+    arg: Option<&SemanticType>,
+    span: SourceSpan,
+    diagnostics: &mut Vec<SourceDiagnostic>,
+) -> SemanticType {
+    let Some(arg) = arg else {
+        return SemanticType::deferred(SemanticRole::Intrinsic);
+    };
+    let shape = match arg.shape {
+        SemanticShape::Numeric(ValueShape::Vector(_)) => SemanticShape::Numeric(ValueShape::Scalar),
+        SemanticShape::Numeric(ValueShape::Tensor { rows, .. })
+        | SemanticShape::Numeric(ValueShape::SymmetricTensor(rows)) => {
+            SemanticShape::Numeric(ValueShape::Vector(rows))
+        }
+        SemanticShape::Deferred => SemanticShape::Deferred,
+        _ => {
+            diagnostics.push(error(
+                "TYPE_SHAPE_MISMATCH",
+                "normal component requires a vector or tensor operand",
+                span,
+            ));
+            SemanticShape::Deferred
+        }
+    };
+    SemanticType {
+        axes: semantic_axes(&shape),
+        shape,
+        dimension: arg.dimension,
+        quantity_kind: None,
+        frame: Frame::Neutral,
+        role: SemanticRole::Intrinsic,
+    }
 }
 
 fn require_arity(

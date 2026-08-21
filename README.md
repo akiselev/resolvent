@@ -33,16 +33,26 @@ Resolvent currently provides:
 - stable structured diagnostics for malformed syntax, units, kinds, roles, names, axes, and frames;
 - property, constitutive, coupling, time/state, and evidence semantics;
 - structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning over the same model;
-- compilation of authored forms from the typed semantic arena into `VariationalForm`, with
+- compilation of authored forms and derivation of strong equations into `VariationalForm`, with
   `DeclarationId`, `SymbolId`, `DomainId`, `RegionId`, and `ExprId` identities plus transformation
-  receipts; and
+  and boundary-term receipts;
+- typed differential, contraction, tensor/facet trace, jump, average, normal-component, and
+  conjugation operations with explicit cell, exterior, interior, interface, and point sides;
+- a deterministic form interpreter over caller-supplied point values, derivatives, traces,
+  normals, and weights, plus `required_evaluations` for discovering the binding contract; and
 - realization-neutral `LocalFormProgram` factorization with typed input roles/evaluation needs,
   followed by explicit scalar point-kernel lowering into `malleus::StructuredKernel` and a
   digest-linked lowering receipt.
 
-Tensor factorization, strong-equation-to-form derivation, integration-by-parts receipts, basis
-requirements, and derivative kernel generation remain active compiler work. Unsupported tensor or
-differential operations fail at the Malleus boundary instead of becoming opaque opcodes.
+Tensor/QFunction factorization, basis and transformation requirements, and derivative kernel
+generation remain active compiler work. Unsupported tensor or differential operations fail at the
+Malleus boundary instead of becoming opaque opcodes.
+
+Derived forms record that declared exterior regions are assumed to partition the domain boundary;
+Finitum must validate that assumption against mesh topology. A Neumann value is substituted at
+most once per region and field because FC2 has no per-flux boundary correspondence. Complex
+conjugation is always explicit—derivation never silently changes a bilinear contraction into a
+sesquilinear one.
 
 ## Command line
 
@@ -54,6 +64,7 @@ cargo run --bin resolvent -- elaborate examples/nonlinear_heat.res
 cargo run --bin resolvent -- coupling examples/nonlinear_heat.res
 cargo run --bin resolvent -- structural examples/nonlinear_heat.res
 cargo run --bin resolvent -- form path/to/model.res form_name
+cargo run --bin resolvent -- derive-form path/to/model.res equation_name
 ```
 
 `check`, `inspect`, `freeze`, `coupling`, `structural`, `explain`, and `form` all require successful

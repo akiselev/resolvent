@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
-pub const LOCAL_FORM_PROGRAM_SCHEMA: &str = "resolvent-local-form-program/1";
+pub const LOCAL_FORM_PROGRAM_SCHEMA: &str = "resolvent-local-form-program/3";
 pub const KERNEL_LOWERING_SCHEMA: &str = "resolvent-kernel-lowering/1";
 
 /// Mathematical role of an externally bound value in point-local form evaluation.
@@ -153,10 +153,16 @@ pub fn factor_local_integral(
                 index: integral_index,
             })?;
     let mut evaluations = BTreeMap::<SymbolId, BTreeSet<InputEvaluation>>::new();
+    let default_evaluation = match integral.measure {
+        SemanticMeasure::ExteriorFacet { .. }
+        | SemanticMeasure::InteriorFacet { .. }
+        | SemanticMeasure::Interface { .. } => InputEvaluation::Trace,
+        SemanticMeasure::Cell { .. } | SemanticMeasure::Point { .. } => InputEvaluation::Value,
+    };
     collect_input_evaluations(
         &form.expressions,
         integral.integrand,
-        InputEvaluation::Value,
+        default_evaluation,
         &mut evaluations,
     )?;
 
@@ -334,7 +340,34 @@ fn collect_input_evaluations(
         SemanticExprKind::Unary { arg, .. } => {
             collect_input_evaluations(expressions, *arg, evaluation, inputs)?;
         }
+        SemanticExprKind::Differential { operator, arg } => {
+            let nested = match operator {
+                crate::semantic::DifferentialOperator::Gradient
+                | crate::semantic::DifferentialOperator::RotatedGradient
+                | crate::semantic::DifferentialOperator::SymmetricGradient
+                | crate::semantic::DifferentialOperator::Divergence
+                | crate::semantic::DifferentialOperator::Curl => InputEvaluation::Gradient,
+                crate::semantic::DifferentialOperator::TimeDerivative => {
+                    InputEvaluation::TimeDerivative
+                }
+            };
+            collect_input_evaluations(expressions, *arg, nested, inputs)?;
+        }
+        SemanticExprKind::FacetTrace { value, .. }
+        | SemanticExprKind::Jump { value }
+        | SemanticExprKind::Average { value } => {
+            collect_input_evaluations(expressions, *value, InputEvaluation::Trace, inputs)?;
+        }
+        SemanticExprKind::TensorTrace { value, .. }
+        | SemanticExprKind::Conjugate { value }
+        | SemanticExprKind::NormalComponent { value, .. } => {
+            collect_input_evaluations(expressions, *value, evaluation, inputs)?;
+        }
         SemanticExprKind::Binary { lhs, rhs, .. } => {
+            collect_input_evaluations(expressions, *lhs, evaluation, inputs)?;
+            collect_input_evaluations(expressions, *rhs, evaluation, inputs)?;
+        }
+        SemanticExprKind::Contraction { lhs, rhs, .. } => {
             collect_input_evaluations(expressions, *lhs, evaluation, inputs)?;
             collect_input_evaluations(expressions, *rhs, evaluation, inputs)?;
         }
@@ -442,6 +475,18 @@ fn lower_expr(
         SemanticExprKind::Vector { .. } => {
             return Err(KernelLoweringError::UnsupportedExpression(
                 "vector expression".into(),
+            ));
+        }
+        SemanticExprKind::Differential { .. }
+        | SemanticExprKind::Contraction { .. }
+        | SemanticExprKind::TensorTrace { .. }
+        | SemanticExprKind::FacetTrace { .. }
+        | SemanticExprKind::Jump { .. }
+        | SemanticExprKind::Average { .. }
+        | SemanticExprKind::Conjugate { .. }
+        | SemanticExprKind::NormalComponent { .. } => {
+            return Err(KernelLoweringError::UnsupportedExpression(
+                "typed form operation before tensor lowering".into(),
             ));
         }
     })

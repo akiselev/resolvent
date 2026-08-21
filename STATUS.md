@@ -4,7 +4,7 @@ Updated: 2026-08-20
 
 Branch: `master`
 
-Milestone: FC1 source/semantic core complete; authored FC2 form boundary hardened
+Milestone: FC2 formulation and typed forms complete
 
 ## Role
 
@@ -23,7 +23,7 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
 - One typed `SemanticModel` arena with stable domain, region, symbol, expression, and declaration
   identities; resolved roles and references; shapes and axes; Quantitas dimensions/kinds/units;
   domain frames; typed declaration payloads; and presentation-invariant semantic digest. The
-  typed-declaration wire shape is `resolvent-semantic/2`.
+  typed-declaration wire shape is `resolvent-semantic/3`.
 - Stable structured diagnostics with exact spans for malformed syntax, imports, domains, names,
   units, quantity kinds, roles, shapes, axes, dimensions, and frames.
 - `compile_semantics` is the complete FC1 library boundary. CLI `check`, `inspect`, `freeze`, and
@@ -35,6 +35,20 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   from `ScientificModel`.
 - `VariationalForm` compilation consumes only `SemanticModule`; arguments, captures, measures, and
   integrands retain arena IDs and typed roles instead of source-name keys.
+- Strong equations derive into residual forms with generated typed test arguments, physical-field
+  captures, space-aware integration by parts, and stable capability refusals when test selection,
+  boundary partitions, curl orientation, or Robin flux meaning is not available.
+- Cell, exterior/interior-facet, interface, and point sides are explicit. Differential,
+  contraction, tensor/facet trace, jump, average, normal-component, and conjugation operations are
+  typed semantic nodes; ambiguous two-sided field access is rejected.
+- Form receipts record residualization, test multiplication, integration by parts, boundary-data
+  substitution, an explicit complex convention, typed boundary-partition/test-trace assumptions,
+  and retained/substituted/eliminated boundary terms. Multiple flux terms cannot consume the same
+  Neumann datum without explicit correspondence.
+- The deterministic form interpreter evaluates scalar, complex, vector/tensor, differential,
+  contraction, side/trace, indexing, and common scalar operations from caller-supplied point data.
+  Caller-supplied weights are accumulated without taking ownership of quadrature traversal.
+  `required_evaluations` exposes the expression/evaluation bindings needed by an integral.
 - Realization-neutral `LocalFormProgram` factorization preserves test/trial/field/coefficient/value
   roles and required value/gradient/time-derivative/trace evaluations.
 - Form, local-program, and kernel-lowering artifacts have schema-versioned, span-independent
@@ -61,10 +75,14 @@ Verified locally on 2026-08-20:
 - `cargo fmt --all -- --check` -- passed.
 - `cargo check --all-targets` -- passed.
 - `cargo clippy --all-targets -- -D warnings` -- passed.
-- `cargo test --all-targets` -- passed: 40 tests, 0 failed.
+- `cargo test --all-targets` -- passed: 52 tests, 0 failed.
 - `cargo doc --no-deps` -- passed.
 - `cargo run --quiet --bin resolvent -- check` over all 50 Sinbad corpus models -- passed: 50 of
   50 parsed and elaborated.
+- `derive-form` passed for Poisson, transient diffusion, nonlinear heat, linear elasticity, and
+  both Stokes equations; the same set is covered by the FC2 integration gate.
+- Resolvent tests contain no compile-time or runtime path into Sinbad's product corpus; standalone
+  validation uses only repository-local fixtures plus the declared Quantitas/Malleus dependencies.
 - `cargo run --quiet --bin resolvent -- check examples/nonlinear_heat.res` -- passed.
 - `cargo run --quiet --bin resolvent -- structural examples/nonlinear_heat.res` -- passed with
   one explicit structural block.
@@ -86,8 +104,6 @@ Verified locally on 2026-08-20:
 
 ## Next compiler work
 
-1. Derive variational forms from strong equations with integration-by-parts and boundary receipts.
-2. Add form-side/trace semantics and a deterministic form interpreter.
-3. Add indexed tensor/QFunction factorization and basis/transformation requirements.
-4. Lower Poisson completely through Malleus and bind it to a Finitum realization.
-5. Add primal/JVP/VJP/parameter kernel products and verify them independently.
+1. Add indexed tensor/QFunction factorization and basis/transformation requirements.
+2. Lower Poisson completely through Malleus and bind it to a Finitum realization.
+3. Add primal/JVP/VJP/parameter kernel products and verify them independently.

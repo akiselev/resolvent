@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod evidence;
+pub mod form_interpreter;
 pub mod formulation;
 pub mod id;
 pub mod kernel;
@@ -20,9 +21,15 @@ pub use evidence::{
     EmpiricalGrade, EvidenceArtifact, EvidenceAxis, EvidenceGrade, EvidenceItem, EvidenceProfile,
     FormalGrade, NumericalGrade, Obligation, ObligationStatus,
 };
+pub use form_interpreter::{
+    FormEvaluation, FormEvaluationContext, FormEvaluationKey, FormInterpretError, FormSample,
+    FormValue, interpret_form, interpret_integral, required_evaluations,
+};
 pub use formulation::{
-    FormArgument, FormArgumentRole, FormCapture, FormCaptureRole, FormCompileError, FormReceipt,
-    FormTransformation, VariationalForm, VariationalIntegral, compile_variational_form,
+    BoundaryTermDisposition, BoundaryTermReceipt, FormArgument, FormArgumentRole, FormArity,
+    FormAssumption, FormCapture, FormCaptureRole, FormCompileError, FormComplexConvention,
+    FormReceipt, FormSide, FormTransformation, VariationalForm, VariationalIntegral,
+    compile_variational_form, derive_variational_form, derive_variational_form_for,
 };
 pub use id::{Digest, ObligationId};
 pub use kernel::{
@@ -39,11 +46,11 @@ pub use scientific::{
     resolve_modules, semantic_digest, validate_quantities,
 };
 pub use semantic::{
-    Axis, DeclarationId, DomainId, ExprId, Frame, RegionId, RegionKind, SemanticCompilation,
-    SemanticDeclaration, SemanticDeclarationKind, SemanticDomain, SemanticExpr, SemanticExprKind,
-    SemanticIntegral, SemanticMeasure, SemanticModel, SemanticModule, SemanticRegion, SemanticRole,
-    SemanticShape, SemanticSymbol, SemanticType, SymbolId, compile_semantics, elaborate_module,
-    semantic_arena_digest,
+    Axis, AxisContraction, DeclarationId, DifferentialOperator, DomainId, ExprId, Frame, RegionId,
+    RegionKind, SemanticCompilation, SemanticDeclaration, SemanticDeclarationKind, SemanticDomain,
+    SemanticExpr, SemanticExprKind, SemanticIntegral, SemanticMeasure, SemanticModel,
+    SemanticModule, SemanticRegion, SemanticRole, SemanticShape, SemanticSymbol, SemanticType,
+    SymbolId, TraceSide, compile_semantics, elaborate_module, semantic_arena_digest,
 };
 pub use source::{RelatedSpan, SourceDiagnostic, SourceSeverity, SourceSpan, Spanned};
 pub use structural::scc::{Digraph, GraphError, Sccs, tarjan_scc};
