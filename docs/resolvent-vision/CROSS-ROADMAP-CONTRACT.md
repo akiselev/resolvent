@@ -11,6 +11,11 @@ The governing rule is simple:
 
 Consumer roadmaps remain authoritative for consumer delivery order. Resolvent supplies reusable mathematics on demand without forcing CADabra, Scientia, Sinbad, Methodus, or Solverang to wait for unrelated CAS breadth.
 
+In the sibling checkout, `/projects/sinbad/PLAN.md` is the global coordinator
+queue. It may run the independent lanes below through subagents, but keeps one
+writer per repository and converges each shared contract before downstream
+integration.
+
 ## 1. Current federation baseline
 
 The live ownership split is:

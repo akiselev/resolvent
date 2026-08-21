@@ -5,6 +5,7 @@
 **Program authority:** [`docs/resolvent-vision/README.md`](docs/resolvent-vision/README.md) and the RV0-RV9 capability files  
 **Cross-roadmap sequencing:** [`docs/resolvent-vision/CROSS-ROADMAP-CONTRACT.md`](docs/resolvent-vision/CROSS-ROADMAP-CONTRACT.md)  
 **Landed truth:** [`STATUS.md`](STATUS.md)
+**Workspace execution order:** `/projects/sinbad/PLAN.md` in the sibling checkout
 
 Resolvent is evolving from the newly consolidated consumer-neutral exact algebra crate into a full embeddable computer algebra system. R1 has already moved CADabra's generic exact/scalar implementation into Resolvent, migrated CADabra directly, and deleted the old duplicate crates. That landed foundation is the starting point for this program, not future work.
 
@@ -109,6 +110,11 @@ Users and agents should eventually be able to call `plan`, `explain`, force an a
 ## Program graph: capability gates, not phase barriers
 
 RV numbers identify capability programs. They do **not** impose a blanket `RV0 -> RV1 -> ... -> RV9` implementation sequence.
+
+In the sibling ecosystem checkout, the workspace master plan selects one active
+integration batch and may delegate only its non-overlapping leaves. That
+coordination policy serializes merges without turning RV numbers into blanket
+consumer prerequisites.
 
 ```text
 R1 exact/scalar consolidation (landed)

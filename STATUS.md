@@ -2,6 +2,8 @@
 
 **Updated:** 2026-08-21
 **Landed milestone:** R1 shared exact-algebra consolidation
+**Active planning frontier:** RV0 exact-foundation stabilization; RV1 design may
+overlap, but one-way public Term identity changes wait for RV0-E2.
 
 ## Ownership
 
