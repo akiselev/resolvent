@@ -2,17 +2,32 @@
 
 ## Goal
 
-Replace the current recursive symbolic tree with the durable symbolic identity model that every later CAS feature and frontend will share.
+Replace the current recursive symbolic tree with the durable **structural** symbolic identity model that later CAS features and frontends share.
 
-The resulting term layer must support compiler embedding, long-lived notebook sessions, deterministic replay, pattern matching, rich source/provenance sidecars, and conversion into specialized algebraic domains without turning every value into a generic tree.
+The resulting term layer must support library embedding, long-lived notebook sessions, deterministic replay, pattern matching, source/provenance sidecars, and conversion into specialized algebraic domains without turning every mathematical value or consumer semantic expression into a generic tree.
+
+RV1 is a CAS representation program. It is **not** a migration of Scientia's canonical scientific expression arena.
 
 ## Design requirements
 
-A term is retained symbolic structure. It is not a lazy exact numeric recipe and it is not a domain element optimized for arithmetic.
+A Term is retained symbolic structure. It is not:
+
+- a lazy exact numeric recipe;
+- a specialized domain element optimized for arithmetic;
+- Scientia's scientific `ExprId`/`SemanticModel` identity;
+- a Malleus executable numeric/kernel IR.
 
 The store is caller/session owned. There is no process-global or thread-local mutable symbol/interner state.
 
 Local handles may be compact and store-relative. Stable identity across sessions/processes is a content digest over a versioned canonical structural encoding.
+
+### Structural identity is not algebraic canonicalization
+
+RV1 canonical bytes answer: **"is this the same retained symbolic structure?"** They do not answer: **"is this mathematically equivalent?"**
+
+Therefore RV1 construction must not sort, commute, flatten, cancel, factor, reassociate or otherwise algebraically normalize operations unless the operation's structural contract itself explicitly guarantees that representation independent of a mathematical domain.
+
+In particular, a printed head such as `Mul` does not justify assuming commutativity. Matrices, operators and extension-defined products make that unsound. Domain-aware canonicalization belongs to RV2/RV4 and is recorded as an explicit transformation.
 
 ## Work packages
 
@@ -30,7 +45,9 @@ Specify before implementing the new store:
 - booleans and distinguished symbolic constants;
 - stable canonical serialization for each atom.
 
-A textual exact decimal such as `0.1` must not become the exact binary rational represented by `0.1_f64`.
+A textual exact decimal such as `0.1` in a Resolvent-authored syntax must not become the exact binary rational represented by `0.1_f64`.
+
+This does not by itself fix `.res` literals. Scientia owns `.res` parsing and must preserve authored exact literal data before projection into Resolvent.
 
 Exit: golden vectors cover canonical bytes/digests for all atom classes.
 
@@ -39,7 +56,7 @@ Exit: golden vectors cover canonical bytes/digests for all atom classes.
 Define the minimal general node vocabulary. It must be capable of representing, without consumer-specific opcodes:
 
 - generic function application/head-and-arguments form;
-- associative arithmetic surface (`Add`, `Mul`) where useful for canonical construction;
+- arithmetic syntax without assuming domain-level algebraic laws;
 - arbitrary powers;
 - relations (`Eq`, `Ne`, ordering relations);
 - boolean connectives;
@@ -52,7 +69,7 @@ Define the minimal general node vocabulary. It must be capable of representing, 
 
 Binder identity must avoid accidental capture. Choose and document one explicit model such as de Bruijn-style bound variables, scoped symbol IDs or alpha-normalized binder identities.
 
-Exit: the wire schema can represent all currently required Scientia scalar expressions without semantic erasure, plus generic CAS binders and conditions.
+Exit: the wire schema can structurally represent the consumer-neutral scalar algebra projected from current Scientia expressions without semantic erasure, plus generic CAS binders and conditions.
 
 ### RV1-A3 - Canonical structural encoding and digest
 
@@ -64,17 +81,19 @@ Define a versioned encoding independent of:
 - pointer addresses;
 - process/thread history;
 - source spans;
-- pretty-print formatting.
+- pretty-print formatting;
+- algebraic rewrite/canonicalization history.
 
 Requirements:
 
 - deterministic canonical bytes;
 - cryptographic content digest;
 - explicit schema/version identifier;
-- canonical ordering rules for structurally commutative containers only where mathematically justified;
-- no hidden simplification during serialization.
+- child order preserved wherever it is part of structural syntax;
+- any structurally order-insensitive container explicitly declares that fact in its own representation;
+- no hidden mathematical simplification during serialization.
 
-Exit: independent stores built in different insertion orders produce identical bytes/digests for equivalent constructed terms under the same construction-normalization rules.
+Exit: independent stores that construct the same structural term produce identical bytes/digests regardless of insertion order/process history.
 
 ### RV1-B1 - Caller-owned hash-consed `TermStore`
 
@@ -91,7 +110,7 @@ Implement:
 - thread-safe read access after construction or a documented concurrent-construction model;
 - no recursive drop/evaluation path that can overflow on deep terms.
 
-Construction normalization is deliberately narrow: canonical atom construction, optional flattening of explicitly associative node kinds, obvious identities where the constructor contract promises them, and hash-consing. General algebraic simplification belongs to RV4.
+Construction normalization is deliberately narrow: atom representation, arity/schema validation, binder alpha/capture invariants, and exact structural interning. Algebraic identities belong to explicit RV2/RV4 operations.
 
 ### RV1-B2 - Store lifetime and notebook-scale retention
 
@@ -127,11 +146,11 @@ Provide the substrate required by later consumers/frontends:
 - content digest and canonical bytes;
 - cross-store rebuild.
 
-Do not add general rewriting yet.
+Do not add general algebraic rewriting yet.
 
 ### RV1-C1 - Source/provenance sidecars
 
-Define an origin-map abstraction outside the term identity:
+Define an optional generic origin-map abstraction outside Term identity:
 
 ```text
 TermDigest or TermId -> zero/one/many Origin records
@@ -139,30 +158,50 @@ TermDigest or TermId -> zero/one/many Origin records
 
 Origins may include source file/module, byte span, authored/generated status, parent transformation and consumer-owned IDs.
 
-Resolvent defines the generic sidecar shape if useful, but Scientia remains the owner of source spans and scientific declaration identities.
+Resolvent may define a reusable sidecar shape, but Scientia remains the owner of source spans, scientific declaration IDs and scientific expression IDs.
 
-Exit: one canonical term can be associated with multiple distinct Scientia source origins without changing term identity.
+Exit: one canonical Resolvent Term can be associated with multiple consumer origins without changing Term identity.
 
-### RV1-C2 - Lossless Scientia bridge
+### RV1-C2 - Lossless Scientia algebra projection
 
-Replace the current temporary algebra conversion limitations.
+Replace the current temporary algebra conversion limitations **without replacing Scientia's semantic arena**.
+
+The contract is operation-specific:
+
+```text
+Scientia SemanticModel / ExprId
+    -> project supported scalar algebra
+Resolvent Term and/or Domain Element
+    -> generic algebra operation
+algebra result + receipt/certificate
+    -> re-embed or attach under Scientia-owned semantics
+```
 
 Requirements:
 
-- preserve exact integer/rational/decimal literal intent;
-- preserve comparisons instead of lowering them to zero;
-- preserve supported function calls structurally;
+- Scientia retains its canonical `SemanticModel` and `ExprId` identity;
+- preserve exact integer/rational/decimal literal intent once Scientia exposes it;
+- preserve supported arithmetic/functions structurally;
+- preserve comparisons/conditions for operations where those structures are meaningful;
+- do not claim that every representable relation is a valid scalar differentiation input;
 - preserve piecewise/conditional scalar structure as it is introduced;
-- retain Scientia source spans and semantic IDs outside the term;
-- explicitly refuse scientific constructs that are not scalar algebra rather than fabricating a term;
-- support direct references from Scientia's semantic arena to Resolvent terms or a deterministic bridge artifact without maintaining two algebraically authoritative scalar trees.
+- retain Scientia source spans and semantic IDs on the Scientia side;
+- explicitly refuse scientific constructs that are outside the requested generic algebra operation;
+- no Resolvent `TermId` becomes durable scientific identity;
+- no second algebraically authoritative copy of a transformed scientific model is maintained silently.
 
-Exit:
+### RV1-C3 - Coordinated exact `.res` literal preservation
 
-- current differentiation cases remain green;
-- new regression cases cover comparisons and exact decimal literals;
-- round trip through the bridge does not pass through `f64` for authored exact literals;
-- no `.res` type moves into Resolvent.
+Scientia currently stores source numeric values as `f64`. Resolvent cannot repair authored decimal exactness after that conversion.
+
+This is a coordinated integration change with clear ownership:
+
+- **Scientia** owns parser/source/schema changes required to preserve exact authored decimal/rational data;
+- **Resolvent** owns exact decimal/rational Term atoms, exact conversion APIs and subsequent algebra;
+- schema changes are versioned and current 50-model compiler behavior remains covered;
+- unit-bearing numeric literals retain Quantitas/Scientia meaning rather than becoming Resolvent-owned quantities.
+
+Exit: an authored `.res` decimal such as `0.1` can reach a Resolvent algebra projection as exact `1/10` when the scientific operation requests exact scalar algebra, without changing Scientia's ownership of the source expression.
 
 ### RV1-D1 - Core renderers
 
@@ -172,48 +211,57 @@ Ship deterministic renderers sufficient for library/CLI/frontend development:
 - plain text;
 - LaTeX;
 - MathML presentation form;
-- JSON tree/debug form distinct from the canonical binary identity encoding.
+- JSON tree/debug form distinct from canonical binary identity encoding.
 
-Rendering never changes term identity and does not become a parser-round-trip requirement except where an explicit surface syntax promises one.
+Rendering never changes Term identity and does not become a parser-round-trip requirement except where an explicit surface syntax promises one.
 
 ### RV1-D2 - Stress/fuzz/determinism gate
 
 Test:
 
 - very deep unary/binary chains;
-- very wide sums/products;
+- very wide applications;
 - highly shared DAGs;
+- structurally distinct but mathematically equivalent expressions retaining different Term digests until an explicit algebra operation transforms them;
+- noncommutative/order-sensitive heads preserving argument order;
 - millions of constructed/released transient terms;
 - random binder/substitution cases;
 - cross-store rebuild;
 - serialization fuzzing;
-- identical digests across insertion order/process/thread-count matrices;
+- identical digests across insertion order/process/thread-count matrices for structurally identical terms;
 - malformed wire data fails closed.
 
 ## Exit gate
 
 RV1 exits when:
 
-- one caller-owned immutable term-store API is public;
+- one caller-owned immutable structural Term-store API is public;
 - stable identity is digest/wire based rather than local handle based;
-- numeric literal exactness is preserved explicitly;
+- structural identity is explicitly separated from mathematical canonicalization;
+- numeric literal exactness is explicit on the Resolvent side;
 - relations/conditions/binders are structurally representable;
-- Scientia uses a lossless generic algebra bridge;
-- source spans/provenance remain sidecar data;
+- Scientia has a lossless operation-specific algebra projection while retaining canonical scientific `ExprId` ownership;
+- the coordinated exact `.res` literal path is specified and tested when the Scientia schema change lands;
+- source spans/provenance remain sidecar/consumer data;
 - deep/shared/session-scale stress tests pass;
-- the kernel wire identity is stable enough for RV8 protocol work to start.
+- the Term wire identity is stable enough for RV8 parser/CLI work to start.
+
+RV1 completion alone does **not** freeze the full RV8 kernel protocol; stable dynamic values and plan/outcome schemas additionally require the initial RV2/RV3 surfaces.
 
 ## Parallelism
 
-A1-A3 are architecture-first and should be reviewed together. B1 can begin once A1-A3 schemas are sufficiently frozen. B2 stress/lifetime prototypes can run alongside B1. C1/C2 can be developed against a minimal B1 slice. D renderers and fuzzing can proceed in parallel once canonical traversal exists.
+A1-A3 are architecture-first and should be reviewed together. B1 can begin once A1-A3 schemas are sufficiently frozen. B2 stress/lifetime prototypes can run alongside B1. C1/C2 can be developed against a minimal B1 slice. C3 is a coordinated Scientia/Resolvent lane and may proceed as soon as its source-schema change is agreed. D renderers and fuzzing can proceed in parallel once structural traversal exists.
 
 ## Non-goals
 
+- replacing Scientia's scientific `SemanticModel`/`ExprId` arena;
+- scientific tensor/form/differential semantics;
+- algebraic canonicalization/rewrite policy (RV2/RV4);
 - full domain/coercion system (RV2);
 - general evaluator and definitions (RV4);
 - pattern matcher/rule engine (RV4);
 - broad simplification;
 - e-graph implementation;
 - notebook UI;
-- scientific tensor/form semantics;
+- executable numeric/kernel IR;
 - geometry topology.
