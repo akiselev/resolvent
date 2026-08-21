@@ -74,6 +74,31 @@ fn polynomial_resultant_and_root_isolation_are_exact() {
 }
 
 #[test]
+fn polynomial_receipts_are_deterministic_and_identity_sensitive() {
+    let polynomial = Polynomial::new(vec![q(-2), q(0), q(1)]);
+    let output = q(-1);
+    let receipt =
+        AlgebraReceipt::for_polynomial(AlgebraOperation::Resultant, &polynomial, &output).unwrap();
+    let repeated =
+        AlgebraReceipt::for_polynomial(AlgebraOperation::Resultant, &polynomial, &output).unwrap();
+    assert_eq!(receipt, repeated);
+    assert_eq!(receipt.schema, "resolvent-algebra-receipt/1");
+    assert_eq!(receipt.operation, AlgebraOperation::Resultant);
+
+    let changed_input = AlgebraReceipt::for_polynomial(
+        AlgebraOperation::Resultant,
+        &Polynomial::new(vec![q(-3), q(0), q(1)]),
+        &output,
+    )
+    .unwrap();
+    assert_ne!(receipt.input_digest, changed_input.input_digest);
+
+    let changed_output =
+        AlgebraReceipt::for_polynomial(AlgebraOperation::Resultant, &polynomial, &q(1)).unwrap();
+    assert_ne!(receipt.output_digest, changed_output.output_digest);
+}
+
+#[test]
 fn repeated_roots_are_reported_once() {
     let x_minus_1 = Polynomial::new(vec![q(-1), q(1)]);
     let repeated = x_minus_1.mul(&x_minus_1);

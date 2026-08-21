@@ -1,8 +1,8 @@
 # Resolvent
 
-Resolvent is the consumer-neutral algebraic CAS shared by Scientia and
-CADabra. It owns exact rational expressions, bounded deterministic
-canonicalization, exact symbolic differentiation, polynomial arithmetic,
+Resolvent is a consumer-neutral algebraic CAS currently used by Scientia. It
+owns exact rational expressions, bounded deterministic canonicalization, exact
+symbolic differentiation, univariate polynomial arithmetic, univariate
 resultants, real-root isolation, exact sign queries, and algebra receipts.
 
 It does not own `.res`, scientific fields/forms/methods, geometry/topology,

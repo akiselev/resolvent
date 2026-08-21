@@ -27,7 +27,7 @@ Passed locally on 2026-08-21:
 cargo fmt --all -- --check
 cargo check --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace --all-targets             # 4 tests
+cargo test --locked --workspace --all-targets             # 5 tests
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --no-deps
 cargo test --locked --workspace --doc
 git diff --check
