@@ -4,9 +4,10 @@
 //! scientific reference into stable arena identities and assigns shape, axes, Quantitas
 //! dimensions/kinds, frame, and role metadata to every expression node.
 
+use crate::id::span_independent_digest;
 use crate::scientific::{
     BinaryOp, BoundaryConditionKind, CoordinateSystem, Expr, FieldDecl, FieldRole, Measure,
-    ScientificModel as SourceModel, ScientificModule, UnaryOp, ValueDecl, ValueShape,
+    ScientificModel as SourceModel, ScientificModule, SpaceSpec, UnaryOp, ValueDecl, ValueShape,
     canonicalize_authored_quantity,
 };
 use crate::source::{RelatedSpan, SourceDiagnostic, SourceSpan};
@@ -27,14 +28,22 @@ macro_rules! arena_id {
                 self.0 as usize
             }
         }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.fmt(formatter)
+            }
+        }
     };
 }
 
 arena_id!(DomainId);
+arena_id!(RegionId);
 arena_id!(SymbolId);
 arena_id!(ExprId);
+arena_id!(DeclarationId);
 
-pub const SEMANTIC_SCHEMA: &str = "resolvent-semantic/1";
+pub const SEMANTIC_SCHEMA: &str = "resolvent-semantic/2";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SemanticModule {
@@ -68,6 +77,7 @@ pub fn compile_semantics(
 pub struct SemanticModel {
     pub name: String,
     pub domains: Vec<SemanticDomain>,
+    pub regions: Vec<SemanticRegion>,
     pub symbols: Vec<SemanticSymbol>,
     pub expressions: Vec<SemanticExpr>,
     pub declarations: Vec<SemanticDeclaration>,
@@ -80,6 +90,23 @@ pub struct SemanticDomain {
     pub name: String,
     pub spatial_dimension: u8,
     pub coordinates: CoordinateSystem,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegionKind {
+    ExteriorFacet,
+    InteriorFacet,
+    Interface,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticRegion {
+    pub id: RegionId,
+    pub name: String,
+    pub kind: RegionKind,
+    pub domain: Option<DomainId>,
     pub span: SourceSpan,
 }
 
@@ -175,6 +202,7 @@ pub struct SemanticSymbol {
     pub name: String,
     pub ty: SemanticType,
     pub domain: Option<DomainId>,
+    pub space: Option<SpaceSpec>,
     pub span: SourceSpan,
 }
 
@@ -223,11 +251,68 @@ pub enum SemanticExprKind {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SemanticDeclaration {
+    pub id: DeclarationId,
     pub name: String,
     pub role: SemanticRole,
     pub symbol: Option<SymbolId>,
     pub domain: Option<DomainId>,
-    pub expressions: Vec<ExprId>,
+    pub kind: SemanticDeclarationKind,
+    pub span: SourceSpan,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticDeclarationKind {
+    Value {
+        value: Option<ExprId>,
+    },
+    Property {
+        value: ExprId,
+    },
+    ConstitutiveLaw {
+        value: ExprId,
+    },
+    Equation {
+        lhs: ExprId,
+        rhs: ExprId,
+    },
+    Form {
+        integrals: Vec<SemanticIntegral>,
+    },
+    InitialCondition {
+        target: Option<SymbolId>,
+        value: ExprId,
+    },
+    BoundaryCondition {
+        region: RegionId,
+        selector: ExprId,
+        target: Option<SymbolId>,
+        condition: BoundaryConditionKind,
+        value: ExprId,
+    },
+    Observable {
+        value: ExprId,
+    },
+    Invariant {
+        value: ExprId,
+    },
+    Verification {
+        arguments: BTreeMap<String, ExprId>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticMeasure {
+    Cell { domain: DomainId },
+    ExteriorFacet { region: RegionId },
+    InteriorFacet { region: RegionId },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SemanticIntegral {
+    pub measure: SemanticMeasure,
+    pub integrand: ExprId,
     pub span: SourceSpan,
 }
 
@@ -263,24 +348,7 @@ pub fn elaborate_module(
 }
 
 pub fn semantic_arena_digest(module: &SemanticModule) -> String {
-    let mut value =
-        serde_json::to_value(module).expect("semantic arena serialization is infallible");
-    fn strip_spans(value: &mut serde_json::Value) {
-        match value {
-            serde_json::Value::Object(map) => {
-                map.retain(|key, _| key != "span" && !key.ends_with("_span"));
-                for value in map.values_mut() {
-                    strip_spans(value);
-                }
-            }
-            serde_json::Value::Array(values) => values.iter_mut().for_each(strip_spans),
-            _ => {}
-        }
-    }
-    strip_spans(&mut value);
-    blake3::hash(&serde_json::to_vec(&value).expect("semantic arena JSON is infallible"))
-        .to_hex()
-        .to_string()
+    span_independent_digest(module).hex
 }
 
 struct Elaborator<'a> {
@@ -288,6 +356,8 @@ struct Elaborator<'a> {
     registry: &'a UnitRegistry,
     domains: Vec<SemanticDomain>,
     domain_names: BTreeMap<String, DomainId>,
+    regions: Vec<SemanticRegion>,
+    region_names: BTreeMap<(RegionKind, String), RegionId>,
     symbols: Vec<SemanticSymbol>,
     symbol_names: BTreeMap<String, SymbolId>,
     expressions: Vec<SemanticExpr>,
@@ -301,6 +371,8 @@ impl<'a> Elaborator<'a> {
             registry,
             domains: vec![],
             domain_names: BTreeMap::new(),
+            regions: vec![],
+            region_names: BTreeMap::new(),
             symbols: vec![],
             symbol_names: BTreeMap::new(),
             expressions: vec![],
@@ -311,10 +383,12 @@ impl<'a> Elaborator<'a> {
     fn run(mut self, diagnostics: &mut Vec<SourceDiagnostic>) -> SemanticModel {
         self.declare_domains(diagnostics);
         self.declare_value_symbols(diagnostics);
+        self.declare_regions();
         self.elaborate_definitions(diagnostics);
         SemanticModel {
             name: self.source.name.clone(),
             domains: self.domains,
+            regions: self.regions,
             symbols: self.symbols,
             expressions: self.expressions,
             declarations: self.declarations,
@@ -374,7 +448,14 @@ impl<'a> Elaborator<'a> {
             let domain = self.resolve_domain(&field.domain, field.domain_span, diagnostics);
             let mut ty = self.field_type(field, domain, diagnostics);
             ty.role = SemanticRole::PhysicalField(field.role.clone());
-            self.insert_symbol(&field.name, ty, domain, field.span, diagnostics);
+            self.insert_symbol(
+                &field.name,
+                ty,
+                domain,
+                Some(field.space.clone()),
+                field.span,
+                diagnostics,
+            );
         }
         for value in &self.source.parameters {
             self.declare_value(value, SemanticRole::Parameter, diagnostics);
@@ -395,6 +476,7 @@ impl<'a> Elaborator<'a> {
                 name,
                 SemanticType::deferred(SemanticRole::Property),
                 None,
+                None,
                 span,
                 diagnostics,
             );
@@ -408,6 +490,7 @@ impl<'a> Elaborator<'a> {
             self.insert_symbol(
                 name,
                 SemanticType::deferred(SemanticRole::ConstitutiveLaw),
+                None,
                 None,
                 span,
                 diagnostics,
@@ -423,10 +506,84 @@ impl<'a> Elaborator<'a> {
                 name,
                 SemanticType::deferred(SemanticRole::Equation),
                 None,
+                None,
                 span,
                 diagnostics,
             );
         }
+    }
+
+    fn declare_regions(&mut self) {
+        for condition in &self.source.boundary_conditions {
+            let name = region_name(&condition.region).unwrap_or(&condition.name);
+            let domain = self
+                .symbol_names
+                .get(&condition.target)
+                .and_then(|symbol| self.symbols[symbol.index()].domain);
+            self.intern_region(
+                RegionKind::ExteriorFacet,
+                name,
+                domain,
+                condition.region.span(),
+            );
+        }
+        for condition in &self.source.interface_conditions {
+            let name = region_name(&condition.region).unwrap_or(&condition.name);
+            self.intern_region(RegionKind::Interface, name, None, condition.region.span());
+        }
+        for form in &self.source.forms {
+            for integral in &form.integrals {
+                match &integral.measure {
+                    Measure::Cell(_) => {}
+                    Measure::Boundary(name) => {
+                        self.intern_region(
+                            RegionKind::ExteriorFacet,
+                            name,
+                            None,
+                            integral.target_span,
+                        );
+                    }
+                    Measure::InteriorFacet(name) => {
+                        self.intern_region(
+                            RegionKind::InteriorFacet,
+                            name,
+                            None,
+                            integral.target_span,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn intern_region(
+        &mut self,
+        kind: RegionKind,
+        name: &str,
+        domain: Option<DomainId>,
+        span: SourceSpan,
+    ) -> RegionId {
+        let key = (kind.clone(), name.to_owned());
+        if let Some(id) = self.region_names.get(&key).copied() {
+            if self.regions[id.index()].domain.is_none() {
+                self.regions[id.index()].domain = domain;
+            }
+            return id;
+        }
+        let id = RegionId(self.regions.len() as u32);
+        self.region_names.insert(key, id);
+        self.regions.push(SemanticRegion {
+            id,
+            name: name.to_owned(),
+            kind,
+            domain,
+            span,
+        });
+        id
+    }
+
+    fn region_id(&self, kind: RegionKind, name: &str) -> RegionId {
+        self.region_names[&(kind, name.to_owned())]
     }
 
     fn declare_value(
@@ -448,7 +605,7 @@ impl<'a> Elaborator<'a> {
             SemanticType::numeric(ValueShape::Scalar, dimension, Frame::Neutral, role)
         };
         ty.quantity_kind = kind;
-        self.insert_symbol(&value.name, ty, None, value.span, diagnostics);
+        self.insert_symbol(&value.name, ty, None, None, value.span, diagnostics);
     }
 
     fn field_type(
@@ -610,6 +767,7 @@ impl<'a> Elaborator<'a> {
         name: &str,
         ty: SemanticType,
         domain: Option<DomainId>,
+        space: Option<SpaceSpec>,
         span: SourceSpan,
         diagnostics: &mut Vec<SourceDiagnostic>,
     ) -> Option<SymbolId> {
@@ -629,6 +787,7 @@ impl<'a> Elaborator<'a> {
             name: name.into(),
             ty,
             domain,
+            space,
             span,
         });
         Some(id)
@@ -667,7 +826,7 @@ impl<'a> Elaborator<'a> {
                 &property.name,
                 SemanticRole::Property,
                 None,
-                vec![expr],
+                SemanticDeclarationKind::Property { value: expr },
                 property.span,
             );
         }
@@ -678,7 +837,7 @@ impl<'a> Elaborator<'a> {
                 &law.name,
                 SemanticRole::ConstitutiveLaw,
                 None,
-                vec![expr],
+                SemanticDeclarationKind::ConstitutiveLaw { value: expr },
                 law.span,
             );
         }
@@ -697,26 +856,49 @@ impl<'a> Elaborator<'a> {
                 &equation.name,
                 SemanticRole::Equation,
                 domain,
-                vec![lhs, rhs],
+                SemanticDeclarationKind::Equation { lhs, rhs },
                 equation.span,
             );
         }
         for form in &self.source.forms {
-            let mut expressions = vec![];
+            let mut integrals = vec![];
             for integral in &form.integrals {
-                let domain = match &integral.measure {
-                    Measure::Cell(name) => {
-                        self.resolve_domain(name, integral.target_span, diagnostics)
-                    }
-                    Measure::Boundary(_) | Measure::InteriorFacet(_) => None,
+                let measure = match &integral.measure {
+                    Measure::Cell(name) => self
+                        .resolve_domain(name, integral.target_span, diagnostics)
+                        .map(|domain| (SemanticMeasure::Cell { domain }, Some(domain))),
+                    Measure::Boundary(name) => Some((
+                        SemanticMeasure::ExteriorFacet {
+                            region: self.region_id(RegionKind::ExteriorFacet, name),
+                        },
+                        None,
+                    )),
+                    Measure::InteriorFacet(name) => Some((
+                        SemanticMeasure::InteriorFacet {
+                            region: self.region_id(RegionKind::InteriorFacet, name),
+                        },
+                        None,
+                    )),
                 };
                 let expression = self.elaborate_expr(&integral.integrand, diagnostics);
-                if let Some(domain) = domain {
-                    self.require_frame(expression, domain, integral.integrand.span(), diagnostics);
+                if let Some((_, Some(domain))) = &measure {
+                    self.require_frame(expression, *domain, integral.integrand.span(), diagnostics);
                 }
-                expressions.push(expression);
+                if let Some((measure, _)) = measure {
+                    integrals.push(SemanticIntegral {
+                        measure,
+                        integrand: expression,
+                        span: integral.span,
+                    });
+                }
             }
-            self.push_declaration(&form.name, SemanticRole::Form, None, expressions, form.span);
+            self.push_declaration(
+                &form.name,
+                SemanticRole::Form,
+                None,
+                SemanticDeclarationKind::Form { integrals },
+                form.span,
+            );
         }
         for condition in &self.source.initial_conditions {
             let target = self.resolve_target(&condition.target, condition.span, true, diagnostics);
@@ -728,7 +910,7 @@ impl<'a> Elaborator<'a> {
                 &condition.target,
                 SemanticRole::InitialCondition,
                 None,
-                vec![value],
+                SemanticDeclarationKind::InitialCondition { target, value },
                 condition.span,
             );
         }
@@ -744,7 +926,7 @@ impl<'a> Elaborator<'a> {
                 &observable.name,
                 SemanticRole::Observable,
                 None,
-                vec![expression],
+                SemanticDeclarationKind::Observable { value: expression },
                 observable.span,
             );
         }
@@ -754,21 +936,23 @@ impl<'a> Elaborator<'a> {
                 &invariant.name,
                 SemanticRole::Invariant,
                 None,
-                vec![expression],
+                SemanticDeclarationKind::Invariant { value: expression },
                 invariant.span,
             );
         }
         for verification in &self.source.verifications {
-            let expressions = verification
+            let arguments = verification
                 .args
-                .values()
-                .map(|expression| self.elaborate_expr(expression, diagnostics))
+                .iter()
+                .map(|(name, expression)| {
+                    (name.clone(), self.elaborate_expr(expression, diagnostics))
+                })
                 .collect();
             self.push_declaration(
                 &verification.name,
                 SemanticRole::Verification,
                 None,
-                expressions,
+                SemanticDeclarationKind::Verification { arguments },
                 verification.span,
             );
         }
@@ -780,14 +964,20 @@ impl<'a> Elaborator<'a> {
         role: SemanticRole,
         diagnostics: &mut Vec<SourceDiagnostic>,
     ) {
-        let expressions = value.value.as_ref().map_or_else(Vec::new, |expression| {
+        let expression = value.value.as_ref().map(|expression| {
             let id = self.elaborate_expr(expression, diagnostics);
             if let Some(symbol) = self.symbol_names.get(&value.name).copied() {
                 self.require_compatible_symbol(symbol, id, expression.span(), diagnostics);
             }
-            vec![id]
+            id
         });
-        self.push_declaration(&value.name, role, None, expressions, value.span);
+        self.push_declaration(
+            &value.name,
+            role,
+            None,
+            SemanticDeclarationKind::Value { value: expression },
+            value.span,
+        );
     }
 
     fn elaborate_boundary(
@@ -822,11 +1012,24 @@ impl<'a> Elaborator<'a> {
                 condition.span,
             ));
         }
+        let region_name = region_name(&condition.region).unwrap_or(&condition.name);
+        let region_kind = if matches!(role, SemanticRole::InterfaceCondition) {
+            RegionKind::Interface
+        } else {
+            RegionKind::ExteriorFacet
+        };
+        let region_id = self.region_id(region_kind, region_name);
         self.push_declaration(
             &condition.name,
             role,
             None,
-            vec![region, value],
+            SemanticDeclarationKind::BoundaryCondition {
+                region: region_id,
+                selector: region,
+                target,
+                condition: condition.kind.clone(),
+                value,
+            },
             condition.span,
         );
     }
@@ -1506,15 +1709,17 @@ impl<'a> Elaborator<'a> {
         name: &str,
         role: SemanticRole,
         domain: Option<DomainId>,
-        expressions: Vec<ExprId>,
+        kind: SemanticDeclarationKind,
         span: SourceSpan,
     ) {
+        let id = DeclarationId(self.declarations.len() as u32);
         self.declarations.push(SemanticDeclaration {
+            id,
             name: name.into(),
             symbol: self.symbol_names.get(name).copied(),
             role,
             domain,
-            expressions,
+            kind,
             span,
         });
     }
@@ -1557,6 +1762,23 @@ fn axes(shape: &ValueShape) -> Vec<Axis> {
                 extent: *extent,
             },
         ],
+    }
+}
+
+fn region_name(expression: &Expr) -> Option<&str> {
+    match expression {
+        Expr::Call { function, args, .. }
+            if matches!(
+                function.as_str(),
+                "boundary" | "interface" | "interface_region"
+            ) && args.len() == 1 =>
+        {
+            match &args[0] {
+                Expr::String { value, .. } => Some(value),
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 

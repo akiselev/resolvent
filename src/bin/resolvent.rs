@@ -161,14 +161,15 @@ fn run() -> Result<(), String> {
             );
         }
         "form" => {
-            elaborate_module(&module, &UnitRegistry::si_bootstrap())
+            let semantic = elaborate_module(&module, &UnitRegistry::si_bootstrap())
                 .map_err(|diagnostics| render_diagnostics(&source, &diagnostics, json))?;
-            let model = module.models.first().ok_or("module has no model")?;
+            let model = semantic.models.first().ok_or("module has no model")?;
             let form_name = selector.ok_or("form command requires a form name")?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &compile_variational_form(model, form_name).map_err(|e| e.to_string())?
+                    &compile_variational_form(&semantic, &model.name, form_name)
+                        .map_err(|e| e.to_string())?
                 )
                 .map_err(|e| e.to_string())?
             );

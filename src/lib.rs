@@ -1,8 +1,8 @@
 //! `resolvent` parses `.res` source and derives scientific compiler semantics.
 //!
-//! The crate owns one semantic representation: [`scientific::ScientificModel`]. Quantity
-//! values use Quantitas directly, while numerical realization and solve strategy belong to
-//! downstream crates.
+//! Source syntax is represented by [`scientific::ScientificModule`]; resolved scientific meaning
+//! lives exclusively in the typed [`semantic::SemanticModule`] arena. Quantity values use
+//! Quantitas directly, while numerical realization and solve strategy belong downstream.
 
 #![forbid(unsafe_code)]
 
@@ -21,12 +21,15 @@ pub use evidence::{
     FormalGrade, NumericalGrade, Obligation, ObligationStatus,
 };
 pub use formulation::{
-    FormCompileError, VariationalField, VariationalForm, VariationalIntegral,
-    compile_variational_form,
+    FormArgument, FormArgumentRole, FormCapture, FormCaptureRole, FormCompileError, FormReceipt,
+    FormTransformation, VariationalForm, VariationalIntegral, compile_variational_form,
 };
 pub use id::{Digest, ObligationId};
 pub use kernel::{
-    KernelLoweringError, LocalFormProgram, factor_local_integral, lower_local_program,
+    InputEvaluation, KernelLoweringError, KernelLoweringMethod, KernelLoweringReceipt,
+    LocalFactorizationReceipt, LocalFormProgram, LocalInput, LocalInputRole,
+    LocalIterationContract, LocalOutput, LocalOutputRole, LocalTransformation, LoweredKernel,
+    factor_local_integral, lower_local_program,
 };
 pub use property_tensor::SymmetricTensor2;
 pub use scientific::{
@@ -36,9 +39,10 @@ pub use scientific::{
     resolve_modules, semantic_digest, validate_quantities,
 };
 pub use semantic::{
-    Axis, DomainId, ExprId, Frame, SemanticCompilation, SemanticDeclaration, SemanticDomain,
-    SemanticExpr, SemanticExprKind, SemanticModel, SemanticModule, SemanticRole, SemanticShape,
-    SemanticSymbol, SemanticType, SymbolId, compile_semantics, elaborate_module,
+    Axis, DeclarationId, DomainId, ExprId, Frame, RegionId, RegionKind, SemanticCompilation,
+    SemanticDeclaration, SemanticDeclarationKind, SemanticDomain, SemanticExpr, SemanticExprKind,
+    SemanticIntegral, SemanticMeasure, SemanticModel, SemanticModule, SemanticRegion, SemanticRole,
+    SemanticShape, SemanticSymbol, SemanticType, SymbolId, compile_semantics, elaborate_module,
     semantic_arena_digest,
 };
 pub use source::{RelatedSpan, SourceDiagnostic, SourceSeverity, SourceSpan, Spanned};

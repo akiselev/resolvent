@@ -11,6 +11,7 @@ The intended artifact flow is:
 ```text
 .res source
   -> ScientificModule / ScientificModel
+  -> SemanticModule / SemanticModel arena
   -> formulation and structural analysis
   -> VariationalForm
   -> indexed tensor and local-operator factorization
@@ -74,10 +75,11 @@ axes, shapes, dimensions, and frames. Semantic arena digests exclude presentatio
 Authored forms compile to `VariationalForm`, which retains canonical expressions and adds only
 form-specific organization:
 
-- the selected model and form identity;
-- fields actually referenced by the form;
-- other referenced symbols;
-- measures, integrands, and their source spans.
+- the selected semantic declaration and parent semantic digest;
+- test/trial arguments and captures keyed by `SymbolId`, with roles, types, spaces, and domains;
+- cell/facet measures keyed by `DomainId` or `RegionId`;
+- integrands keyed by `ExprId`; and
+- an artifact digest and receipt recording the source declaration and transformation history.
 
 Strong-form derivation will target the same artifact. It must emit explicit integration-by-parts,
 boundary-term, sign, and assumption receipts. Until that pass exists, the compiler rejects requests
@@ -87,8 +89,15 @@ to infer a weak form rather than guessing.
 
 `factor_local_integral` produces a realization-neutral `LocalFormProgram`; `lower_local_program`
 is the first narrow implementation of the Malleus boundary. It accepts scalar pointwise arithmetic
-and common scalar functions, then constructs `malleus::StructuredKernel` directly. It rejects
-`grad`, `div`, `curl`, `dot`, indexed tensors, and vector expressions.
+and common scalar functions, then constructs `malleus::StructuredKernel` directly. Local inputs
+retain test-basis, trial-basis, physical-field, parameter, constant, source, property, and
+constitutive-law roles plus required value/gradient/time-derivative/trace evaluations. It rejects
+`grad`, `div`, `curl`, `dot`, indexed tensors, and vector expressions until the basis/tensor pass
+has expanded them.
+
+The local artifact is explicitly a one-quadrature-point QFunction. Finitum owns quadrature choice
+and traversal; Malleus's empty iteration domain therefore means one invocation, never an omitted
+symbolic loop. See [ITERATION-OWNERSHIP.md](ITERATION-OWNERSHIP.md).
 
 Those operations belong to the next compiler layer:
 
@@ -121,8 +130,6 @@ role.
 ## Immediate work
 
 1. Derive variational forms from strong equations with explicit transformation receipts.
-2. Move authored-form organization onto typed arena identities while adding arguments, captures,
-   measures, sides, and deterministic interpretation.
-3. Define indexed tensor/QFunction IR and basis/transformation requirements.
-4. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
-5. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.
+2. Define indexed tensor/QFunction IR and basis/transformation requirements.
+3. Lower Poisson from `.res` through Malleus, then bind it in Finitum and solve through Solverang.
+4. Add primal, JVP, VJP, and parameter-derivative kernel requests after the primal path is stable.

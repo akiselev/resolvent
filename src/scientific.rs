@@ -1391,18 +1391,20 @@ pub fn semantic_digest(module: &ScientificModule) -> String {
     // whitespace/comments/formatting do not perturb the physics identity.
     let mut value =
         serde_json::to_value(module).expect("scientific module serialization is infallible");
-    fn canonicalize(value: &mut serde_json::Value) {
+    fn normalize_digest_projection(value: &mut serde_json::Value) {
         match value {
             serde_json::Value::Object(map) => {
                 map.retain(|key, _| key != "span" && !key.ends_with("_span"));
                 for child in map.values_mut() {
-                    canonicalize(child);
+                    normalize_digest_projection(child);
                 }
             }
             serde_json::Value::Array(items) => {
                 for child in items.iter_mut() {
-                    canonicalize(child);
+                    normalize_digest_projection(child);
                 }
+                // Only declaration-like collections and explicit string/value sets are
+                // order-independent. Expression argument and integral order is preserved.
                 if items
                     .iter()
                     .all(|item| item.get("name").and_then(|x| x.as_str()).is_some())
@@ -1428,7 +1430,7 @@ pub fn semantic_digest(module: &ScientificModule) -> String {
             _ => {}
         }
     }
-    canonicalize(&mut value);
+    normalize_digest_projection(&mut value);
     let bytes =
         serde_json::to_vec(&value).expect("semantic projection serialization is infallible");
     blake3::hash(&bytes).to_hex().to_string()

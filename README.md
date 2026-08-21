@@ -33,10 +33,12 @@ Resolvent currently provides:
 - stable structured diagnostics for malformed syntax, units, kinds, roles, names, axes, and frames;
 - property, constitutive, coupling, time/state, and evidence semantics;
 - structural incidence, matching, SCC/BLT, tearing, alias, and DAE planning over the same model;
-- compilation of authored forms into `VariationalForm` while retaining the canonical `Expr` type;
-  and
-- realization-neutral `LocalFormProgram` factorization and explicit scalar pointwise lowering into
-  `malleus::StructuredKernel`.
+- compilation of authored forms from the typed semantic arena into `VariationalForm`, with
+  `DeclarationId`, `SymbolId`, `DomainId`, `RegionId`, and `ExprId` identities plus transformation
+  receipts; and
+- realization-neutral `LocalFormProgram` factorization with typed input roles/evaluation needs,
+  followed by explicit scalar point-kernel lowering into `malleus::StructuredKernel` and a
+  digest-linked lowering receipt.
 
 Tensor factorization, strong-equation-to-form derivation, integration-by-parts receipts, basis
 requirements, and derivative kernel generation remain active compiler work. Unsupported tensor or
@@ -61,6 +63,8 @@ typed arena. An external scientific function with no declared signature receives
 
 The library is the authoritative API. See [SCIENTIFIC-COMPILER.md](SCIENTIFIC-COMPILER.md) for the
 artifact boundaries and [STATUS.md](STATUS.md) for the exact checked state and next work.
+The quadrature/Finitum/Malleus boundary is fixed in
+[ITERATION-OWNERSHIP.md](ITERATION-OWNERSHIP.md).
 
 ## Development
 
