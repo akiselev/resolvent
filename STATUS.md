@@ -19,6 +19,15 @@ has moved to Scientia; no compatibility facade remains here.
 - Sturm real-root isolation with an explicit bisection budget;
 - deterministic algebra-operation receipts.
 
+## Planned R1 consolidation
+
+CADabra is the second direct consumer, but the generic implementation still
+lives today in its `cadabra-exact` and `cadabra-scalar` crates. The coordinated
+R1 cut will move their scalar/dual, rational, interval/filter, polynomial/root,
+radical, lazy-real, Bernstein, and exact-matrix machinery and tests into this
+crate. CADabra will migrate directly and delete the old crates; no adapter,
+compatibility facade, or parallel backend is planned.
+
 ## Validation
 
 Passed locally on 2026-08-21:
