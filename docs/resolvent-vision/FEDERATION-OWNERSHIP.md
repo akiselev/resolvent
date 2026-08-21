@@ -76,7 +76,7 @@ Owns:
 - geometric event classification and topology-affecting decisions;
 - design-velocity meaning attached to geometry entities.
 
-Generic exact/scalar machinery moves to Resolvent during RV0. `cadabra-number` and other geometry-facing policy remain in CADabra and consume public Resolvent APIs.
+R1 already moved CADabra's generic exact/scalar machinery into Resolvent and deleted the old `cadabra-exact` and `cadabra-scalar` crates. `cadabra-number` and other geometry-facing policy remain in CADabra and consume public Resolvent APIs. RV0 hardens this landed boundary; it does not repeat the migration.
 
 A resultant or algebraic-root operation used by an SSI algorithm may belong in Resolvent. The interpretation of those roots as intersection branches does not.
 
