@@ -1,6 +1,6 @@
 # Resolvent status
 
-Updated: 2026-08-20
+Updated: 2026-08-21
 
 Branch: `master`
 
@@ -99,10 +99,10 @@ state. Solverang owns numerical algorithms. Sinbad owns product orchestration.
   the same input through different index vectors (including distinct reduction-axis bindings),
   FC5 refuses it with `KERNEL_INDEXING`; generalized access-local maps must land before such a
   nonlinear or tensor contraction is admitted downstream.
-- FC5 bundles are deliberately in-process typed artifacts. Their schema-tagged receipts are
-  serializable for identity/evidence inspection, but `StructuredModule` and the complete bundle
-  have no JSON wire format or `Deserialize` contract yet. Wire round trips and digest-stability
-  claims are deferred until FC6 defines the concrete executable handoff.
+- FC5 bundles are deliberately in-process typed artifacts. Finitum's FC6 realization now validates
+  each `StructuredModule`, builds Malleus reference executables, and retains the complete typed
+  bundle contract directly. Schema-tagged receipts serialize for identity/evidence inspection;
+  module/bundle JSON round trips remain deferred to later artifact hardening.
 - All four products execute with Malleus's deterministic interpreter. The FC5 Poisson gate covers
   three triangle geometries against independent analytic element tensors, Malleus-vs-FC4 JVP
   agreement, directional finite differences, a VJP adjoint dot product, and property/source
@@ -170,12 +170,14 @@ Verified locally on 2026-08-20:
   `infer_form_requirements` -> `factor_operator` -> `lower_operator_kernels`. The existing narrow
   scalar path remains `factor_local_integral` -> `lower_local_program`, with
   `LoweredKernel { kernel, receipt }` rather than a bare `StructuredKernel`.
-- Finitum must map `LocalIterationContract::QuadraturePoint` across its selected element and
-  quadrature points. Any later fixed-axis batching remains realization-owned and must preserve
-  point-QFunction semantics; see `ITERATION-OWNERSHIP.md`.
+- Finitum maps `LocalIterationContract::QuadraturePoint` across selected elements and quadrature
+  points in its landed FC6 reference realization. Any later fixed-axis batching remains
+  realization-owned and must preserve point-QFunction semantics; see `ITERATION-OWNERSHIP.md`.
 
 ## Next compiler work
 
-1. Hand the complete Poisson kernel bundle to Finitum for FC6 realization.
-2. Bind concrete element/basis/quadrature/geometry tables without moving traversal into Malleus.
-3. Compare assembled and matrix-free Poisson actions through Solverang's linear contract.
+1. Extend tensor/kernel contracts only when an FC7 transient or nonlinear acceptance case exposes
+   a concrete missing primitive.
+2. Generalize access-local affine maps before admitting outputs that reference one input through
+   distinct index vectors.
+3. Keep optimized batching realization-owned and preserve point-QFunction semantics.
