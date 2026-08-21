@@ -48,9 +48,9 @@ pub use method::{
     AFFINE_METHOD_KERNEL_SCHEMA, AffineMethodKernel, AffineMethodKernelSpec,
     BoundaryIntegralMethod, ConservationLawMethod, FiniteDifferenceMethod, METHOD_PROGRAM_SCHEMA,
     MethodCompileError, MethodFamily, MethodProgram, MethodProgramKind, MethodReceipt,
-    MethodStateBinding, NetworkDaeMethod, ParticleMethod, compile_boundary_integral_method,
-    compile_conservation_law_method, compile_finite_difference_method, compile_network_dae_method,
-    compile_particle_method,
+    MethodSelectionReceipt, MethodStateBinding, NetworkDaeMethod, ParticleMethod,
+    compile_boundary_integral_method, compile_conservation_law_method,
+    compile_finite_difference_method, compile_network_dae_method, compile_particle_method,
 };
 pub use property_tensor::SymmetricTensor2;
 pub use requirements::{

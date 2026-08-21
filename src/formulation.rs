@@ -383,7 +383,7 @@ pub fn compile_variational_form(
         arity,
         arguments,
         captures,
-        expressions: model.expressions.clone(),
+        expressions: model.expressions.to_vec(),
         integrals,
         receipt,
     })
@@ -504,7 +504,7 @@ pub fn derive_variational_form_for(
         unreachable!("equation declaration was selected above")
     };
 
-    let mut arena = FormArena::new(model.expressions.clone());
+    let mut arena = FormArena::new(model.expressions.to_vec());
     let argument_symbol = SymbolId(model.symbols.len() as u32);
     let mut argument_type = field.ty.clone();
     argument_type.role = SemanticRole::PhysicalField(FieldRole::Test);

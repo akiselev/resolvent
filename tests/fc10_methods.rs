@@ -1,10 +1,12 @@
 use malleus::{BufferBinding, ExecutableModule, Interpreter, OperandId, validate_module};
 use quantitas::UnitRegistry;
 use resolvent::{
-    AffineMethodKernelSpec, MethodCompileError, MethodFamily, compile_boundary_integral_method,
-    compile_conservation_law_method, compile_finite_difference_method, compile_network_dae_method,
-    compile_particle_method, compile_semantics,
+    AffineMethodKernelSpec, MethodCompileError, MethodFamily, MethodProgramKind,
+    MethodSelectionReceipt, compile_boundary_integral_method, compile_conservation_law_method,
+    compile_finite_difference_method, compile_network_dae_method, compile_particle_method,
+    compile_semantics,
 };
+use std::sync::Arc;
 
 const METHODS: &str = r#"
 module fixtures.fc10;
@@ -137,8 +139,37 @@ fn five_sibling_compilers_produce_distinct_nonvariational_artifacts() {
     assert!(programs.iter().all(|program| {
         program.receipt.selected_without_variational_form
             && program.receipt.source_semantic_digest == program.source_semantic_digest
-            && program.schema == "resolvent-method-program/1"
+            && program.schema == "resolvent-method-program/2"
     }));
+    assert!(programs.iter().all(|program| {
+        let model = module
+            .models
+            .iter()
+            .find(|model| model.name == program.model)
+            .unwrap();
+        Arc::ptr_eq(&model.expressions, &program.expressions)
+    }));
+    let MethodProgramKind::ConservationLawFiniteVolume(finite_volume) = &programs[0].kind else {
+        panic!("first artifact must be finite volume")
+    };
+    assert_eq!(
+        programs[0].receipt.selection,
+        MethodSelectionReceipt::ConservationLawFiniteVolume {
+            time_derivative: finite_volume.time_derivative,
+            flux_divergence: finite_volume.flux_divergence,
+            flux: finite_volume.flux,
+        }
+    );
+    let MethodProgramKind::StructuredStencilFiniteDifference(finite_difference) = &programs[1].kind
+    else {
+        panic!("second artifact must be finite difference")
+    };
+    assert_eq!(
+        programs[1].receipt.selection,
+        MethodSelectionReceipt::StructuredStencilFiniteDifference {
+            spatial_differential: finite_difference.spatial_differential,
+        }
+    );
     let digests = programs
         .iter()
         .map(|program| program.artifact_digest.clone())

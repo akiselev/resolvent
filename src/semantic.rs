@@ -14,6 +14,7 @@ use crate::source::{RelatedSpan, SourceDiagnostic, SourceSpan};
 use quantitas::{Dimension, QuantityKindId, QuantityLiteral, UnitId, UnitRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 macro_rules! arena_id {
     ($name:ident) => {
@@ -79,7 +80,7 @@ pub struct SemanticModel {
     pub domains: Vec<SemanticDomain>,
     pub regions: Vec<SemanticRegion>,
     pub symbols: Vec<SemanticSymbol>,
-    pub expressions: Vec<SemanticExpr>,
+    pub expressions: Arc<[SemanticExpr]>,
     pub declarations: Vec<SemanticDeclaration>,
     pub span: SourceSpan,
 }
@@ -449,7 +450,7 @@ impl<'a> Elaborator<'a> {
             domains: self.domains,
             regions: self.regions,
             symbols: self.symbols,
-            expressions: self.expressions,
+            expressions: self.expressions.into(),
             declarations: self.declarations,
             span: self.source.span,
         }

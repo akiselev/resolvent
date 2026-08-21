@@ -18,9 +18,10 @@ use malleus::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use thiserror::Error;
 
-pub const METHOD_PROGRAM_SCHEMA: &str = "resolvent-method-program/1";
+pub const METHOD_PROGRAM_SCHEMA: &str = "resolvent-method-program/2";
 pub const AFFINE_METHOD_KERNEL_SCHEMA: &str = "resolvent-affine-method-kernel/1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -67,8 +68,37 @@ pub struct MethodReceipt {
     pub source_semantic_digest: Digest,
     pub equations: Vec<DeclarationId>,
     pub state_symbols: Vec<SymbolId>,
+    pub selection: MethodSelectionReceipt,
     pub selected_without_variational_form: bool,
     pub local_kernel_digest: Option<Digest>,
+}
+
+/// Family-specific structural matches that made a method program eligible for selection.
+///
+/// These identities make the receipt independently auditable without traversing the semantic
+/// expression arena again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "family", rename_all = "snake_case")]
+pub enum MethodSelectionReceipt {
+    ConservationLawFiniteVolume {
+        time_derivative: ExprId,
+        flux_divergence: ExprId,
+        flux: ExprId,
+    },
+    StructuredStencilFiniteDifference {
+        spatial_differential: ExprId,
+    },
+    NetworkDae {
+        differential_states: Vec<SymbolId>,
+    },
+    Particle {
+        positions: SymbolId,
+        velocities: SymbolId,
+        pair_force: SymbolId,
+    },
+    BoundaryIntegral {
+        boundary_operator: ExprId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,7 +188,7 @@ pub struct MethodProgram {
     pub artifact_digest: Digest,
     pub kind: MethodProgramKind,
     pub state_bindings: Vec<MethodStateBinding>,
-    pub expressions: Vec<SemanticExpr>,
+    pub expressions: Arc<[SemanticExpr]>,
     pub local_kernel: Option<AffineMethodKernel>,
     pub receipt: MethodReceipt,
 }
@@ -625,6 +655,7 @@ fn finish(
         source_semantic_digest: source_semantic_digest.clone(),
         equations,
         state_symbols: state_symbols.clone(),
+        selection: selection_receipt(&kind),
         selected_without_variational_form: true,
         local_kernel_digest: local_kernel
             .as_ref()
@@ -636,7 +667,6 @@ fn finish(
         source_semantic_digest: &source_semantic_digest,
         kind: &kind,
         state_bindings: &state_bindings,
-        expressions: &model.expressions,
         receipt: &receipt,
     });
     Ok(MethodProgram {
@@ -646,10 +676,38 @@ fn finish(
         artifact_digest,
         kind,
         state_bindings,
-        expressions: model.expressions.clone(),
+        expressions: Arc::clone(&model.expressions),
         local_kernel,
         receipt,
     })
+}
+
+fn selection_receipt(kind: &MethodProgramKind) -> MethodSelectionReceipt {
+    match kind {
+        MethodProgramKind::ConservationLawFiniteVolume(method) => {
+            MethodSelectionReceipt::ConservationLawFiniteVolume {
+                time_derivative: method.time_derivative,
+                flux_divergence: method.flux_divergence,
+                flux: method.flux,
+            }
+        }
+        MethodProgramKind::StructuredStencilFiniteDifference(method) => {
+            MethodSelectionReceipt::StructuredStencilFiniteDifference {
+                spatial_differential: method.spatial_differential,
+            }
+        }
+        MethodProgramKind::NetworkDae(method) => MethodSelectionReceipt::NetworkDae {
+            differential_states: method.differential_states.clone(),
+        },
+        MethodProgramKind::Particle(method) => MethodSelectionReceipt::Particle {
+            positions: method.positions,
+            velocities: method.velocities,
+            pair_force: method.pair_force,
+        },
+        MethodProgramKind::BoundaryIntegral(method) => MethodSelectionReceipt::BoundaryIntegral {
+            boundary_operator: method.boundary_operator,
+        },
+    }
 }
 
 fn find_model<'a>(
@@ -886,6 +944,5 @@ struct ProgramDigestPayload<'a> {
     source_semantic_digest: &'a Digest,
     kind: &'a MethodProgramKind,
     state_bindings: &'a [MethodStateBinding],
-    expressions: &'a [SemanticExpr],
     receipt: &'a MethodReceipt,
 }
