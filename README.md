@@ -39,6 +39,17 @@ methods. Solverang owns generic constraint solving and its reusable 2D/3D
 constraint vocabulary, using Methodus for numerical algorithms. Resolvent may
 supply reusable algebra to either but does not absorb their solver semantics.
 
+The first RV1 slice is public as `TermStore`: a caller-owned, structurally
+hash-consed arena whose local `TermId` handles never serve as persistent
+identity. `canonical_bytes` and `TermDigest` preserve retained syntax exactly,
+including child order and nesting; they perform no algebraic simplification.
+Exact decimal, exact IEEE-bit ingress, machine-float, and precision-bearing
+atoms remain distinct. Stores support bounded iterative traversal, explicit
+cross-store import, construction-time node/depth/width budgets, and fail-closed
+canonical decoding. Store metrics use a fixed portable logical-schema formula,
+not Rust layout or allocator capacity. The current lifetime policy is strong
+arena retention; notebook-scale reclamation remains RV1-B2.
+
 See [`docs/resolvent-vision/README.md`](docs/resolvent-vision/README.md) for the
 architecture and phase execution model, and [`STATUS.md`](STATUS.md) for landed
 implementation truth.

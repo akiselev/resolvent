@@ -48,6 +48,7 @@ mod receipt;
 pub mod roots;
 mod scalar;
 pub mod sqrt_ext;
+mod term;
 pub mod uncertain;
 
 pub use bernstein::Bernstein;
@@ -68,6 +69,11 @@ pub use roots::{
 };
 pub use scalar::{ApproxScalar, FallibleScalar, Scalar};
 pub use sqrt_ext::SqrtExt;
+pub use term::{
+    Atom, BinderKind, BooleanOperator, CollectionKind, ExactDecimal, PiecewiseCase, PrecisionReal,
+    RelationOperator, RuleKind, StoreMetrics, SymbolId, SymbolName, SymbolicConstant, TermBudget,
+    TermDigest, TermError, TermId, TermNode, TermStore, decode_canonical_term,
+};
 pub use uncertain::{Sign, UBool, UOrd, USign, Uncertain};
 
 /// Admit a finite IEEE-754 value as its exact binary rational value.

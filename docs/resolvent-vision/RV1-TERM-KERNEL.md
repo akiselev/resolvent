@@ -95,6 +95,60 @@ Requirements:
 
 Exit: independent stores that construct the same structural term produce identical bytes/digests regardless of insertion order/process history.
 
+#### Frozen A1-A3 contract (schema version 1)
+
+The reviewed A1-A3 boundary is now concrete:
+
+- atoms have explicit tags for integer, rational, exact decimal, exact IEEE-754
+  bits, machine-float bits, precision-bearing decimal real, UTF-8 string,
+  bytes, namespaced symbol, boolean, symbolic constant, and de Bruijn variable;
+- exact decimals are canonical `coefficient * 10^-scale` values and never pass
+  through `f64`; exact IEEE-bit ingress and approximate machine-float intent
+  remain different atom classes even when their payload bits match;
+- all node vectors, piecewise cases, array elements, application arguments, and
+  ordered-map entries retain their authored order. There is no unordered node
+  container in schema version 1;
+- binders use de Bruijn indices, where zero names the nearest bound variable.
+  Bounds are evaluated outside the binder's newly introduced scope. Stores may
+  hold open fragments during construction, but a canonical wire root must be
+  closed; escaping indices fail with a typed binder error;
+- canonical bytes begin with `RESOLVENT-TERM`, a NUL separator, and schema byte
+  `1`. Reachable nodes follow deterministic child-first postorder and refer only
+  to earlier canonical node indices. Counts and indices use shortest-form
+  unsigned LEB128; signed decimal exponents/scales use zigzag encoding;
+- node tags are `01` for atoms and `10` through `1b` for application, relation,
+  boolean, condition, piecewise, collection, ordered map, index, slice, rule,
+  binder, and held syntax. Atom tags are `01` through `0c` in the order listed
+  above. Enum variants use explicit frozen sub-tags, never Rust discriminants;
+- the root canonical index terminates the stream. Decoding rejects unknown
+  tags, forward references, duplicate canonical nodes, overlong varints,
+  trailing bytes, noncanonical representations, and all configured budget
+  overruns, then requires byte-for-byte re-encoding equality;
+- the stable digest is BLAKE3 over these canonical bytes. Local handles, local
+  symbol IDs, insertion history, source spans, allocation layout, Serde, and
+  rendering do not enter stable identity.
+
+Construction, traversal, import, encoding, and decoding all enforce the
+applicable `TermBudget` node/depth/child/atom/wire limits. Interning computes and
+stores depth as each node is admitted. An exact hash-cons hit is checked before
+charging `max_nodes`; cross-store import first plans the actual deduplicated
+target DAG and commits only after the complete plan fits.
+
+`StoreMetrics::logical_bytes` is a portable saturating `u64` schema measure, not
+resident memory. Each node/atom/enum/optional tag is one byte, each logical
+length and term reference is eight bytes, an interned symbol reference is four
+bytes, and integer-width scalar fields use their declared 1/4/8-byte widths.
+Variable payloads charge an eight-byte logical length plus payload bytes.
+Distinct symbol namespace/name blobs are charged once in the symbol table and
+not copied into every symbolic atom's charge. Hash-table buckets, allocator
+capacity, pointers, and Rust `size_of` never enter this metric.
+
+Schema evolution requires a new version byte and new golden vectors. Version 1
+must not be reinterpreted in place. Golden coverage freezes bytes and BLAKE3
+digests for every atom, node, enum, collection, binder, and optional-field
+subtag, while independent shared-DAG construction permutations verify that
+local insertion order does not leak into identity.
+
 ### RV1-B1 - Caller-owned hash-consed `TermStore`
 
 Implement:
