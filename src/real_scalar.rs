@@ -13,9 +13,9 @@
 //!
 //! [`SqrtExt`]: crate::SqrtExt
 
-use crate::Scalar;
 use crate::exact::{ExactField, RingOps};
 use crate::real::Real;
+use crate::{FallibleScalar, Scalar};
 
 impl<E: ExactField + Send + Sync + 'static> Scalar for Real<E> {
     fn zero() -> Self {
@@ -51,6 +51,12 @@ impl<E: ExactField + Send + Sync + 'static> Scalar for Real<E> {
 
     fn abs(&self) -> Self {
         Real::abs(self)
+    }
+}
+
+impl<E: ExactField + Send + Sync + 'static> FallibleScalar for Real<E> {
+    fn try_from_f64(x: f64) -> Option<Self> {
+        Real::from_f64(x)
     }
 }
 

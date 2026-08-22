@@ -277,6 +277,12 @@ impl<S: Scalar> Scalar for Dual<S> {
     }
 }
 
+impl<S: crate::FallibleScalar> crate::FallibleScalar for Dual<S> {
+    fn try_from_f64(x: f64) -> Option<Self> {
+        S::try_from_f64(x).map(Dual::constant)
+    }
+}
+
 /// Chain rule for the non-exact-closed operations, on the **floating tier only**
 /// (`Dual<S>` is [`ApproxScalar`] exactly when `S` is — so `Dual<Real>` is not,
 /// preserving the exact boundary of the seam).

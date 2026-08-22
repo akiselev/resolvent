@@ -1,8 +1,8 @@
 //! M0 exit benchmark: filtered `sign_of_det2/3` vs naive all-rational
 //! evaluation on random + degenerate inputs. Target: >5× (DESIGN.md §7 M0).
 //!
-//! Deliberately dependency-free (harness = false): wall-clock medians are
-//! plenty for a >5× gate.
+//! Deliberately dependency-free (harness = false). Timings are observational;
+//! correctness agreement remains a gate.
 
 use resolvent::exact::{ExactRing, Rational, RingOps};
 use resolvent::ladder::{det2, sign_of_det2_f64};
@@ -48,6 +48,27 @@ fn main() {
             }
         })
         .collect();
+    let fallbacks = inputs
+        .iter()
+        .filter(|[a, b, c, d]| {
+            matches!(
+                det2(
+                    &resolvent::Interval::point(*a),
+                    &resolvent::Interval::point(*b),
+                    &resolvent::Interval::point(*c),
+                    &resolvent::Interval::point(*d),
+                )
+                .sign(),
+                resolvent::Uncertain::Unknown
+            )
+        })
+        .count();
+    println!(
+        "sign_of_det2 corpus: filter_hits={} exact_fallbacks={} fallback_rate={:.3}",
+        n - fallbacks,
+        fallbacks,
+        fallbacks as f64 / n as f64
+    );
 
     let t0 = Instant::now();
     let mut acc = 0i64;
@@ -74,15 +95,88 @@ fn main() {
     assert_eq!(acc, acc2, "filtered and naive disagree");
     let speedup = naive.as_secs_f64() / filtered.as_secs_f64();
     println!(
-        "sign_of_det2: filtered {:?}  naive-rational {:?}  speedup {speedup:.1}x  (target >5x)",
+        "sign_of_det2: filtered {:?}  naive-rational {:?}  speedup {speedup:.1}x",
         filtered, naive
-    );
-    assert!(
-        speedup > 5.0,
-        "M0 exit criterion failed: {speedup:.1}x <= 5x"
     );
 
     segment_intersection_microbench();
+    exact_corpus_baselines();
+}
+
+/// RV0-D1 observational corpus. These timings are deliberately not score
+/// gates; their named deterministic inputs make representation change points
+/// comparable across revisions.
+fn exact_corpus_baselines() {
+    use resolvent::{AlgebraBudget, Mat, QPoly};
+
+    for bits in [64, 256, 1_024] {
+        let mut value = Rational::one();
+        for _ in 0..bits {
+            value = value.add(&value);
+        }
+        let start = Instant::now();
+        let mut accumulator = Rational::one();
+        for _ in 0..1_000 {
+            accumulator = accumulator.add(&value).mul(&q(0.5));
+        }
+        println!(
+            "rational bits={bits}: {:?} final_bits={}",
+            start.elapsed(),
+            accumulator.bit_size()
+        );
+    }
+
+    for degree in [4usize, 8] {
+        let left = QPoly::new(
+            (0..=degree)
+                .map(|i| Rational::from_i64(i as i64 + 1))
+                .collect(),
+        );
+        let right = QPoly::new(
+            (0..=degree)
+                .map(|i| Rational::from_i64((degree - i + 1) as i64))
+                .collect(),
+        );
+        let start = Instant::now();
+        let result = left.resultant(&right, AlgebraBudget::default());
+        println!(
+            "resultant degree={degree}: {:?} output_bits={}",
+            start.elapsed(),
+            result
+                .expect("baseline is within its explicit budget")
+                .bit_size()
+        );
+    }
+
+    let mut roots = QPoly::from_i64s(&[1]);
+    for root in [-17, -3, 2, 11] {
+        roots = roots.mul_poly(&QPoly::from_i64s(&[-root, 1]));
+    }
+    let start = Instant::now();
+    let isolated = resolvent::isolate_roots_with_budget(&roots, AlgebraBudget::default())
+        .expect("baseline is within its explicit budget");
+    println!(
+        "root isolation degree=4 separated_integer_roots: {:?} roots={}",
+        start.elapsed(),
+        isolated.len()
+    );
+
+    let matrix = Mat::from_rows(&[
+        vec![q(3.0), q(2.0), q(5.0), q(7.0)],
+        vec![q(11.0), q(13.0), q(17.0), q(19.0)],
+        vec![q(23.0), q(29.0), q(31.0), q(37.0)],
+        vec![q(41.0), q(43.0), q(47.0), q(53.0)],
+    ]);
+    let start = Instant::now();
+    let mut det = Rational::zero();
+    for _ in 0..1_000 {
+        det = matrix.det();
+    }
+    println!(
+        "rational matrix determinant n=4 iterations=1000: {:?} output_bits={}",
+        start.elapsed(),
+        det.bit_size()
+    );
 }
 
 /// M1 exit microbench: EPECK-style — construct segment-intersection points

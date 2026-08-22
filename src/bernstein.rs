@@ -11,6 +11,7 @@
 //! verdicts are `Certain` when the coefficients agree in sign and
 //! `Unknown` otherwise, never a silent approximation.
 
+use crate::AlgebraError;
 use crate::exact::{ExactField, ExactRing, Rational, RingOps};
 use crate::interval::Interval;
 use crate::roots::QPoly;
@@ -48,7 +49,18 @@ impl Bernstein {
     /// `[lo, hi]` (`lo < hi`). The zero polynomial gets one zero
     /// coefficient.
     pub fn from_power(p: &QPoly, lo: &Rational, hi: &Rational) -> Bernstein {
-        assert!(lo < hi, "empty or inverted interval");
+        Self::try_from_power(p, lo, hi).expect("empty or inverted interval")
+    }
+
+    /// Fallible form of [`Bernstein::from_power`].
+    pub fn try_from_power(
+        p: &QPoly,
+        lo: &Rational,
+        hi: &Rational,
+    ) -> Result<Bernstein, AlgebraError> {
+        if lo >= hi {
+            return Err(AlgebraError::InvalidInterval);
+        }
         // Power basis on [0,1]: q(t) = p(lo + (hi−lo)·t).
         let width = hi.sub(lo);
         let n = p.degree().unwrap_or(0);
@@ -82,11 +94,11 @@ impl Bernstein {
             }
             coeffs.push(b);
         }
-        Bernstein {
+        Ok(Bernstein {
             coeffs,
             lo: lo.clone(),
             hi: hi.clone(),
-        }
+        })
     }
 
     /// The interval this representation lives on.
@@ -168,10 +180,15 @@ impl Bernstein {
     /// current interval: two Bernstein forms over the sub-intervals,
     /// stitching exactly at the split point.
     pub fn subdivide_at(&self, t: &Rational) -> (Bernstein, Bernstein) {
-        assert!(
-            t.sign() == Sign::Positive && *t < Rational::one(),
-            "split parameter must be in (0,1)"
-        );
+        self.try_subdivide_at(t)
+            .expect("split parameter must be in (0,1)")
+    }
+
+    /// Fallible form of [`Bernstein::subdivide_at`].
+    pub fn try_subdivide_at(&self, t: &Rational) -> Result<(Bernstein, Bernstein), AlgebraError> {
+        if t.sign() != Sign::Positive || *t >= Rational::one() {
+            return Err(AlgebraError::InvalidInterval);
+        }
         let one_minus = Rational::one().sub(t);
         let n = self.coeffs.len();
         let mut tri = self.coeffs.clone();
@@ -188,7 +205,7 @@ impl Bernstein {
         }
         right_rev.reverse();
         let split = self.lo.add(&self.hi.sub(&self.lo).mul(t));
-        (
+        Ok((
             Bernstein {
                 coeffs: left,
                 lo: self.lo.clone(),
@@ -199,7 +216,7 @@ impl Bernstein {
                 lo: split,
                 hi: self.hi.clone(),
             },
-        )
+        ))
     }
 
     /// Midpoint subdivision.

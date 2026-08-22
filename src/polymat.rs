@@ -11,9 +11,11 @@
 //! size and deliberate: the consumers are 3x3 and 4x4, where it beats fraction-
 //! free elimination on coefficient growth, which is the real cost here.
 
+use crate::error::AlgebraWork;
 use crate::exact::Rational;
 use crate::ratmat::Mat;
 use crate::roots::QPoly;
+use crate::{AlgebraBudget, AlgebraError};
 
 /// A dense `n x n` matrix of [`QPoly`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,14 +29,43 @@ pub struct PolyMat {
 impl PolyMat {
     /// The pencil `λ·m1 + m0`, entry-wise. Both matrices must be `n x n`.
     pub fn pencil(m1: &Mat, m0: &Mat) -> PolyMat {
+        Self::pencil_with_budget(m1, m0, AlgebraBudget::default())
+            .expect("PolyMat::pencil requires equal square matrices within the default budget")
+    }
+
+    /// Construct a polynomial pencil under explicit shape/resource limits.
+    pub fn pencil_with_budget(
+        m1: &Mat,
+        m0: &Mat,
+        budget: AlgebraBudget,
+    ) -> Result<PolyMat, AlgebraError> {
+        if m1.rows != m1.cols
+            || m0.rows != m0.cols
+            || (m1.rows, m1.cols) != (m0.rows, m0.cols)
+            || m1.a.len() != m1.rows.saturating_mul(m1.cols)
+            || m0.a.len() != m0.rows.saturating_mul(m0.cols)
+        {
+            return Err(AlgebraError::Shape {
+                operation: "constructing a polynomial pencil",
+                details: "matrices must be well-formed, square, and equal-sized".into(),
+            });
+        }
         let n = m1.rows;
+        if n > budget.max_matrix_dimension {
+            return Err(AlgebraError::MatrixDimension {
+                actual: n,
+                limit: budget.max_matrix_dimension,
+            });
+        }
         let mut a = Vec::with_capacity(n * n);
         for i in 0..n {
             for j in 0..n {
                 a.push(QPoly::new(vec![m0.get(i, j).clone(), m1.get(i, j).clone()]));
             }
         }
-        PolyMat { n, a }
+        let result = PolyMat { n, a };
+        result.validate_budget(budget)?;
+        Ok(result)
     }
 
     /// Entry `(i, j)`.
@@ -45,13 +76,45 @@ impl PolyMat {
     /// Determinant of the submatrix on `rows x cols`, by Laplace expansion.
     /// The empty minor is `1`.
     pub fn minor(&self, rows: &[usize], cols: &[usize]) -> QPoly {
+        self.minor_with_budget(rows, cols, AlgebraBudget::default())
+            .expect("minor indices/shape/work must fit the default budget")
+    }
+
+    /// Determinant of a submatrix under explicit work and growth limits.
+    pub fn minor_with_budget(
+        &self,
+        rows: &[usize],
+        cols: &[usize],
+        budget: AlgebraBudget,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        if rows.len() != cols.len()
+            || rows.iter().any(|&index| index >= self.n)
+            || cols.iter().any(|&index| index >= self.n)
+        {
+            return Err(AlgebraError::Shape {
+                operation: "computing a polynomial minor",
+                details: "row/column selections must be equal-sized and in range".into(),
+            });
+        }
+        let mut work = AlgebraWork::new(budget, "computing a polynomial matrix minor");
+        self.minor_inner(rows, cols, budget, &mut work)
+    }
+
+    fn minor_inner(
+        &self,
+        rows: &[usize],
+        cols: &[usize],
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        work.spend(1)?;
         let k = rows.len();
-        debug_assert_eq!(k, cols.len());
         if k == 0 {
-            return QPoly::new(vec![Rational::one()]);
+            return Ok(QPoly::new(vec![Rational::one()]));
         }
         if k == 1 {
-            return self.get(rows[0], cols[0]).clone();
+            return Ok(self.get(rows[0], cols[0]).clone());
         }
         let mut acc = QPoly::zero_poly();
         for (j, &c) in cols.iter().enumerate() {
@@ -65,53 +128,110 @@ impl PolyMat {
                 .filter(|(jj, _)| *jj != j)
                 .map(|(_, &cc)| cc)
                 .collect();
-            let term = e.mul_poly(&self.minor(&rows[1..], &sub_cols));
+            let sub = self.minor_inner(&rows[1..], &sub_cols, budget, work)?;
+            let term = e.mul_poly_with_meter(&sub, budget, work)?;
             acc = if j % 2 == 0 {
-                acc.add_poly(&term)
+                acc.add_poly_with_meter(&term, budget, work)?
             } else {
-                acc.sub_poly(&term)
+                acc.sub_poly_with_meter(&term, budget, work)?
             };
+            acc.validate_budget(budget)?;
         }
-        acc
+        Ok(acc)
     }
 
     /// The full determinant, `det(λ·m1 + m0)`.
     pub fn det(&self) -> QPoly {
+        self.det_with_budget(AlgebraBudget::default())
+            .expect("polynomial determinant must fit the default budget")
+    }
+
+    /// Full determinant under explicit work/growth limits.
+    pub fn det_with_budget(&self, budget: AlgebraBudget) -> Result<QPoly, AlgebraError> {
         let all: Vec<usize> = (0..self.n).collect();
-        self.minor(&all, &all)
+        self.minor_with_budget(&all, &all, budget)
     }
 
     /// The `k`-th **determinantal divisor** `D_k`: the monic gcd of all
     /// `k x k` minors. `D_0 = 1`; `D_k = 0` iff every `k x k` minor vanishes.
     pub fn determinantal_divisor(&self, k: usize) -> QPoly {
+        self.determinantal_divisor_with_budget(k, AlgebraBudget::default())
+            .expect("determinantal divisor must fit the default budget")
+    }
+
+    /// Determinantal divisor under explicit combination/work/growth limits.
+    pub fn determinantal_divisor_with_budget(
+        &self,
+        k: usize,
+        budget: AlgebraBudget,
+    ) -> Result<QPoly, AlgebraError> {
+        let mut work = AlgebraWork::new(budget, "computing a polynomial determinantal divisor");
+        self.determinantal_divisor_with_meter(k, budget, &mut work)
+    }
+
+    fn determinantal_divisor_with_meter(
+        &self,
+        k: usize,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
         let one = QPoly::new(vec![Rational::one()]);
         if k == 0 {
-            return one;
+            return Ok(one);
         }
+        if k > self.n {
+            return Ok(QPoly::zero_poly());
+        }
+        let combinations_count = binomial_capped(self.n, k, budget.max_expression_nodes);
+        if combinations_count
+            .checked_mul(combinations_count)
+            .is_none_or(|work| work > budget.max_expression_nodes)
+        {
+            return Err(AlgebraError::BudgetExceeded {
+                operation: "enumerating polynomial minors",
+                limit: budget.max_expression_nodes,
+            });
+        }
+        work.spend(combinations_count)?;
         let combos = combinations(self.n, k);
         let mut g = QPoly::zero_poly();
         for rows in &combos {
             for cols in &combos {
-                let m = self.minor(rows, cols);
+                let m = self.minor_inner(rows, cols, budget, work)?;
                 if m.is_zero() {
                     continue;
                 }
-                g = g.gcd(&m);
+                g = g.gcd_with_meter(&m, budget, work)?;
                 if g.degree() == Some(0) {
-                    return one; // a unit gcd cannot shrink further
+                    return Ok(one); // a unit gcd cannot shrink further
                 }
             }
         }
-        g.monic()
+        // Every nonzero update is `gcd_with_budget`, which already returns a
+        // monic polynomial. Avoid a second, unmetered coefficient division.
+        g.validate_budget(budget)?;
+        Ok(g)
     }
 
     /// The **invariant factors** `i_1 | i_2 | … | i_n` of the pencil over ℚ\[λ\],
     /// as `i_k = D_k / D_{k−1}`. Their prime-power parts are the elementary
     /// divisors, which *are* the Segre data.
     pub fn invariant_factors(&self) -> Vec<QPoly> {
+        self.invariant_factors_with_budget(AlgebraBudget::default())
+            .expect("invariant factors must fit the default budget")
+    }
+
+    /// Invariant factors under explicit combination/work/growth limits.
+    pub fn invariant_factors_with_budget(
+        &self,
+        budget: AlgebraBudget,
+    ) -> Result<Vec<QPoly>, AlgebraError> {
+        self.validate_budget(budget)?;
+        let mut work = AlgebraWork::new(budget, "computing polynomial invariant factors");
         let mut ds = Vec::with_capacity(self.n + 1);
         for k in 0..=self.n {
-            ds.push(self.determinantal_divisor(k));
+            ds.push(self.determinantal_divisor_with_meter(k, budget, &mut work)?);
         }
         let mut out = Vec::with_capacity(self.n);
         for k in 1..=self.n {
@@ -119,15 +239,21 @@ impl PolyMat {
                 out.push(QPoly::zero_poly());
                 continue;
             }
-            match ds[k].div_rem(&ds[k - 1]) {
-                Some((q, rm)) => {
+            match ds[k].divrem_with_meter(&ds[k - 1], budget, &mut work) {
+                Ok((q, rm)) => {
                     debug_assert!(rm.is_zero(), "D_(k−1) must divide D_k");
-                    out.push(q.monic());
+                    q.validate_budget(budget)?;
+                    // Both determinantal divisors are monic, hence their exact
+                    // quotient is monic without a second normalization pass.
+                    out.push(q);
                 }
-                None => out.push(QPoly::zero_poly()),
+                Err(AlgebraError::DivisionByZeroPolynomial) => {
+                    out.push(QPoly::zero_poly());
+                }
+                Err(error) => return Err(error),
             }
         }
-        out
+        Ok(out)
     }
 
     /// The largest coefficient bit size anywhere in the matrix — the
@@ -135,6 +261,45 @@ impl PolyMat {
     pub fn max_bits(&self) -> u64 {
         self.a.iter().map(poly_bits).max().unwrap_or(1)
     }
+
+    fn validate_budget(&self, budget: AlgebraBudget) -> Result<(), AlgebraError> {
+        if self.n > budget.max_matrix_dimension {
+            return Err(AlgebraError::MatrixDimension {
+                actual: self.n,
+                limit: budget.max_matrix_dimension,
+            });
+        }
+        if self.n.checked_mul(self.n) != Some(self.a.len()) {
+            return Err(AlgebraError::Shape {
+                operation: "validating a polynomial matrix",
+                details: format!(
+                    "{}x{} matrix stores {} entries",
+                    self.n,
+                    self.n,
+                    self.a.len()
+                ),
+            });
+        }
+        for polynomial in &self.a {
+            polynomial.validate_budget(budget)?;
+        }
+        Ok(())
+    }
+}
+
+fn binomial_capped(n: usize, k: usize, cap: usize) -> usize {
+    let k = k.min(n - k);
+    let mut value = 1usize;
+    for i in 0..k {
+        let Some(product) = value.checked_mul(n - i) else {
+            return cap.saturating_add(1);
+        };
+        value = product / (i + 1);
+        if value > cap {
+            return cap.saturating_add(1);
+        }
+    }
+    value
 }
 
 /// The largest coefficient bit size in a polynomial (`1` for zero).
@@ -161,6 +326,30 @@ pub fn combinations(n: usize, k: usize) -> Vec<Vec<usize>> {
     let mut out = Vec::new();
     go(0, n, k, &mut Vec::new(), &mut out);
     out
+}
+
+/// All `k`-subsets under explicit dimension and output-count limits.
+pub fn combinations_with_budget(
+    n: usize,
+    k: usize,
+    budget: AlgebraBudget,
+) -> Result<Vec<Vec<usize>>, AlgebraError> {
+    if n > budget.max_matrix_dimension {
+        return Err(AlgebraError::MatrixDimension {
+            actual: n,
+            limit: budget.max_matrix_dimension,
+        });
+    }
+    if k > n {
+        return Ok(Vec::new());
+    }
+    if binomial_capped(n, k, budget.max_expression_nodes) > budget.max_expression_nodes {
+        return Err(AlgebraError::BudgetExceeded {
+            operation: "enumerating index combinations",
+            limit: budget.max_expression_nodes,
+        });
+    }
+    Ok(combinations(n, k))
 }
 
 #[cfg(test)]

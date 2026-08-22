@@ -67,9 +67,12 @@ impl Interval {
 
     /// Interval from explicit bounds. Panics if NaN or `lo > hi`.
     pub fn new(lo: f64, hi: f64) -> Interval {
-        assert!(!lo.is_nan() && !hi.is_nan(), "Interval::new(NaN)");
-        assert!(lo <= hi, "Interval::new: lo > hi ({lo} > {hi})");
-        Interval { inf: lo, sup: hi }
+        Self::try_new(lo, hi).expect("Interval::new: NaN or inverted bounds")
+    }
+
+    /// Interval from explicit bounds, or `None` for NaN/inverted bounds.
+    pub fn try_new(lo: f64, hi: f64) -> Option<Interval> {
+        (!lo.is_nan() && !hi.is_nan() && lo <= hi).then_some(Interval { inf: lo, sup: hi })
     }
 
     /// Lower bound.
@@ -224,20 +227,25 @@ impl Interval {
     /// exact value is assumed ≥ 0 by the caller's precondition).
     #[must_use]
     pub fn sqrt(self) -> Interval {
-        assert!(
-            self.sup >= 0.0,
-            "Interval::sqrt of a certainly-negative interval"
-        );
+        self.try_sqrt()
+            .expect("Interval::sqrt of a certainly-negative interval")
+    }
+
+    /// Outward square root, or `None` for a certainly-negative interval.
+    pub fn try_sqrt(self) -> Option<Interval> {
+        if self.sup < 0.0 {
+            return None;
+        }
         let lo_in = self.inf.max(0.0);
         let lo = if lo_in == 0.0 {
             0.0 // sqrt(0) exact
         } else {
             eft::blind_lo(lo_in.sqrt()).max(0.0)
         };
-        Interval {
+        Some(Interval {
             inf: lo,
             sup: eft::blind_hi(self.sup.sqrt()),
-        }
+        })
     }
 }
 

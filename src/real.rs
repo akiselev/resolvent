@@ -17,6 +17,7 @@
 use crate::exact::{ExactField, ExactRing, Rational, RingOps};
 use crate::interval::{AtomicInterval, Interval};
 use crate::uncertain::{Sign, UOrd, USign, Uncertain};
+use crate::{AlgebraBudget, AlgebraError};
 use core::cmp::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
@@ -368,18 +369,34 @@ impl<E: ExactField> Real<E> {
     #[allow(clippy::expect_used)] // `force` post-condition, argued above
     pub fn exact(&self) -> &E {
         if self.exact_ref().is_none() {
-            self.force();
+            self.force(usize::MAX)
+                .expect("unbounded lazy forcing cannot exhaust its node budget");
         }
         self.exact_ref()
             .expect("force() sets the exact cell of its root")
     }
 
+    /// Compute the exact value while bounding the number of lazy nodes forced.
+    ///
+    /// Work completed before exhaustion remains safely memoized; retrying with
+    /// a larger budget continues from that state without changing the value.
+    pub fn exact_with_budget(&self, budget: AlgebraBudget) -> Result<&E, AlgebraError> {
+        if self.exact_ref().is_none() {
+            self.force(budget.max_lazy_nodes)?;
+        }
+        self.exact_ref().ok_or(AlgebraError::BudgetExceeded {
+            operation: "forcing a lazy exact DAG",
+            limit: budget.max_lazy_nodes,
+        })
+    }
+
     /// Iterative DAG evaluation (explicit stack; one node lock at a time).
-    fn force(&self) {
+    fn force(&self, limit: usize) -> Result<(), AlgebraError> {
         enum Task<E: ExactField> {
             Node(Real<E>, bool), // (handle, expanded)
         }
         let mut stack = vec![Task::Node(self.clone(), false)];
+        let mut forced = 0usize;
         while let Some(Task::Node(r, expanded)) = stack.pop() {
             if r.exact_ref().is_some() {
                 continue;
@@ -418,6 +435,13 @@ impl<E: ExactField> Real<E> {
                     }
                 }
             } else {
+                if forced >= limit {
+                    return Err(AlgebraError::BudgetExceeded {
+                        operation: "forcing a lazy exact DAG",
+                        limit,
+                    });
+                }
+                forced += 1;
                 // Phase 2: children exacts are set; compute under this
                 // node's lock only (reads only already-set OnceLocks).
                 //
@@ -458,6 +482,7 @@ impl<E: ExactField> Real<E> {
                 }
             }
         }
+        Ok(())
     }
 
     /// Identity: same node (and slot). `x.cmp(x)` never forces exactness.

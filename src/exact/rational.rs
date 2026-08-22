@@ -57,8 +57,12 @@ impl Rational {
 
     /// From a numerator/denominator pair. Panics if `den == 0`.
     pub fn from_ratio(num: i64, den: i64) -> Rational {
-        assert!(den != 0, "Rational::from_ratio: zero denominator");
-        Rational(RBig::from(num) / RBig::from(den))
+        Self::try_from_ratio(num, den).expect("Rational::from_ratio: zero denominator")
+    }
+
+    /// From a numerator/denominator pair, or `None` when `den == 0`.
+    pub fn try_from_ratio(num: i64, den: i64) -> Option<Rational> {
+        (den != 0).then(|| Rational(RBig::from(num) / RBig::from(den)))
     }
 
     /// Borrow the underlying dashu value.
@@ -148,17 +152,34 @@ impl Rational {
 
     /// Multiplicative inverse. Panics on exact zero.
     pub fn recip(&self) -> Rational {
-        assert!(self.sign() != Sign::Zero, "Rational::recip of zero");
-        ExactField::div(&Rational::one(), self)
+        self.checked_recip().expect("Rational::recip of zero")
+    }
+
+    /// Multiplicative inverse, or `None` for exact zero.
+    pub fn checked_recip(&self) -> Option<Rational> {
+        (self.sign() != Sign::Zero).then(|| ExactField::div(&Rational::one(), self))
     }
 
     /// Integer power, including negative powers for nonzero values.
     pub fn pow(&self, exponent: i32) -> Rational {
+        self.checked_pow(exponent)
+            .expect("Rational::pow: negative power of zero")
+    }
+
+    /// Integer power, or `None` for a negative power of exact zero.
+    pub fn checked_pow(&self, exponent: i32) -> Option<Rational> {
         if exponent < 0 {
-            return self.recip().pow(exponent.saturating_neg());
+            return self
+                .checked_recip()
+                .map(|reciprocal| reciprocal.pow_unsigned(exponent.unsigned_abs()));
         }
+        Some(self.pow_unsigned(exponent as u32))
+    }
+
+    /// Nonnegative integer power over the full `u32` exponent range.
+    pub fn pow_unsigned(&self, exponent: u32) -> Rational {
         let mut base = self.clone();
-        let mut power = exponent as u32;
+        let mut power = exponent;
         let mut result = Rational::one();
         while power != 0 {
             if power & 1 == 1 {
@@ -174,6 +195,7 @@ impl Rational {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RationalWire {
     numerator: String,
     denominator: String,
@@ -205,7 +227,13 @@ impl<'de> Deserialize<'de> for Rational {
                 "rational denominator must be positive",
             ));
         }
-        Ok(Rational(RBig::from_parts(numerator, denominator)))
+        let value = Rational(RBig::from_parts(numerator, denominator));
+        if value.0.numerator().to_string() != wire.numerator
+            || value.0.denominator().to_string() != wire.denominator
+        {
+            return Err(serde::de::Error::custom("non-canonical rational encoding"));
+        }
+        Ok(value)
     }
 }
 

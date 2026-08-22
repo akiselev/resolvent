@@ -50,6 +50,15 @@ pub fn det3<T: RingOps>(
 /// question this crate answers.
 #[allow(clippy::expect_used)] // documented contract: inputs must be finite
 pub fn sign_of_det2_f64(a: f64, b: f64, c: f64, d: f64) -> Sign {
+    try_sign_of_det2_f64(a, b, c, d).expect("determinant inputs must be finite")
+}
+
+/// Total form of [`sign_of_det2_f64`]; `None` if any input is non-finite.
+#[allow(clippy::expect_used)] // finiteness is checked before exact conversion
+pub fn try_sign_of_det2_f64(a: f64, b: f64, c: f64, d: f64) -> Option<Sign> {
+    if ![a, b, c, d].into_iter().all(f64::is_finite) {
+        return None;
+    }
     let fi = || {
         det2(
             &Interval::point(a),
@@ -63,7 +72,7 @@ pub fn sign_of_det2_f64(a: f64, b: f64, c: f64, d: f64) -> Sign {
         let q = |x: f64| Rational::from_f64(x).expect("finite input");
         det2(&q(a), &q(b), &q(c), &q(d)).sign()
     };
-    certify(fi, fe)
+    Some(certify(fi, fe))
 }
 
 /// Filtered exact sign of a 3×3 determinant of doubles.
@@ -84,6 +93,17 @@ pub fn sign_of_det3_f64(
     m21: f64,
     m22: f64,
 ) -> Sign {
+    try_sign_of_det3_f64([m00, m01, m02, m10, m11, m12, m20, m21, m22])
+        .expect("determinant inputs must be finite")
+}
+
+/// Total filtered exact sign of a 3x3 determinant in row-major order.
+#[allow(clippy::expect_used)] // finiteness is checked before exact conversion
+pub fn try_sign_of_det3_f64(values: [f64; 9]) -> Option<Sign> {
+    if !values.into_iter().all(f64::is_finite) {
+        return None;
+    }
+    let [m00, m01, m02, m10, m11, m12, m20, m21, m22] = values;
     let fi = || {
         let p = Interval::point;
         det3(
@@ -114,7 +134,7 @@ pub fn sign_of_det3_f64(
         )
         .sign()
     };
-    certify(fi, fe)
+    Some(certify(fi, fe))
 }
 
 #[cfg(test)]

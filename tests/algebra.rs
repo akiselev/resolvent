@@ -80,6 +80,31 @@ fn polynomial_receipts_are_deterministic_and_identity_sensitive() {
     assert_eq!(receipt, repeated);
     assert_eq!(receipt.schema, "resolvent-algebra-receipt/1");
     assert_eq!(receipt.operation, AlgebraOperation::Resultant);
+    assert_eq!(
+        receipt.input_digest,
+        "08dc38209d4af4a73c3a39431d63587acc3ac27f6e6be8d9734ce5a0168ec6a0"
+    );
+    assert_eq!(
+        receipt.output_digest,
+        "842591179b42a41ebc226f762e12981c21f11402b5222824041ddf0762a00109"
+    );
+    let json = serde_json::to_string(&receipt).unwrap();
+    assert_eq!(
+        json,
+        r#"{"schema":"resolvent-algebra-receipt/1","operation":"Resultant","input_digest":"08dc38209d4af4a73c3a39431d63587acc3ac27f6e6be8d9734ce5a0168ec6a0","output_digest":"842591179b42a41ebc226f762e12981c21f11402b5222824041ddf0762a00109"}"#
+    );
+    assert_eq!(
+        serde_json::from_str::<AlgebraReceipt>(&json).unwrap(),
+        receipt
+    );
+    assert!(serde_json::from_str::<AlgebraReceipt>(&json.replace("/1", "/2")).is_err());
+    assert!(
+        serde_json::from_str::<AlgebraReceipt>(&json.replace(
+            "08dc38209d4af4a73c3a39431d63587acc3ac27f6e6be8d9734ce5a0168ec6a0",
+            "not-a-digest"
+        ))
+        .is_err()
+    );
 
     let changed_input = AlgebraReceipt::for_polynomial(
         AlgebraOperation::Resultant,
@@ -92,6 +117,28 @@ fn polynomial_receipts_are_deterministic_and_identity_sensitive() {
     let changed_output =
         AlgebraReceipt::for_polynomial(AlgebraOperation::Resultant, &polynomial, &q(1)).unwrap();
     assert_ne!(receipt.output_digest, changed_output.output_digest);
+}
+
+#[test]
+fn receipt_wire_boundary_vectors_and_negative_decodes_are_frozen() {
+    let boundary = r#"{"schema":"resolvent-algebra-receipt/1","operation":"Canonicalize","input_digest":"0000000000000000000000000000000000000000000000000000000000000000","output_digest":"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}"#;
+    let decoded = serde_json::from_str::<AlgebraReceipt>(boundary).unwrap();
+    assert_eq!(serde_json::to_string(&decoded).unwrap(), boundary);
+    assert!(serde_json::from_str::<AlgebraReceipt>(&boundary.replace('f', "F")).is_err());
+    assert!(
+        serde_json::from_str::<AlgebraReceipt>(&boundary.replace(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000000000000000000000000000000000"
+        ))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_str::<AlgebraReceipt>(&boundary.replace("Canonicalize", "Unknown"))
+            .is_err()
+    );
+    assert!(
+        serde_json::from_str::<AlgebraReceipt>(&boundary.replace("}", r#","extra":0}"#)).is_err()
+    );
 }
 
 #[test]
@@ -110,6 +157,12 @@ fn rational_wire_encoding_is_explicit_and_canonical() {
     assert_eq!(json, r#"{"numerator":"-3","denominator":"7"}"#);
     assert_eq!(serde_json::from_str::<Rational>(&json).unwrap(), value);
     assert!(serde_json::from_str::<Rational>(r#"{"numerator":"1","denominator":"0"}"#).is_err());
+    assert!(serde_json::from_str::<Rational>(r#"{"numerator":"2","denominator":"2"}"#).is_err());
+    assert!(serde_json::from_str::<Rational>(r#"{"numerator":"01","denominator":"1"}"#).is_err());
+    assert!(
+        serde_json::from_str::<Rational>(r#"{"numerator":"1","denominator":"1","extra":0}"#)
+            .is_err()
+    );
 }
 
 #[test]
@@ -129,6 +182,7 @@ fn real_root_certificates_round_trip_and_validate() {
     assert!(resolvent::RealRoot::from_certificate(invalid).is_err());
 
     let boundary_root = resolvent::RealRootCertificate {
+        schema: "resolvent-real-root-certificate/1".into(),
         polynomial: QPoly::new(vec![q(0), q(1)]),
         lower: q(0),
         upper: q(1),

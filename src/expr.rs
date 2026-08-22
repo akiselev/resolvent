@@ -68,11 +68,9 @@ impl Expr {
             }),
             Self::Pow { base, exponent } => {
                 let value = base.evaluate(environment)?;
-                if *exponent >= 0 {
-                    Ok(value.pow(*exponent))
-                } else {
-                    Ok(value.recip().pow(-*exponent))
-                }
+                value
+                    .checked_pow(*exponent)
+                    .ok_or(AlgebraError::DivisionByZero)
             }
             Self::Function { name, .. } => Err(AlgebraError::IndeterminateFunction(name.clone())),
         }

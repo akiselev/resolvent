@@ -66,7 +66,9 @@ R1 established explicitly serialized rationals and immutable root certificates. 
 Requirements:
 
 - canonical rational bytes do not depend on backend-private serde structure;
-- immutable root certificates round trip and validate on decode;
+- immutable root certificates round trip; decode performs bounded envelope
+  validation without algebra, and budgeted restoration validates the
+  mathematical certificate;
 - public serialized matrices/polynomials use Resolvent-owned schema versions where they are durable artifacts;
 - lazy runtime-only state is not serialized as authoritative identity;
 - schema golden vectors cover normal, degenerate and boundary cases;
@@ -226,6 +228,22 @@ RV0 exits when:
 - RV1 can change symbolic representation without reopening numeric ownership.
 
 RV0 does **not** require CADabra to stop R2 work while these audits run.
+
+## Completion ledger
+
+| Package | Landed evidence |
+|---|---|
+| RV0-A1 | [`../RV0-PUBLIC-API-CENSUS.md`](../RV0-PUBLIC-API-CENSUS.md) classifies the complete public surface by family and freezes invariants, persistence, consumer, and long-lived API status. |
+| RV0-A2 | Normal, degenerate, boundary, and negative golden tests cover rational, canonical `QPoly`, rational-matrix, root-certificate, and receipt schemas. Root serde performs bounded envelope validation; budgeted restoration validates the mathematical certificate. Lazy state remains non-serializable. Receipt v1 retains its pre-QPoly-wire polynomial digest projection explicitly. |
+| RV0-B1 | Checked ingress/construction/matrix paths, typed exact-zero evaluation, and bounded positive-width root refinement close the audit findings; remaining convenience/index/trait panics are documented preconditions with total alternatives where untrusted data enters. |
+| RV0-B2 | `AlgebraBudget` counts expression/minor/Euclidean work, live polynomial division, matrix multiply/determinant/RREF arithmetic, certificate Horner/affine restoration, polynomial degree, intermediate coefficient bits, matrix/resultant dimension, root bisections, and lazy nodes. Root isolation and each PolyMat top-level operation retain one shared meter across every nested algebra stage; hostile aggregate tests prove subcalls cannot reset it. Convenience forms are documented proven-input contracts. |
+| RV0-B3 | [`../RV0-CAPABILITY-TABLE.md`](../RV0-CAPABILITY-TABLE.md) freezes exact/enclosure/approximate/dual distinctions. |
+| RV0-C1 | Resolvent tests retain the Scientia differentiation and CADabra exact/root/filter/matrix contracts; federation validation is recorded separately. |
+| RV0-C2 | `tests/ownership_boundaries.rs` and `scripts/check-ownership.sh` reject consumer-owned vocabulary/deleted facades in production/dependencies. |
+| RV0-D1 | [`../RV0-BASELINES.md`](../RV0-BASELINES.md) names the non-gating corpus; `benches/ladder.rs` reports rational, filter/fallback, lazy/eager, resultant/root, and matrix observations. |
+| RV0-D2 | The `real` suite pins 200,000-node iterative evaluation/teardown, sharing, overlapping concurrency, monotone cache refinement, exact stability, and resumable budget exhaustion. |
+| RV0-E1 | [`../RV0-FEDERATION-BASELINE.md`](../RV0-FEDERATION-BASELINE.md) records exact starting commits and repeatable local/cross-consumer gates. |
+| RV0-E2 | Serialization, fallibility, capability, certificate, ownership, benchmark, and stress locations above are frozen; RV1 may add structural Terms without replacing `Expr`, `Real`, or numeric ownership. |
 
 ## Parallelism
 

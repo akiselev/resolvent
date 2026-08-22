@@ -66,7 +66,7 @@ pub use roots::{
     RootError, isolate_roots, isolate_roots_with_budget, sign_radical1, sign_radical2,
     simplest_rational_in, try_sign_radical1_at, try_sign_radical2_at,
 };
-pub use scalar::{ApproxScalar, Scalar};
+pub use scalar::{ApproxScalar, FallibleScalar, Scalar};
 pub use sqrt_ext::SqrtExt;
 pub use uncertain::{Sign, UBool, UOrd, USign, Uncertain};
 

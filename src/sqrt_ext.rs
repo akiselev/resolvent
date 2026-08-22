@@ -7,6 +7,7 @@
 //! is total: repeated squaring reduces it to same-root signs, with no
 //! separation bounds.
 
+use crate::AlgebraError;
 use crate::exact::{ExactField, RingOps};
 use crate::interval::Interval;
 use crate::uncertain::Sign;
@@ -34,15 +35,19 @@ impl<T: ExactField> SqrtExt<T> {
     /// `a + b·√r`. Panics if `r` is negative (caller bug: radicands come
     /// from discriminants already known non-negative).
     pub fn new(a: T, b: T, r: T) -> SqrtExt<T> {
-        assert!(
-            r.sign() != Sign::Negative,
-            "SqrtExt::new: negative radicand"
-        );
+        Self::try_new(a, b, r).expect("SqrtExt::new: negative radicand")
+    }
+
+    /// Construct `a + b·√r`, rejecting a negative radicand.
+    pub fn try_new(a: T, b: T, r: T) -> Result<SqrtExt<T>, AlgebraError> {
+        if r.sign() == Sign::Negative {
+            return Err(AlgebraError::NegativeRadicand);
+        }
         if b.sign() == Sign::Zero || r.sign() == Sign::Zero {
             // Normalize: value is exactly `a`.
-            SqrtExt::rational(a)
+            Ok(SqrtExt::rational(a))
         } else {
-            SqrtExt { a, b, r }
+            Ok(SqrtExt { a, b, r })
         }
     }
 
@@ -110,13 +115,15 @@ impl<T: ExactField> SqrtExt<T> {
         Some(SqrtExt::new(a, b, r))
     }
 
-    /// Checked division (multiply by the conjugate). `None` if roots differ;
-    /// panics on a zero divisor.
+    /// Checked division (multiply by the conjugate). `None` if roots differ
+    /// or the divisor is zero.
     pub fn checked_div(&self, rhs: &SqrtExt<T>) -> Option<SqrtExt<T>> {
         if !self.same_root(rhs) {
             return None;
         }
-        assert!(rhs.sign() != Sign::Zero, "SqrtExt::checked_div by zero");
+        if rhs.sign() == Sign::Zero {
+            return None;
+        }
         let r = self.unified_root(rhs);
         // Conjugate norm: a2² − b2²·r.
         let norm = rhs.a.mul(&rhs.a).sub(&rhs.b.mul(&rhs.b).mul(&r));

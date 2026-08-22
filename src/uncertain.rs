@@ -17,13 +17,20 @@ pub enum Sign {
 impl Sign {
     /// Sign of a finite `f64` (panics on NaN — signs of NaN are meaningless).
     pub fn of_f64(x: f64) -> Sign {
-        assert!(!x.is_nan(), "Sign::of_f64(NaN)");
+        Self::try_of_f64(x).expect("Sign::of_f64(NaN)")
+    }
+
+    /// Sign of an IEEE value, or `None` for NaN.
+    pub fn try_of_f64(x: f64) -> Option<Sign> {
+        if x.is_nan() {
+            return None;
+        }
         if x > 0.0 {
-            Sign::Positive
+            Some(Sign::Positive)
         } else if x < 0.0 {
-            Sign::Negative
+            Some(Sign::Negative)
         } else {
-            Sign::Zero
+            Some(Sign::Zero)
         }
     }
 

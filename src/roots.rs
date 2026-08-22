@@ -15,12 +15,13 @@
 //! Descartes variation counts only in the directions where they are proof
 //! (`0` ⇒ no roots; `1` on a square-free polynomial ⇒ exactly one).
 
+use crate::error::AlgebraWork;
 use crate::exact::{ExactField, ExactRing, Rational, RingOps};
 use crate::interval::{AtomicInterval, Interval};
 use crate::uncertain::{Sign, UOrd, USign, Uncertain};
 use crate::{AlgebraBudget, AlgebraError};
 use core::cmp::Ordering;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Errors from root isolation.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -32,6 +33,25 @@ pub enum RootError {
         /// Maximum permitted bisections.
         limit: usize,
     },
+    /// Polynomial degree exceeds the configured exact-work limit.
+    DegreeExceeded {
+        /// Observed degree.
+        actual: usize,
+        /// Maximum permitted degree.
+        limit: usize,
+    },
+    /// A coefficient exceeds the configured bit-size limit.
+    CoefficientBitsExceeded {
+        /// Observed coefficient bit size.
+        actual: u64,
+        /// Maximum permitted coefficient bit size.
+        limit: u64,
+    },
+    /// Deterministic algebraic work estimate exceeds the configured limit.
+    WorkBudgetExceeded {
+        /// Maximum permitted work units.
+        limit: usize,
+    },
 }
 
 impl core::fmt::Display for RootError {
@@ -40,6 +60,18 @@ impl core::fmt::Display for RootError {
             RootError::ZeroPolynomial => write!(f, "zero polynomial has no isolated roots"),
             RootError::BudgetExceeded { limit } => {
                 write!(f, "root isolation exceeded bisection budget {limit}")
+            }
+            RootError::DegreeExceeded { actual, limit } => {
+                write!(f, "root polynomial degree {actual} exceeds limit {limit}")
+            }
+            RootError::CoefficientBitsExceeded { actual, limit } => {
+                write!(
+                    f,
+                    "root coefficient bit size {actual} exceeds limit {limit}"
+                )
+            }
+            RootError::WorkBudgetExceeded { limit } => {
+                write!(f, "root algebra exceeds deterministic work budget {limit}")
             }
         }
     }
@@ -63,9 +95,49 @@ impl std::error::Error for RootCertificateError {}
 
 /// A dense univariate polynomial over ℚ, coefficients low-to-high with a
 /// nonzero leading coefficient (the zero polynomial is the empty list).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QPoly {
     coeffs: Vec<Rational>,
+}
+
+const QPOLY_SCHEMA: &str = "resolvent-qpoly/1";
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct QPolyWire {
+    schema: String,
+    coefficients: Vec<Rational>,
+}
+
+impl Serialize for QPoly {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        QPolyWire {
+            schema: QPOLY_SCHEMA.into(),
+            coefficients: self.coeffs.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for QPoly {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = QPolyWire::deserialize(deserializer)?;
+        if wire.schema != QPOLY_SCHEMA {
+            return Err(serde::de::Error::custom("unsupported QPoly schema"));
+        }
+        if wire
+            .coefficients
+            .last()
+            .is_some_and(|coefficient| coefficient.sign() == Sign::Zero)
+        {
+            return Err(serde::de::Error::custom(
+                "non-canonical QPoly has a trailing zero coefficient",
+            ));
+        }
+        Ok(QPoly {
+            coeffs: wire.coefficients,
+        })
+    }
 }
 
 impl QPoly {
@@ -116,6 +188,26 @@ impl QPoly {
             self.degree().expect("nonzero polynomial"),
             rhs.degree().expect("nonzero polynomial"),
         );
+        let degree = m.max(n);
+        if degree > budget.max_polynomial_degree {
+            return Err(AlgebraError::PolynomialDegree {
+                actual: degree,
+                limit: budget.max_polynomial_degree,
+            });
+        }
+        let coefficient_bits = self
+            .coeffs
+            .iter()
+            .chain(&rhs.coeffs)
+            .map(Rational::bit_size)
+            .max()
+            .unwrap_or(0);
+        if coefficient_bits > budget.max_coefficient_bits {
+            return Err(AlgebraError::CoefficientBits {
+                actual: coefficient_bits,
+                limit: budget.max_coefficient_bits,
+            });
+        }
         let dimension = m + n;
         if dimension > budget.max_matrix_dimension {
             return Err(AlgebraError::ResultantDimension {
@@ -135,7 +227,7 @@ impl QPoly {
         for row in 0..m {
             matrix[n + row][row..row + right.len()].clone_from_slice(&right);
         }
-        Ok(determinant(matrix))
+        determinant(matrix, budget)
     }
 
     /// Exact evaluation (Horner).
@@ -145,6 +237,26 @@ impl QPoly {
             acc = acc.mul(x).add(c);
         }
         acc
+    }
+
+    fn eval_with_meter(
+        &self,
+        x: &Rational,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<Rational, AlgebraError> {
+        self.validate_budget(budget)?;
+        check_coefficient_bits(x, budget)?;
+        let mut acc = Rational::zero();
+        for coefficient in self.coeffs.iter().rev() {
+            work.spend(2)?;
+            let product = acc.mul(x);
+            check_coefficient_bits(&product, budget)?;
+            let value = product.add(coefficient);
+            check_coefficient_bits(&value, budget)?;
+            acc = value;
+        }
+        Ok(acc)
     }
 
     /// Exact sign at a rational point.
@@ -184,6 +296,25 @@ impl QPoly {
         )
     }
 
+    fn derivative_with_meter(
+        &self,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        if self.coeffs.len() <= 1 {
+            return Ok(QPoly::zero_poly());
+        }
+        let mut coefficients = Vec::with_capacity(self.coeffs.len() - 1);
+        for (index, coefficient) in self.coeffs.iter().enumerate().skip(1) {
+            work.spend(1)?;
+            let value = coefficient.mul(&Rational::from_i64(index as i64));
+            check_coefficient_bits(&value, budget)?;
+            coefficients.push(value);
+        }
+        Ok(QPoly::new(coefficients))
+    }
+
     /// Polynomial sum.
     pub fn add_poly(&self, rhs: &QPoly) -> QPoly {
         let n = self.coeffs.len().max(rhs.coeffs.len());
@@ -210,9 +341,95 @@ impl QPoly {
         QPoly::new(out)
     }
 
+    /// Polynomial product under explicit work, degree, and coefficient limits.
+    pub fn mul_poly_with_budget(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+    ) -> Result<QPoly, AlgebraError> {
+        let mut work = AlgebraWork::new(budget, "multiplying polynomials");
+        self.mul_poly_with_meter(rhs, budget, &mut work)
+    }
+
+    pub(crate) fn mul_poly_with_meter(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        rhs.validate_budget(budget)?;
+        if self.is_zero() || rhs.is_zero() {
+            return Ok(QPoly::zero_poly());
+        }
+        let degree = self
+            .degree()
+            .and_then(|left| rhs.degree().and_then(|right| left.checked_add(right)))
+            .ok_or(AlgebraError::PolynomialDegree {
+                actual: usize::MAX,
+                limit: budget.max_polynomial_degree,
+            })?;
+        if degree > budget.max_polynomial_degree {
+            return Err(AlgebraError::PolynomialDegree {
+                actual: degree,
+                limit: budget.max_polynomial_degree,
+            });
+        }
+        let mut out = vec![Rational::zero(); degree + 1];
+        for (i, a) in self.coeffs.iter().enumerate() {
+            for (j, b) in rhs.coeffs.iter().enumerate() {
+                work.spend(2)?;
+                let product = a.mul(b);
+                check_coefficient_bits(&product, budget)?;
+                let value = out[i + j].add(&product);
+                check_coefficient_bits(&value, budget)?;
+                out[i + j] = value;
+            }
+        }
+        Ok(QPoly::new(out))
+    }
+
     /// Scalar multiple.
     pub fn scale(&self, s: &Rational) -> QPoly {
         QPoly::new(self.coeffs.iter().map(|c| c.mul(s)).collect())
+    }
+
+    pub(crate) fn add_poly_with_meter(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        rhs.validate_budget(budget)?;
+        let length = self.coeffs.len().max(rhs.coeffs.len());
+        let mut coefficients = Vec::with_capacity(length);
+        for index in 0..length {
+            work.spend(1)?;
+            let value = self.coeff(index).add(&rhs.coeff(index));
+            check_coefficient_bits(&value, budget)?;
+            coefficients.push(value);
+        }
+        Ok(QPoly::new(coefficients))
+    }
+
+    pub(crate) fn sub_poly_with_meter(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        rhs.validate_budget(budget)?;
+        let length = self.coeffs.len().max(rhs.coeffs.len());
+        let mut coefficients = Vec::with_capacity(length);
+        for index in 0..length {
+            work.spend(1)?;
+            let value = self.coeff(index).sub(&rhs.coeff(index));
+            check_coefficient_bits(&value, budget)?;
+            coefficients.push(value);
+        }
+        Ok(QPoly::new(coefficients))
     }
 
     /// Euclidean division: `(quotient, remainder)` with
@@ -245,11 +462,68 @@ impl QPoly {
         (QPoly::new(quot), QPoly::new(rem))
     }
 
+    pub(crate) fn divrem_with_meter(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<(QPoly, QPoly), AlgebraError> {
+        if rhs.is_zero() {
+            return Err(AlgebraError::DivisionByZeroPolynomial);
+        }
+        self.validate_budget(budget)?;
+        rhs.validate_budget(budget)?;
+        if self.coeffs.len() < rhs.coeffs.len() {
+            return Ok((QPoly::zero_poly(), self.clone()));
+        }
+        let divisor_degree = rhs.coeffs.len() - 1;
+        let lead = rhs.coeff(divisor_degree);
+        let mut remainder = self.coeffs.clone();
+        let quotient_len = remainder.len() - divisor_degree;
+        let mut quotient = vec![Rational::zero(); quotient_len];
+        for k in (0..quotient_len).rev() {
+            let coefficient = remainder[k + divisor_degree].clone();
+            if coefficient.sign() == Sign::Zero {
+                continue;
+            }
+            work.spend(1)?;
+            let q = coefficient.div(&lead);
+            check_coefficient_bits(&q, budget)?;
+            for (j, divisor_coefficient) in rhs.coeffs.iter().enumerate() {
+                // One multiplication and one subtraction. Charge them before
+                // either arbitrary-precision operation is executed.
+                work.spend(2)?;
+                let product = q.mul(divisor_coefficient);
+                check_coefficient_bits(&product, budget)?;
+                let value = remainder[k + j].sub(&product);
+                check_coefficient_bits(&value, budget)?;
+                remainder[k + j] = value;
+            }
+            quotient[k] = q;
+        }
+        remainder.truncate(divisor_degree);
+        let quotient = QPoly::new(quotient);
+        let remainder = QPoly::new(remainder);
+        quotient.validate_budget(budget)?;
+        remainder.validate_budget(budget)?;
+        Ok((quotient, remainder))
+    }
+
     /// Euclidean division `self = q·rhs + r` with `deg r < deg rhs`.
     /// `None` iff `rhs` is the zero polynomial — the public, total form of the
     /// internal `divrem`.
     pub fn div_rem(&self, rhs: &QPoly) -> Option<(QPoly, QPoly)> {
         (!rhs.is_zero()).then(|| self.divrem(rhs))
+    }
+
+    /// Euclidean division under explicit work, degree, and coefficient limits.
+    pub fn div_rem_with_budget(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+    ) -> Result<(QPoly, QPoly), AlgebraError> {
+        let mut work = AlgebraWork::new(budget, "dividing polynomials");
+        self.divrem_with_meter(rhs, budget, &mut work)
     }
 
     /// Does `self` divide `rhs` exactly? The zero polynomial divides only `0`.
@@ -317,6 +591,60 @@ impl QPoly {
         a.scale(&Rational::one().div(&lead))
     }
 
+    /// Monic GCD under explicit Euclidean-work and coefficient limits.
+    pub fn gcd_with_budget(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+    ) -> Result<QPoly, AlgebraError> {
+        let mut work = AlgebraWork::new(budget, "computing a polynomial GCD");
+        self.gcd_with_meter(rhs, budget, &mut work)
+    }
+
+    pub(crate) fn gcd_with_meter(
+        &self,
+        rhs: &QPoly,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        rhs.validate_budget(budget)?;
+        let mut a = self.clone();
+        let mut b = rhs.clone();
+        while !b.is_zero() {
+            let (_, remainder) = a.divrem_with_meter(&b, budget, work)?;
+            a = b;
+            b = remainder;
+        }
+        let Some(lead) = a.coeffs.last().cloned() else {
+            return Ok(a);
+        };
+        let mut coefficients = Vec::with_capacity(a.coeffs.len());
+        for coefficient in &a.coeffs {
+            work.spend(1)?;
+            let value = coefficient.div(&lead);
+            check_coefficient_bits(&value, budget)?;
+            coefficients.push(value);
+        }
+        let result = QPoly::new(coefficients);
+        result.validate_budget(budget)?;
+        Ok(result)
+    }
+
+    pub(crate) fn validate_budget(&self, budget: AlgebraBudget) -> Result<(), AlgebraError> {
+        let degree = self.degree().unwrap_or(0);
+        if degree > budget.max_polynomial_degree {
+            return Err(AlgebraError::PolynomialDegree {
+                actual: degree,
+                limit: budget.max_polynomial_degree,
+            });
+        }
+        for coefficient in &self.coeffs {
+            check_coefficient_bits(coefficient, budget)?;
+        }
+        Ok(())
+    }
+
     /// The square-free part `self / gcd(self, self')` (same root set,
     /// every root simple).
     pub fn square_free_part(&self) -> QPoly {
@@ -327,6 +655,21 @@ impl QPoly {
         let (q, r) = self.divrem(&g);
         debug_assert!(r.is_zero(), "gcd divides");
         q
+    }
+
+    fn square_free_part_with_meter(
+        &self,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        let derivative = self.derivative_with_meter(budget, work)?;
+        let gcd = self.gcd_with_meter(&derivative, budget, work)?;
+        if gcd.degree() == Some(0) {
+            return Ok(self.clone());
+        }
+        let (quotient, remainder) = self.divrem_with_meter(&gcd, budget, work)?;
+        debug_assert!(remainder.is_zero(), "gcd divides");
+        Ok(quotient)
     }
 
     /// Yun's square-free decomposition: pairs `(multiplicity, factor)`
@@ -364,6 +707,49 @@ impl QPoly {
         out
     }
 
+    fn square_free_decomposition_with_meter(
+        &self,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<Vec<(u32, QPoly)>, AlgebraError> {
+        if self.degree().unwrap_or(0) == 0 {
+            return Ok(Vec::new());
+        }
+        let derivative = self.derivative_with_meter(budget, work)?;
+        let divisor = self.gcd_with_meter(&derivative, budget, work)?;
+        if divisor.degree() == Some(0) {
+            return Ok(vec![(1, self.clone())]);
+        }
+        let (mut square_free, remainder) = self.divrem_with_meter(&divisor, budget, work)?;
+        debug_assert!(remainder.is_zero());
+        let (mut derivative_quotient, remainder) =
+            derivative.divrem_with_meter(&divisor, budget, work)?;
+        debug_assert!(remainder.is_zero());
+        let square_free_derivative = square_free.derivative_with_meter(budget, work)?;
+        let mut residual =
+            derivative_quotient.sub_poly_with_meter(&square_free_derivative, budget, work)?;
+        let mut output = Vec::new();
+        let mut multiplicity = 1u32;
+        while square_free.degree().unwrap_or(0) > 0 {
+            let factor = square_free.gcd_with_meter(&residual, budget, work)?;
+            if factor.degree().unwrap_or(0) > 0 {
+                output.push((multiplicity, factor.clone()));
+            }
+            let (next_square_free, remainder) =
+                square_free.divrem_with_meter(&factor, budget, work)?;
+            debug_assert!(remainder.is_zero());
+            square_free = next_square_free;
+            let (next_derivative_quotient, remainder) =
+                residual.divrem_with_meter(&factor, budget, work)?;
+            debug_assert!(remainder.is_zero());
+            derivative_quotient = next_derivative_quotient;
+            let derivative = square_free.derivative_with_meter(budget, work)?;
+            residual = derivative_quotient.sub_poly_with_meter(&derivative, budget, work)?;
+            multiplicity += 1;
+        }
+        Ok(output)
+    }
+
     /// `p(a + b·x)` — affine composition.
     fn compose_affine(&self, a: &Rational, b: &Rational) -> QPoly {
         let mut acc = QPoly::zero_poly();
@@ -372,6 +758,35 @@ impl QPoly {
             acc = acc.mul_poly(&affine).add_poly(&QPoly::new(vec![c.clone()]));
         }
         acc
+    }
+
+    fn compose_affine_with_meter(
+        &self,
+        a: &Rational,
+        b: &Rational,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<QPoly, AlgebraError> {
+        self.validate_budget(budget)?;
+        check_coefficient_bits(a, budget)?;
+        check_coefficient_bits(b, budget)?;
+        let affine = QPoly::new(vec![a.clone(), b.clone()]);
+        let mut accumulator = QPoly::zero_poly();
+        for coefficient in self.coeffs.iter().rev() {
+            accumulator = accumulator.mul_poly_with_meter(&affine, budget, work)?;
+            let mut coefficients = accumulator.coeffs;
+            if coefficients.is_empty() {
+                coefficients.push(coefficient.clone());
+            } else {
+                work.spend(1)?;
+                let value = coefficients[0].add(coefficient);
+                check_coefficient_bits(&value, budget)?;
+                coefficients[0] = value;
+            }
+            accumulator = QPoly::new(coefficients);
+            accumulator.validate_budget(budget)?;
+        }
+        Ok(accumulator)
     }
 
     /// `x^n · p(1/x)` — coefficient reversal (degree n = deg p).
@@ -423,6 +838,35 @@ impl QPoly {
         r.variations()
     }
 
+    fn descartes_in_with_meter(
+        &self,
+        lo: &Rational,
+        hi: &Rational,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<usize, AlgebraError> {
+        work.spend(1)?;
+        let span = hi.sub(lo);
+        check_coefficient_bits(&span, budget)?;
+        let q = self.compose_affine_with_meter(lo, &span, budget, work)?;
+        let q1 =
+            q.compose_affine_with_meter(&Rational::one(), &Rational::from_i64(-1), budget, work)?;
+        work.spend(q1.coeffs.len())?;
+        let reversed = q1.reverse();
+        let mut transformed =
+            reversed.compose_affine_with_meter(&Rational::one(), &Rational::one(), budget, work)?;
+        let strip = transformed
+            .coeffs
+            .iter()
+            .take_while(|coefficient| coefficient.sign() == Sign::Zero)
+            .count();
+        if strip > 0 {
+            transformed = QPoly::new(transformed.coeffs[strip..].to_vec());
+        }
+        work.spend(transformed.coeffs.len())?;
+        Ok(transformed.variations())
+    }
+
     /// `1/L²`, where `L` is the leading coefficient of the integer-cleared
     /// polynomial. By the rational-root theorem the denominator `b` of any
     /// rational root divides `L`, and two distinct rationals with denominators
@@ -458,52 +902,115 @@ impl QPoly {
         )))
     }
 
-    /// Cauchy root bound: every real root lies strictly inside `(-B, B)`.
-    ///
-    /// `None` for the zero polynomial, which has no such bound — *every* real
-    /// is a root, so returning a number would be a wrong answer rather than a
-    /// missing one.
-    fn cauchy_bound(&self) -> Option<Rational> {
-        let lead = self.coeffs.last()?.clone();
-        let mut max = Rational::zero();
-        for c in &self.coeffs[..self.coeffs.len() - 1] {
-            let a = c.div(&lead);
-            let a = if a.sign() == Sign::Negative {
-                a.neg()
+    /// Budgeted Cauchy root bound: every real root lies strictly inside
+    /// `(-B, B)`. `None` only for the zero polynomial.
+    fn cauchy_bound_with_meter(
+        &self,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<Option<Rational>, AlgebraError> {
+        self.validate_budget(budget)?;
+        let Some(lead) = self.coeffs.last() else {
+            return Ok(None);
+        };
+        let mut maximum = Rational::zero();
+        for coefficient in &self.coeffs[..self.coeffs.len() - 1] {
+            work.spend(1)?;
+            let ratio = coefficient.div(lead);
+            check_coefficient_bits(&ratio, budget)?;
+            let absolute = if ratio.sign() == Sign::Negative {
+                ratio.neg()
             } else {
-                a
+                ratio
             };
-            if a > max {
-                max = a;
+            if absolute > maximum {
+                maximum = absolute;
             }
         }
-        Some(Rational::one().add(&max))
+        work.spend(1)?;
+        let bound = Rational::one().add(&maximum);
+        check_coefficient_bits(&bound, budget)?;
+        Ok(Some(bound))
     }
 }
 
-fn determinant(mut matrix: Vec<Vec<Rational>>) -> Rational {
+fn determinant(
+    mut matrix: Vec<Vec<Rational>>,
+    budget: AlgebraBudget,
+) -> Result<Rational, AlgebraError> {
+    let mut work = AlgebraWork::new(budget, "computing a resultant determinant");
     let mut determinant = Rational::one();
     for column in 0..matrix.len() {
-        let Some(pivot) =
-            (column..matrix.len()).find(|row| matrix[*row][column].sign() != Sign::Zero)
-        else {
-            return Rational::zero();
+        let mut pivot = None;
+        for (row, entries) in matrix.iter().enumerate().skip(column) {
+            work.spend(1)?;
+            if entries[column].sign() != Sign::Zero {
+                pivot = Some(row);
+                break;
+            }
+        }
+        let Some(pivot) = pivot else {
+            return Ok(Rational::zero());
         };
         if pivot != column {
             matrix.swap(pivot, column);
             determinant = determinant.neg();
         }
         let pivot_value = matrix[column][column].clone();
+        work.spend(1)?;
         determinant = determinant.mul(&pivot_value);
+        check_coefficient_bits(&determinant, budget)?;
         let pivot_row = matrix[column].clone();
         for row in matrix.iter_mut().skip(column + 1) {
+            work.spend(1)?;
             let factor = row[column].div(&pivot_value);
+            check_coefficient_bits(&factor, budget)?;
             for (entry, pivot_entry) in row.iter_mut().zip(&pivot_row).skip(column) {
-                *entry = entry.sub(&factor.mul(pivot_entry));
+                work.spend(2)?;
+                let product = factor.mul(pivot_entry);
+                check_coefficient_bits(&product, budget)?;
+                *entry = entry.sub(&product);
+                check_coefficient_bits(entry, budget)?;
             }
         }
     }
-    determinant
+    Ok(determinant)
+}
+
+fn check_coefficient_bits(value: &Rational, budget: AlgebraBudget) -> Result<(), AlgebraError> {
+    let actual = value.bit_size();
+    if actual > budget.max_coefficient_bits {
+        Err(AlgebraError::CoefficientBits {
+            actual,
+            limit: budget.max_coefficient_bits,
+        })
+    } else {
+        Ok(())
+    }
+}
+
+fn map_root_algebra_error(error: AlgebraError, budget: AlgebraBudget) -> RootError {
+    match error {
+        AlgebraError::CoefficientBits { actual, limit } => {
+            RootError::CoefficientBitsExceeded { actual, limit }
+        }
+        AlgebraError::PolynomialDegree { actual, limit } => {
+            RootError::DegreeExceeded { actual, limit }
+        }
+        _ => RootError::WorkBudgetExceeded {
+            limit: budget.max_expression_nodes,
+        },
+    }
+}
+
+fn spend_root_bisection(count: &mut usize, budget: AlgebraBudget) -> Result<(), RootError> {
+    if *count >= budget.max_root_bisections {
+        return Err(RootError::BudgetExceeded {
+            limit: budget.max_root_bisections,
+        });
+    }
+    *count += 1;
+    Ok(())
 }
 
 /// How many extra bisections [`RealRoot::collapse_if_rational`] will spend
@@ -569,6 +1076,79 @@ pub fn simplest_rational_in(lo: &Rational, hi: &Rational) -> Option<Rational> {
     })
 }
 
+fn simplest_rational_in_with_meter(
+    lo: &Rational,
+    hi: &Rational,
+    budget: AlgebraBudget,
+    work: &mut AlgebraWork,
+) -> Result<Option<Rational>, AlgebraError> {
+    check_coefficient_bits(lo, budget)?;
+    check_coefficient_bits(hi, budget)?;
+    work.spend(1)?;
+    if lo >= hi {
+        return Ok(None);
+    }
+    let zero = Rational::zero();
+    if *lo < zero && *hi > zero {
+        return Ok(Some(zero));
+    }
+    if *hi <= zero {
+        work.spend(2)?;
+        let value = simplest_nonneg_with_meter(&hi.neg(), &lo.neg(), budget, work)?.neg();
+        check_coefficient_bits(&value, budget)?;
+        Ok(Some(value))
+    } else {
+        Ok(Some(simplest_nonneg_with_meter(lo, hi, budget, work)?))
+    }
+}
+
+fn simplest_nonneg_with_meter(
+    lo: &Rational,
+    hi: &Rational,
+    budget: AlgebraBudget,
+    work: &mut AlgebraWork,
+) -> Result<Rational, AlgebraError> {
+    use dashu::integer::IBig;
+    work.spend(3)?;
+    let floor = floor_int(lo);
+    let floor_rational = from_int(floor.clone());
+    let next = from_int(floor + IBig::ONE);
+    check_coefficient_bits(&floor_rational, budget)?;
+    check_coefficient_bits(&next, budget)?;
+    if next < *hi {
+        return Ok(next);
+    }
+    work.spend(1)?;
+    let hi_fraction = hi.sub(&floor_rational);
+    check_coefficient_bits(&hi_fraction, budget)?;
+    let one = Rational::one();
+    if *lo == floor_rational {
+        work.spend(3)?;
+        let reciprocal = one.div(&hi_fraction);
+        check_coefficient_bits(&reciprocal, budget)?;
+        let denominator = from_int(floor_int(&reciprocal) + IBig::ONE);
+        let fraction = one.div(&denominator);
+        check_coefficient_bits(&fraction, budget)?;
+        let result = floor_rational.add(&fraction);
+        check_coefficient_bits(&result, budget)?;
+        return Ok(result);
+    }
+    work.spend(3)?;
+    let lower_fraction = lo.sub(&floor_rational);
+    check_coefficient_bits(&lower_fraction, budget)?;
+    let inverted_hi = one.div(&hi_fraction);
+    let inverted_lo = one.div(&lower_fraction);
+    check_coefficient_bits(&inverted_hi, budget)?;
+    check_coefficient_bits(&inverted_lo, budget)?;
+    let inner = simplest_nonneg_with_meter(&inverted_hi, &inverted_lo, budget, work)?;
+    work.spend(2)?;
+    let reciprocal = one.div(&inner);
+    check_coefficient_bits(&reciprocal, budget)?;
+    let result = floor_rational.add(&reciprocal);
+    check_coefficient_bits(&result, budget)?;
+    Ok(result)
+}
+
 /// `simplest_rational_in` restricted to `0 ≤ lo < hi`.
 fn simplest_nonneg(lo: &Rational, hi: &Rational) -> Rational {
     use dashu::integer::IBig;
@@ -623,8 +1203,10 @@ pub struct RealRoot {
 }
 
 /// Immutable, canonical projection of a certified real algebraic root.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RealRootCertificate {
+    /// Resolvent-owned wire schema identifier.
+    pub schema: String,
     /// Square-free polynomial defining the root.
     pub polynomial: QPoly,
     /// Exact lower isolating bound.
@@ -633,6 +1215,93 @@ pub struct RealRootCertificate {
     pub upper: Rational,
     /// Multiplicity in the polynomial originally isolated.
     pub multiplicity: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RealRootCertificateWire {
+    schema: String,
+    polynomial: QPoly,
+    lower: Rational,
+    upper: Rational,
+    multiplicity: u32,
+}
+
+impl<'de> Deserialize<'de> for RealRootCertificate {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = RealRootCertificateWire::deserialize(deserializer)?;
+        let certificate = RealRootCertificate {
+            schema: wire.schema,
+            polynomial: wire.polynomial,
+            lower: wire.lower,
+            upper: wire.upper,
+            multiplicity: wire.multiplicity,
+        };
+        validate_certificate_envelope(&certificate, AlgebraBudget::default())
+            .map_err(serde::de::Error::custom)?;
+        Ok(certificate)
+    }
+}
+
+fn validate_certificate_envelope(
+    certificate: &RealRootCertificate,
+    budget: AlgebraBudget,
+) -> Result<(), RootCertificateError> {
+    if certificate.schema != "resolvent-real-root-certificate/1" {
+        return Err(RootCertificateError {
+            reason: "unsupported certificate schema",
+        });
+    }
+    if certificate.polynomial.is_zero() {
+        return Err(RootCertificateError {
+            reason: "zero defining polynomial",
+        });
+    }
+    let degree = certificate.polynomial.degree().unwrap_or(0);
+    if degree > budget.max_polynomial_degree {
+        return Err(RootCertificateError {
+            reason: "defining polynomial exceeds degree budget",
+        });
+    }
+    if degree
+        .checked_mul(degree)
+        .and_then(|work| work.checked_mul(degree.max(1)))
+        .is_none_or(|work| work > budget.max_expression_nodes)
+    {
+        return Err(RootCertificateError {
+            reason: "certificate validation exceeds work budget",
+        });
+    }
+    if certificate
+        .polynomial
+        .coefficients()
+        .iter()
+        .any(|coefficient| coefficient.bit_size() > budget.max_coefficient_bits)
+    {
+        return Err(RootCertificateError {
+            reason: "defining polynomial exceeds coefficient budget",
+        });
+    }
+    let bound_bits = certificate
+        .lower
+        .bit_size()
+        .max(certificate.upper.bit_size());
+    if bound_bits > budget.max_coefficient_bits {
+        return Err(RootCertificateError {
+            reason: "isolating bound exceeds coefficient budget",
+        });
+    }
+    if certificate.multiplicity == 0 {
+        return Err(RootCertificateError {
+            reason: "zero multiplicity",
+        });
+    }
+    if certificate.lower > certificate.upper {
+        return Err(RootCertificateError {
+            reason: "reversed isolating bounds",
+        });
+    }
+    Ok(())
 }
 
 /// Isolate all real roots of `p`, in ascending order, with their
@@ -653,11 +1322,42 @@ pub fn isolate_roots_with_budget(
     if p.degree() == Some(0) {
         return Ok(Vec::new());
     }
-    let decomp = p.square_free_decomposition();
-    let sf = p.square_free_part();
+    let degree = p.degree().unwrap_or(0);
+    if degree > budget.max_polynomial_degree {
+        return Err(RootError::DegreeExceeded {
+            actual: degree,
+            limit: budget.max_polynomial_degree,
+        });
+    }
+    let coefficient_bits = p
+        .coefficients()
+        .iter()
+        .map(Rational::bit_size)
+        .max()
+        .unwrap_or(0);
+    if coefficient_bits > budget.max_coefficient_bits {
+        return Err(RootError::CoefficientBitsExceeded {
+            actual: coefficient_bits,
+            limit: budget.max_coefficient_bits,
+        });
+    }
+    let mut work = AlgebraWork::new(budget, "isolating polynomial roots");
+    let decomp = p
+        .square_free_decomposition_with_meter(budget, &mut work)
+        .map_err(|error| map_root_algebra_error(error, budget))?;
+    for (_, factor) in &decomp {
+        factor
+            .validate_budget(budget)
+            .map_err(|error| map_root_algebra_error(error, budget))?;
+    }
+    let sf = p
+        .square_free_part_with_meter(budget, &mut work)
+        .map_err(|error| map_root_algebra_error(error, budget))?;
+    sf.validate_budget(budget)
+        .map_err(|error| map_root_algebra_error(error, budget))?;
     let mut roots: Vec<RealRoot> = Vec::new();
     let mut bisections = 0;
-    isolate_square_free(&sf, &mut roots, &mut bisections, budget.max_root_bisections)?;
+    isolate_square_free(&sf, &mut roots, &mut bisections, budget, &mut work)?;
     // Sort ascending. Every interval comes from one bisection tree over one
     // Cauchy bound (see `isolate_square_free`), so they are pairwise disjoint
     // up to shared endpoints and `(lo, hi)` is a total order on them.
@@ -665,6 +1365,8 @@ pub fn isolate_roots_with_budget(
     // Mixing keys — an exact root's value against an isolated root's upper
     // bound — is only valid under that disjointness, and reads as correct
     // right up until it isn't.
+    work.spend(roots.len().saturating_mul(roots.len()))
+        .map_err(|error| map_root_algebra_error(error, budget))?;
     roots.sort_by(|a, b| a.lo.cmp(&b.lo).then_with(|| a.hi.cmp(&b.hi)));
     // Collapse the roots that are exactly rational. Bisection alone only
     // notices one when a midpoint happens to land on it, which for a Cauchy
@@ -674,13 +1376,15 @@ pub fn isolate_roots_with_budget(
     // moves each root strictly inside its own interval, so the ascending
     // order established above is preserved.
     for r in &mut roots {
-        r.collapse_if_rational();
+        r.collapse_if_rational_with_meter(budget, &mut work, &mut bisections)?;
     }
     // Multiplicities from the Yun factors: exactly one factor vanishes
     // at each root.
     for r in &mut roots {
         for (m, f) in &decomp {
-            if r.is_root_of(f) {
+            if r.is_root_of_with_meter(f, budget, &mut work)
+                .map_err(|error| map_root_algebra_error(error, budget))?
+            {
                 r.multiplicity = *m;
                 break;
             }
@@ -695,7 +1399,8 @@ fn isolate_square_free(
     p: &QPoly,
     out: &mut Vec<RealRoot>,
     bisections: &mut usize,
-    limit: usize,
+    budget: AlgebraBudget,
+    work: &mut AlgebraWork,
 ) -> Result<(), RootError> {
     if p.degree().unwrap_or(0) == 0 {
         return Ok(());
@@ -703,7 +1408,10 @@ fn isolate_square_free(
     // Unreachable given the degree check above (the zero polynomial reports
     // `degree() == None`, so `unwrap_or(0)` already returned); spelled as a
     // pattern rather than an unwrap so no panic exists to reason about.
-    let Some(bound) = p.cauchy_bound() else {
+    let Some(bound) = p
+        .cauchy_bound_with_meter(budget, work)
+        .map_err(|error| map_root_algebra_error(error, budget))?
+    else {
         return Ok(());
     };
     let mut stack: Vec<(Rational, Rational)> = vec![(bound.neg(), bound)];
@@ -725,20 +1433,30 @@ fn isolate_square_free(
     // so `refine` bisects on the right sign changes.
     let mut p = p.clone();
     while let Some((lo, hi)) = stack.pop() {
-        match p.descartes_in(&lo, &hi) {
+        match p
+            .descartes_in_with_meter(&lo, &hi, budget, work)
+            .map_err(|error| map_root_algebra_error(error, budget))?
+        {
             0 => {}
             1 => out.push(RealRoot::from_parts(p.clone(), lo, hi, 1)),
             _ => {
-                *bisections += 1;
-                if *bisections > limit {
-                    return Err(RootError::BudgetExceeded { limit });
-                }
+                spend_root_bisection(bisections, budget)?;
+                work.spend(2)
+                    .map_err(|error| map_root_algebra_error(error, budget))?;
                 let mid = lo.add(&hi).mul(&half);
-                if p.sign_at(&mid) == Sign::Zero {
+                check_coefficient_bits(&mid, budget)
+                    .map_err(|error| map_root_algebra_error(error, budget))?;
+                if p.eval_with_meter(&mid, budget, work)
+                    .map_err(|error| map_root_algebra_error(error, budget))?
+                    .sign()
+                    == Sign::Zero
+                {
                     // Exact rational root: record and deflate in place.
                     out.push(RealRoot::from_parts(p.clone(), mid.clone(), mid.clone(), 1));
                     let linear = QPoly::new(vec![mid.neg(), Rational::one()]);
-                    let (q, r) = p.divrem(&linear);
+                    let (q, r) = p
+                        .divrem_with_meter(&linear, budget, work)
+                        .map_err(|error| map_root_algebra_error(error, budget))?;
                     debug_assert!(r.is_zero());
                     p = q;
                     if p.degree().unwrap_or(0) == 0 {
@@ -778,6 +1496,7 @@ impl RealRoot {
     /// Project mutable refinement state into a stable immutable certificate.
     pub fn certificate(&self) -> RealRootCertificate {
         RealRootCertificate {
+            schema: "resolvent-real-root-certificate/1".into(),
             polynomial: self.poly.clone(),
             lower: self.lo.clone(),
             upper: self.hi.clone(),
@@ -789,30 +1508,49 @@ impl RealRoot {
     pub fn from_certificate(
         certificate: RealRootCertificate,
     ) -> Result<RealRoot, RootCertificateError> {
-        if certificate.polynomial.is_zero() {
-            return Err(RootCertificateError {
-                reason: "zero defining polynomial",
-            });
-        }
-        if certificate.multiplicity == 0 {
-            return Err(RootCertificateError {
-                reason: "zero multiplicity",
-            });
-        }
-        if certificate.lower > certificate.upper {
-            return Err(RootCertificateError {
-                reason: "reversed isolating bounds",
-            });
-        }
+        Self::from_certificate_with_budget(certificate, AlgebraBudget::default())
+    }
+
+    /// Validate and restore a certificate under explicit algebra limits.
+    pub fn from_certificate_with_budget(
+        certificate: RealRootCertificate,
+        budget: AlgebraBudget,
+    ) -> Result<RealRoot, RootCertificateError> {
+        validate_certificate_envelope(&certificate, budget)?;
+        let mut work = AlgebraWork::new(budget, "restoring a root certificate");
+        let map_algebra_error = |error: AlgebraError| RootCertificateError {
+            reason: match error {
+                AlgebraError::CoefficientBits { .. } => {
+                    "certificate restoration exceeds coefficient budget"
+                }
+                _ => "certificate restoration exceeds work budget",
+            },
+        };
         if certificate.lower == certificate.upper {
-            if certificate.polynomial.sign_at(&certificate.lower) != Sign::Zero {
+            if certificate
+                .polynomial
+                .eval_with_meter(&certificate.lower, budget, &mut work)
+                .map_err(map_algebra_error)?
+                .sign()
+                != Sign::Zero
+            {
                 return Err(RootCertificateError {
                     reason: "point bound is not a polynomial root",
                 });
             }
         } else {
-            if certificate.polynomial.sign_at(&certificate.lower) == Sign::Zero
-                || certificate.polynomial.sign_at(&certificate.upper) == Sign::Zero
+            if certificate
+                .polynomial
+                .eval_with_meter(&certificate.lower, budget, &mut work)
+                .map_err(map_algebra_error)?
+                .sign()
+                == Sign::Zero
+                || certificate
+                    .polynomial
+                    .eval_with_meter(&certificate.upper, budget, &mut work)
+                    .map_err(map_algebra_error)?
+                    .sign()
+                    == Sign::Zero
             {
                 return Err(RootCertificateError {
                     reason: "non-point interval has a root on its boundary",
@@ -820,7 +1558,8 @@ impl RealRoot {
             }
             if certificate
                 .polynomial
-                .descartes_in(&certificate.lower, &certificate.upper)
+                .descartes_in_with_meter(&certificate.lower, &certificate.upper, budget, &mut work)
+                .map_err(map_algebra_error)?
                 != 1
             {
                 return Err(RootCertificateError {
@@ -928,18 +1667,39 @@ impl RealRoot {
     /// `poly(lo) ≠ 0 ≠ poly(hi)` is preserved; an exact midpoint hit
     /// collapses the root to a point.
     pub fn refine(&mut self) {
+        let budget = AlgebraBudget {
+            max_expression_nodes: usize::MAX,
+            max_polynomial_degree: usize::MAX,
+            max_coefficient_bits: u64::MAX,
+            max_root_bisections: usize::MAX,
+            ..AlgebraBudget::default()
+        };
+        let mut work = AlgebraWork::new(budget, "refining a real root");
+        self.refine_with_meter(budget, &mut work)
+            .expect("unbounded refinement of a valid RealRoot cannot fail");
+    }
+
+    fn refine_with_meter(
+        &mut self,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<(), AlgebraError> {
         if self.is_exact() {
-            return;
+            return Ok(());
         }
+        work.spend(2)?;
         let mid = self.lo.add(&self.hi).mul(&Rational::from_ratio(1, 2));
-        match self.poly.sign_at(&mid) {
+        check_coefficient_bits(&mid, budget)?;
+        let mid_sign = self.poly.eval_with_meter(&mid, budget, work)?.sign();
+        match mid_sign {
             Sign::Zero => {
                 self.lo = mid.clone();
                 self.hi = mid;
             }
             _ => {
                 // The root is on the side where the sign flips vs lo.
-                if self.poly.sign_at(&self.lo) == self.poly.sign_at(&mid) {
+                let lo_sign = self.poly.eval_with_meter(&self.lo, budget, work)?.sign();
+                if lo_sign == mid_sign {
                     self.lo = mid;
                 } else {
                     self.hi = mid;
@@ -947,13 +1707,60 @@ impl RealRoot {
             }
         }
         self.sync_enclosure();
+        Ok(())
     }
 
     /// Refine until the interval is narrower than `width` (or exact).
+    ///
+    /// # Panics
+    ///
+    /// Panics when `width` is not strictly positive. Untrusted widths and
+    /// bounded workloads must use [`RealRoot::refine_to_width_with_budget`].
     pub fn refine_to_width(&mut self, width: &Rational) {
-        while !self.is_exact() && self.hi.sub(&self.lo) >= *width {
-            self.refine();
+        self.refine_to_width_with_budget(
+            width,
+            AlgebraBudget {
+                max_expression_nodes: usize::MAX,
+                max_polynomial_degree: usize::MAX,
+                max_coefficient_bits: u64::MAX,
+                max_root_bisections: usize::MAX,
+                ..AlgebraBudget::default()
+            },
+        )
+        .expect("RealRoot::refine_to_width requires a strictly positive width");
+    }
+
+    /// Refine to a strictly positive width under explicit bisection, exact
+    /// arithmetic work, degree, and intermediate coefficient limits.
+    pub fn refine_to_width_with_budget(
+        &mut self,
+        width: &Rational,
+        budget: AlgebraBudget,
+    ) -> Result<(), AlgebraError> {
+        if width.sign() != Sign::Positive {
+            return Err(AlgebraError::NonPositiveRefinementWidth);
         }
+        check_coefficient_bits(width, budget)?;
+        self.poly.validate_budget(budget)?;
+        let mut work = AlgebraWork::new(budget, "refining a real root");
+        let mut bisections = 0usize;
+        while !self.is_exact() {
+            work.spend(1)?;
+            let current_width = self.hi.sub(&self.lo);
+            check_coefficient_bits(&current_width, budget)?;
+            if current_width < *width {
+                break;
+            }
+            if bisections >= budget.max_root_bisections {
+                return Err(AlgebraError::BudgetExceeded {
+                    operation: "refining a real root",
+                    limit: budget.max_root_bisections,
+                });
+            }
+            self.refine_with_meter(budget, &mut work)?;
+            bisections += 1;
+        }
+        Ok(())
     }
 
     /// Collapse the isolating interval to an exact rational value when the
@@ -1005,6 +1812,41 @@ impl RealRoot {
         false
     }
 
+    fn collapse_if_rational_with_meter(
+        &mut self,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+        bisections: &mut usize,
+    ) -> Result<bool, RootError> {
+        if self.is_exact() {
+            return Ok(true);
+        }
+        for _ in 0..MAX_RATIONAL_COLLAPSE_STEPS {
+            if let Some(candidate) =
+                simplest_rational_in_with_meter(&self.lo, &self.hi, budget, work)
+                    .map_err(|error| map_root_algebra_error(error, budget))?
+                && self
+                    .poly
+                    .eval_with_meter(&candidate, budget, work)
+                    .map_err(|error| map_root_algebra_error(error, budget))?
+                    .sign()
+                    == Sign::Zero
+            {
+                self.lo = candidate.clone();
+                self.hi = candidate;
+                self.sync_enclosure();
+                return Ok(true);
+            }
+            spend_root_bisection(bisections, budget)?;
+            self.refine_with_meter(budget, work)
+                .map_err(|error| map_root_algebra_error(error, budget))?;
+            if self.is_exact() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Is this root also a root of `h`? Decided algebraically (gcd +
     /// sign-change certificate) — no numeric tolerance anywhere.
     pub fn is_root_of(&self, h: &QPoly) -> bool {
@@ -1021,6 +1863,27 @@ impl RealRoot {
         // g | poly ⇒ g has at most one root in (lo,hi) (the candidate α)
         // and g(lo) ≠ 0 ≠ g(hi); a sign change is then exact evidence.
         g.sign_at(&self.lo) != g.sign_at(&self.hi)
+    }
+
+    fn is_root_of_with_meter(
+        &self,
+        polynomial: &QPoly,
+        budget: AlgebraBudget,
+        work: &mut AlgebraWork,
+    ) -> Result<bool, AlgebraError> {
+        if polynomial.is_zero() {
+            return Ok(true);
+        }
+        if let Some(value) = self.value() {
+            return Ok(polynomial.eval_with_meter(value, budget, work)?.sign() == Sign::Zero);
+        }
+        let gcd = self.poly.gcd_with_meter(polynomial, budget, work)?;
+        if gcd.degree().unwrap_or(0) == 0 {
+            return Ok(false);
+        }
+        let lower_sign = gcd.eval_with_meter(&self.lo, budget, work)?.sign();
+        let upper_sign = gcd.eval_with_meter(&self.hi, budget, work)?.sign();
+        Ok(lower_sign != upper_sign)
     }
 
     /// The exact multiplicity of this root in `h`: the least `m` with

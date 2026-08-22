@@ -78,9 +78,10 @@ pub trait Scalar:
 
     /// Lift a **finite** double (a mesh coordinate, a material constant).
     ///
-    /// Contract: `x` is finite. On the exact rung, NaN/±∞ have no embedding and
-    /// this panics — matching the fallible float-ingress boundary of
-    /// `resolvent`. On `f64` it is the identity. Feed finite values.
+    /// Contract for generic callers: `x` is finite. The `f64` implementation
+    /// is the IEEE identity and therefore preserves NaN/±∞; exact `Real`
+    /// implementations panic because those values have no embedding. Use
+    /// [`FallibleScalar::try_from_f64`] at untrusted generic ingress.
     fn from_f64(x: f64) -> Self;
 
     /// A documented-**lossy** `f64` readout: the value itself on `f64`, the
@@ -111,6 +112,18 @@ pub trait Scalar:
     /// exact rung — an exact-zero query, correctly decided).
     fn is_zero(&self) -> bool {
         self.eq(&Self::zero())
+    }
+}
+
+/// Total generic scalar ingress for data whose validity is not proven by the
+/// caller's type.
+pub trait FallibleScalar: Scalar {
+    /// Lift a finite IEEE value, or `None` for NaN/±∞.
+    fn try_from_f64(x: f64) -> Option<Self>;
+
+    /// Lift a rational constant, or `None` for a zero denominator.
+    fn try_from_ratio(num: i32, den: i32) -> Option<Self> {
+        (den != 0).then(|| Self::from_i32(num) / Self::from_i32(den))
     }
 }
 
@@ -159,6 +172,12 @@ impl Scalar for f64 {
     #[inline]
     fn abs(&self) -> Self {
         f64::abs(*self)
+    }
+}
+
+impl FallibleScalar for f64 {
+    fn try_from_f64(x: f64) -> Option<Self> {
+        x.is_finite().then_some(x)
     }
 }
 
