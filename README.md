@@ -47,8 +47,20 @@ Exact decimal, exact IEEE-bit ingress, machine-float, and precision-bearing
 atoms remain distinct. Stores support bounded iterative traversal, explicit
 cross-store import, construction-time node/depth/width budgets, and fail-closed
 canonical decoding. Store metrics use a fixed portable logical-schema formula,
-not Rust layout or allocator capacity. The current lifetime policy is strong
-arena retention; notebook-scale reclamation remains RV1-B2.
+not Rust layout or allocator capacity.
+
+Notebook lifetime is explicit epoch rebuild: `rebuild_roots` copies only
+selected reachable DAGs into a fresh store, after which callers may discard the
+old epoch. Old handles remain tied to the old store and are foreign in the new
+one. Structural queries expose ordered children/heads, DAG statistics, free
+symbols, and de Bruijn closure requirements. Substitution and exact-path
+replacement accept only closed replacement terms, preventing binder capture.
+Optional `OriginMap` sidecars attach multiple generic authored/generated
+origins to stable digests without entering canonical Term identity. Batch root,
+substitution, and path requests are bounded before allocation and share one DAG
+budget; mutating replacements preflight completely before committing.
+`OriginBudget` independently caps per-term/total records, retained text, and
+attachment work, with hash-indexed deduplication and atomic refusal.
 
 See [`docs/resolvent-vision/README.md`](docs/resolvent-vision/README.md) for the
 architecture and phase execution model, and [`STATUS.md`](STATUS.md) for landed

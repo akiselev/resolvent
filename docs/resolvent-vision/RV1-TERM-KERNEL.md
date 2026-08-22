@@ -186,6 +186,20 @@ Requirements:
 
 Exit: committed stress test creates and releases large transient workloads without unbounded retained-node growth under the selected policy.
 
+#### Selected B2 policy
+
+RV1 uses strong ownership within an epoch and explicit root-selected rebuild
+between epochs. `TermStore::rebuild_roots` constructs a fresh store containing
+only caller-selected reachable DAGs. The old store and handles remain valid
+until dropped; presenting an old handle to the new store returns `ForeignTerm`,
+so compaction never silently rebinds a public handle. Canonical bytes and
+digests remain identical across rebuild.
+
+This avoids weak-table timing, hidden reclamation, and in-place invalidation.
+Session owners choose epoch boundaries and retain sidecars/external artifacts
+by digest. The running stress gate constructs one million transient nodes
+across repeated epochs and rebuilds one persistent root to one retained node.
+
 ### RV1-B3 - Structural query API
 
 Provide the substrate required by later consumers/frontends:
@@ -202,6 +216,30 @@ Provide the substrate required by later consumers/frontends:
 
 Do not add general algebraic rewriting yet.
 
+#### Landed B3 query and replacement boundary
+
+The public surface provides node inspection, application heads, ordered
+children, bounded topological walks, unique-node/edge/depth/sharing statistics,
+and deterministic named-symbol/de Bruijn-fragment analysis. Schema-v1 binders
+use de Bruijn variables, so named symbols are free; analysis separately reports
+raw bound-variable indices, binder count, and the enclosing depth an open
+fragment requires.
+
+`substitute_closed` replaces exact hash-consed subterms, while
+`replace_at_path_closed` rebuilds one exact ordered occurrence. Both require
+closed replacements, which cannot capture or escape regardless of insertion
+depth. General open-fragment shifting remains deferred. Neither operation
+sorts, simplifies, commutes, or performs algebraic rewriting.
+
+Batch roots and substitution requests are capped by
+`max_children_per_node`, while exact path length is capped by `max_depth`,
+before request-sized allocation. Multi-root rebuild performs one child-first
+walk with a shared `max_nodes` budget and deduplicates repeated/shared roots.
+Substitution validates duplicate sources and all closed replacements before its
+bounded root walk. Substitution and path replacement then stage hash-cons/depth
+plans against predicted local handles; no arena node, metric, symbol entry, or
+interner entry changes unless the complete plan fits.
+
 ### RV1-C1 - Source/provenance sidecars
 
 Define an optional generic origin-map abstraction outside Term identity:
@@ -215,6 +253,25 @@ Origins may include source file/module, byte span, authored/generated status, pa
 Resolvent may define a reusable sidecar shape, but Scientia remains the owner of source spans, scientific declaration IDs and scientific expression IDs.
 
 Exit: one canonical Resolvent Term can be associated with multiple consumer origins without changing Term identity.
+
+#### Landed C1 sidecar boundary
+
+`OriginMap` maps `TermDigest` to ordered, deduplicated origin records. Records
+distinguish authored from generated terms and may carry a generic locator,
+validated byte span, transformation name, parent digest, and opaque
+consumer-owned ID. Blank identities, reversed spans, spans without locators,
+and unnamed generated transformations fail closed. Multiple callers may attach
+records to one digest; sidecars do not alter canonical identity and immutable
+maps support concurrent reads. Durable artifact lifecycle remains Artifactum's
+responsibility.
+
+Every attachment supplies an `OriginBudget` with independent limits for records
+per digest, total records, retained locator/consumer/transformation text bytes,
+and raw request work. Each digest bucket maintains an exact `HashSet` index so
+duplicate checks are expected constant time rather than repeated linear scans.
+Batch attachment validates, deduplicates, totals, and overflow-checks all work
+before committing; typed refusal leaves ordered records, indexes, counters, and
+text accounting unchanged.
 
 ### RV1-C2 - Lossless Scientia algebra projection
 

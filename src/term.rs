@@ -3,7 +3,7 @@
 //! Term identity preserves retained syntax. Construction does not sort, flatten,
 //! commute, cancel, factor, reassociate, or otherwise apply algebraic laws.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -80,7 +80,7 @@ impl Default for TermBudget {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SymbolName {
     pub namespace: String,
     pub name: String,
@@ -308,6 +308,41 @@ pub struct StoreMetrics {
     pub logical_bytes: u64,
 }
 
+/// Aggregate structural facts for one reachable DAG.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TermStats {
+    pub unique_nodes: usize,
+    pub edge_references: usize,
+    pub max_depth: usize,
+    pub shared_nodes: usize,
+}
+
+/// Binder-neutral variable inventory for one retained fragment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VariableAnalysis {
+    /// Named symbols are always free: binders use de Bruijn atoms instead.
+    pub free_symbols: Vec<SymbolName>,
+    /// Raw de Bruijn indices present in the fragment.
+    pub bound_variable_indices: Vec<u32>,
+    /// Minimum number of enclosing variables required to close this fragment.
+    pub required_outer_depth: u32,
+    pub binder_nodes: usize,
+}
+
+/// Ordered child indices identifying one exact occurrence in retained syntax.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct TermPath(Vec<usize>);
+
+impl TermPath {
+    pub fn new(indices: impl IntoIterator<Item = usize>) -> Self {
+        Self(indices.into_iter().collect())
+    }
+
+    pub fn indices(&self) -> &[usize] {
+        &self.0
+    }
+}
+
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum TermError {
     #[error("term handle belongs to another store")]
@@ -331,6 +366,10 @@ pub enum TermError {
     InvalidWire(&'static str),
     #[error("term wire is well-formed but not canonical")]
     NonCanonicalWire,
+    #[error("invalid binder-safe substitution: {0}")]
+    InvalidSubstitution(&'static str),
+    #[error("invalid structural term path")]
+    InvalidPath,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -423,6 +462,11 @@ impl TermStore {
         self.symbols.get(id.index())
     }
 
+    /// Store-local symbol-table order; stable identity uses symbol names.
+    pub fn interned_symbols(&self) -> &[SymbolName] {
+        &self.symbols
+    }
+
     pub fn intern(&mut self, node: TermNode, budget: TermBudget) -> Result<TermId, TermError> {
         let stored = self.store_node(node, budget)?;
         let depth = node_depth(&stored, |term| self.depths.get(term.index()).copied())?;
@@ -468,12 +512,298 @@ impl TermStore {
         Ok(self.public_node(self.get(id)?))
     }
 
+    /// Ordered direct children in the frozen structural schema.
+    pub fn children(&self, id: TermId) -> Result<Vec<TermId>, TermError> {
+        Ok(children(self.get(id)?))
+    }
+
+    /// Application head, or `None` for every non-application node.
+    pub fn head(&self, id: TermId) -> Result<Option<TermId>, TermError> {
+        Ok(match self.get(id)? {
+            StoredNode::Apply(head, _) => Some(*head),
+            _ => None,
+        })
+    }
+
+    pub fn stats(&self, root: TermId, budget: TermBudget) -> Result<TermStats, TermError> {
+        let order = self.topological(root, budget)?;
+        let mut incoming = HashMap::<TermId, usize>::with_capacity(order.len());
+        let mut edge_references = 0usize;
+        for term in &order {
+            for child in children(self.get(*term)?) {
+                edge_references = edge_references
+                    .checked_add(1)
+                    .ok_or_else(|| exceeded("edges", budget.max_nodes))?;
+                let count = incoming.entry(child).or_default();
+                *count = count
+                    .checked_add(1)
+                    .ok_or_else(|| exceeded("edges", budget.max_nodes))?;
+            }
+        }
+        Ok(TermStats {
+            unique_nodes: order.len(),
+            edge_references,
+            max_depth: self.depths[root.index()],
+            shared_nodes: incoming.values().filter(|count| **count > 1).count(),
+        })
+    }
+
+    pub fn variable_analysis(
+        &self,
+        root: TermId,
+        budget: TermBudget,
+    ) -> Result<VariableAnalysis, TermError> {
+        let order = self.topological(root, budget)?;
+        let mut symbols = BTreeSet::new();
+        let mut variables = BTreeSet::new();
+        let mut binder_nodes = 0usize;
+        for term in &order {
+            match self.get(*term)? {
+                StoredNode::Atom(StoredAtom::Symbol(value)) => {
+                    symbols.insert(value.clone());
+                }
+                StoredNode::Atom(StoredAtom::BoundVariable(index)) => {
+                    variables.insert(*index);
+                }
+                StoredNode::Binder(..) => binder_nodes += 1,
+                _ => {}
+            }
+        }
+        Ok(VariableAnalysis {
+            free_symbols: symbols.into_iter().collect(),
+            bound_variable_indices: variables.into_iter().collect(),
+            required_outer_depth: self.required_outer_depth(&order)?,
+            binder_nodes,
+        })
+    }
+
+    pub fn free_symbols(
+        &self,
+        root: TermId,
+        budget: TermBudget,
+    ) -> Result<Vec<SymbolName>, TermError> {
+        Ok(self.variable_analysis(root, budget)?.free_symbols)
+    }
+
+    /// Rebuild selected roots into a fresh compact epoch store.
+    ///
+    /// The original store and handles remain valid until dropped. Handles from
+    /// the old epoch are foreign to the returned store rather than silently
+    /// changing referent.
+    pub fn rebuild_roots(
+        &self,
+        roots: &[TermId],
+        budget: TermBudget,
+    ) -> Result<(TermStore, Vec<TermId>), TermError> {
+        if roots.len() > budget.max_children_per_node {
+            return Err(exceeded("root requests", budget.max_children_per_node));
+        }
+        let order = self.topological_many(roots, budget)?;
+        let mut rebuilt = TermStore::new()?;
+        let mut remapped = HashMap::with_capacity(order.len());
+        let mut planned = Vec::new();
+        let mut planned_ids = HashMap::new();
+        for source_id in order {
+            let mut node = self.node(source_id)?;
+            remap_node(&mut node, &remapped)?;
+            let target = rebuilt.plan_node(node, budget, &mut planned, &mut planned_ids)?;
+            remapped.insert(source_id, target);
+        }
+        let target_roots = roots
+            .iter()
+            .map(|root| remapped.get(root).copied().ok_or(TermError::UnknownTerm))
+            .collect::<Result<Vec<_>, _>>()?;
+        rebuilt.commit_plan(planned)?;
+        Ok((rebuilt, target_roots))
+    }
+
+    /// Replace exact subterms with closed replacements, preserving binders.
+    ///
+    /// Requiring every replacement to be closed prevents de Bruijn capture at
+    /// every occurrence without inventing symbolic alpha-renaming.
+    pub fn substitute_closed(
+        &mut self,
+        root: TermId,
+        replacements: &[(TermId, TermId)],
+        budget: TermBudget,
+    ) -> Result<TermId, TermError> {
+        self.get(root)?;
+        if replacements.len() > budget.max_children_per_node {
+            return Err(exceeded(
+                "substitution requests",
+                budget.max_children_per_node,
+            ));
+        }
+        let mut requested = HashMap::with_capacity(replacements.len());
+        let mut replacement_roots = Vec::with_capacity(replacements.len().saturating_add(1));
+        replacement_roots.push(root);
+        for (from, to) in replacements {
+            self.get(*from)?;
+            self.get(*to)?;
+            if requested.insert(*from, *to).is_some() {
+                return Err(TermError::InvalidSubstitution(
+                    "each source term may appear only once",
+                ));
+            }
+            replacement_roots.push(*to);
+        }
+        let analysis_order = self.topological_many(&replacement_roots, budget)?;
+        let required = self.required_outer_depths(&analysis_order)?;
+        for replacement in requested.values() {
+            if required[replacement] != 0 {
+                return Err(TermError::InvalidSubstitution(
+                    "replacement must be a closed term",
+                ));
+            }
+        }
+        let order = self.topological(root, budget)?;
+        let mut rebuilt = HashMap::with_capacity(order.len());
+        let mut planned = Vec::new();
+        let mut planned_ids = HashMap::new();
+        for term in order {
+            if let Some(replacement) = requested.get(&term) {
+                rebuilt.insert(term, *replacement);
+                continue;
+            }
+            let mut node = self.node(term)?;
+            remap_node(&mut node, &rebuilt)?;
+            let target = self.plan_node(node, budget, &mut planned, &mut planned_ids)?;
+            rebuilt.insert(term, target);
+        }
+        let target = rebuilt.get(&root).copied().ok_or(TermError::UnknownTerm)?;
+        self.commit_plan(planned)?;
+        Ok(target)
+    }
+
+    /// Replace one exact ordered child occurrence with a closed term.
+    pub fn replace_at_path_closed(
+        &mut self,
+        root: TermId,
+        path: &TermPath,
+        replacement: TermId,
+        budget: TermBudget,
+    ) -> Result<TermId, TermError> {
+        self.get(root)?;
+        if path.0.len() > budget.max_depth {
+            return Err(exceeded("path length", budget.max_depth));
+        }
+        self.ensure_closed(replacement, budget)?;
+        let mut current = root;
+        let mut ancestors = Vec::with_capacity(path.0.len());
+        for index in &path.0 {
+            let direct = self.children(current)?;
+            let child = direct.get(*index).copied().ok_or(TermError::InvalidPath)?;
+            ancestors.push((current, *index));
+            current = child;
+        }
+        let mut rebuilt = replacement;
+        let mut planned = Vec::new();
+        let mut planned_ids = HashMap::new();
+        for (parent, index) in ancestors.into_iter().rev() {
+            let mut node = self.node(parent)?;
+            replace_public_child(&mut node, index, rebuilt)?;
+            rebuilt = self.plan_node(node, budget, &mut planned, &mut planned_ids)?;
+        }
+        self.commit_plan(planned)?;
+        Ok(rebuilt)
+    }
+
+    fn ensure_closed(&self, root: TermId, budget: TermBudget) -> Result<(), TermError> {
+        let order = self.topological(root, budget)?;
+        if self.required_outer_depth(&order)? != 0 {
+            return Err(TermError::InvalidSubstitution(
+                "replacement must be a closed term",
+            ));
+        }
+        Ok(())
+    }
+
+    fn plan_node(
+        &self,
+        node: TermNode,
+        budget: TermBudget,
+        planned: &mut Vec<(StoredNode, usize)>,
+        planned_ids: &mut HashMap<StoredNode, u32>,
+    ) -> Result<TermId, TermError> {
+        validate_node_shape(&node, budget)?;
+        let base = self.nodes.len();
+        for child in public_children(&node) {
+            if child.store != self.id {
+                return Err(TermError::ForeignTerm);
+            }
+            if child.index() >= base.saturating_add(planned.len()) {
+                return Err(TermError::UnknownTerm);
+            }
+        }
+        let stored = self.stored_from_node(node, budget)?;
+        let depth = node_depth(&stored, |term| {
+            self.depths.get(term.index()).copied().or_else(|| {
+                term.index()
+                    .checked_sub(base)
+                    .and_then(|index| planned.get(index).map(|(_, depth)| *depth))
+            })
+        })?;
+        if depth > budget.max_depth {
+            return Err(exceeded("depth", budget.max_depth));
+        }
+        if let Some(index) = self.interner.get(&stored) {
+            return Ok(self.id(*index));
+        }
+        if let Some(index) = planned_ids.get(&stored) {
+            return Ok(self.id(*index));
+        }
+        let next = base
+            .checked_add(planned.len())
+            .ok_or_else(|| exceeded("nodes", budget.max_nodes))?;
+        if next >= budget.max_nodes {
+            return Err(exceeded("nodes", budget.max_nodes));
+        }
+        let index = u32::try_from(next).map_err(|_| TermError::HandleSpaceExhausted)?;
+        planned_ids.insert(stored.clone(), index);
+        planned.push((stored, depth));
+        Ok(self.id(index))
+    }
+
+    fn commit_plan(&mut self, planned: Vec<(StoredNode, usize)>) -> Result<(), TermError> {
+        let new_symbols = planned
+            .iter()
+            .filter_map(|(node, _)| match node {
+                StoredNode::Atom(StoredAtom::Symbol(value))
+                    if !self.symbol_interner.contains_key(value) =>
+                {
+                    Some(value)
+                }
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        if (self.symbols.len() as u128) + (new_symbols.len() as u128) > (u32::MAX as u128) + 1 {
+            return Err(TermError::HandleSpaceExhausted);
+        }
+        for (stored, depth) in planned {
+            self.commit_stored(stored, depth)?;
+        }
+        Ok(())
+    }
+
     /// Deterministic child-first walk over the reachable DAG.
     pub fn topological(&self, root: TermId, budget: TermBudget) -> Result<Vec<TermId>, TermError> {
-        self.get(root)?;
+        self.topological_many(&[root], budget)
+    }
+
+    fn topological_many(
+        &self,
+        roots: &[TermId],
+        budget: TermBudget,
+    ) -> Result<Vec<TermId>, TermError> {
+        for root in roots {
+            self.get(*root)?;
+        }
         let mut seen = HashSet::new();
         let mut output = Vec::new();
-        let mut stack = vec![(root, false)];
+        let mut stack = Vec::with_capacity(roots.len());
+        for root in roots.iter().rev() {
+            stack.push((*root, false));
+        }
         while let Some((term, expanded)) = stack.pop() {
             if expanded {
                 output.push(term);
@@ -772,6 +1102,11 @@ impl TermStore {
     }
 
     fn required_outer_depth(&self, order: &[TermId]) -> Result<u32, TermError> {
+        let required = self.required_outer_depths(order)?;
+        Ok(required[order.last().ok_or(TermError::UnknownTerm)?])
+    }
+
+    fn required_outer_depths(&self, order: &[TermId]) -> Result<HashMap<TermId, u32>, TermError> {
         let mut required = HashMap::<TermId, u32>::with_capacity(order.len());
         for term in order {
             let node = self.get(*term)?;
@@ -791,7 +1126,7 @@ impl TermStore {
             };
             required.insert(*term, need);
         }
-        Ok(required[order.last().ok_or(TermError::UnknownTerm)?])
+        Ok(required)
     }
 }
 
@@ -1257,6 +1592,137 @@ fn public_children(node: &TermNode) -> Vec<TermId> {
             result
         }
         TermNode::Held { expression } => vec![*expression],
+    }
+}
+
+fn replace_public_child(
+    node: &mut TermNode,
+    mut index: usize,
+    replacement: TermId,
+) -> Result<(), TermError> {
+    let replace = |slot: &mut TermId| {
+        *slot = replacement;
+        Ok(())
+    };
+    match node {
+        TermNode::Atom(_) => Err(TermError::InvalidPath),
+        TermNode::Apply { head, arguments } => {
+            if index == 0 {
+                replace(head)
+            } else {
+                arguments
+                    .get_mut(index - 1)
+                    .ok_or(TermError::InvalidPath)
+                    .and_then(replace)
+            }
+        }
+        TermNode::Relation { left, right, .. } => match index {
+            0 => replace(left),
+            1 => replace(right),
+            _ => Err(TermError::InvalidPath),
+        },
+        TermNode::Boolean { arguments, .. }
+        | TermNode::Collection {
+            elements: arguments,
+            ..
+        } => arguments
+            .get_mut(index)
+            .ok_or(TermError::InvalidPath)
+            .and_then(replace),
+        TermNode::Condition {
+            expression,
+            condition,
+        } => match index {
+            0 => replace(expression),
+            1 => replace(condition),
+            _ => Err(TermError::InvalidPath),
+        },
+        TermNode::Piecewise { cases, otherwise } => {
+            for case in cases {
+                if index == 0 {
+                    return replace(&mut case.value);
+                }
+                index -= 1;
+                if index == 0 {
+                    return replace(&mut case.condition);
+                }
+                index -= 1;
+            }
+            if index == 0 {
+                otherwise
+                    .as_mut()
+                    .ok_or(TermError::InvalidPath)
+                    .and_then(replace)
+            } else {
+                Err(TermError::InvalidPath)
+            }
+        }
+        TermNode::OrderedMap { entries } => {
+            for (key, value) in entries {
+                if index == 0 {
+                    return replace(key);
+                }
+                index -= 1;
+                if index == 0 {
+                    return replace(value);
+                }
+                index -= 1;
+            }
+            Err(TermError::InvalidPath)
+        }
+        TermNode::Index { target, indices } => {
+            if index == 0 {
+                replace(target)
+            } else {
+                indices
+                    .get_mut(index - 1)
+                    .ok_or(TermError::InvalidPath)
+                    .and_then(replace)
+            }
+        }
+        TermNode::Slice {
+            target,
+            start,
+            end,
+            step,
+        } => {
+            if index == 0 {
+                return replace(target);
+            }
+            index -= 1;
+            for slot in [start, end, step].into_iter().filter_map(Option::as_mut) {
+                if index == 0 {
+                    return replace(slot);
+                }
+                index -= 1;
+            }
+            Err(TermError::InvalidPath)
+        }
+        TermNode::Rule {
+            pattern,
+            replacement: rule_replacement,
+            condition,
+            ..
+        } => match index {
+            0 => replace(pattern),
+            1 => replace(rule_replacement),
+            2 => condition
+                .as_mut()
+                .ok_or(TermError::InvalidPath)
+                .and_then(replace),
+            _ => Err(TermError::InvalidPath),
+        },
+        TermNode::Binder { bounds, body, .. } => {
+            if index < bounds.len() {
+                replace(&mut bounds[index])
+            } else if index == bounds.len() {
+                replace(body)
+            } else {
+                Err(TermError::InvalidPath)
+            }
+        }
+        TermNode::Held { expression } if index == 0 => replace(expression),
+        TermNode::Held { .. } => Err(TermError::InvalidPath),
     }
 }
 

@@ -1,8 +1,8 @@
 # Resolvent status
 
 **Updated:** 2026-08-21
-**Landed milestone:** RV1-A1/A2/A3 contract freeze and first RV1-B1 Term-store slice
-**Active planning frontier:** RV1-B2 lifetime policy and RV1-B3 structural queries.
+**Landed milestone:** RV1-A1-A3, B1-B3, and C1 structural Term foundation
+**Active planning frontier:** RV1-D1 renderers and coordinated C2/C3 projection.
 
 ## Ownership
 
@@ -78,9 +78,26 @@ numeric ownership.
   are charged once in the symbol table; Rust layout and allocator overhead are
   excluded;
 - construction is mutable through `&mut TermStore`; immutable shared stores are
-  thread-safe for concurrent reads. Weak retention, epochs, compaction,
-  binder-safe substitution, free-symbol queries, provenance sidecars,
-  renderers, and Scientia projection remain later RV1 work.
+  thread-safe for concurrent reads;
+- B2 selects strong per-epoch stores plus explicit `rebuild_roots` compaction.
+  Selected roots move into a fresh store; old handles never rebind and are
+  foreign to the new epoch. A running stress gate constructs and releases one
+  million transient terms while the persistent root keeps its wire identity;
+- B3 exposes ordered children/application heads, topological walks, DAG
+  size/depth/edge/sharing metrics, deterministic free-symbol/de Bruijn closure
+  analysis, closed capture-safe structural substitution, and exact ordered-path
+  replacement. Root/replacement/path request cardinality is checked before
+  allocation; root batches share one deduplicated traversal budget, and
+  substitution/path mutations stage completely before atomically committing.
+  It does not apply algebraic laws;
+- C1 provides optional digest-keyed `OriginMap` sidecars with zero/one/many
+  authored or generated records, generic locators/byte spans, transformation
+  parentage, and opaque consumer IDs. `OriginBudget` hard-caps records per term,
+  total records, retained text bytes, and request work. Hash-indexed duplicate
+  checks avoid quadratic scans, and failed batches leave counts/indexes/text
+  unchanged. Sidecars do not enter Term identity;
+- weak interning, in-place compaction, general open-fragment shifting,
+  renderers, and Scientia C2/C3 projection remain deferred.
 
 ## R1 consolidation
 
@@ -93,13 +110,13 @@ in CADabra and scientific meaning remains in Scientia.
 
 ## Validation
 
-Passed locally on 2026-08-21 after the RV1-A/B1 slice:
+Passed locally on 2026-08-21 after the RV1-B2/B3/C1 slice:
 
 ```text
 cargo fmt --all -- --check
 cargo check --locked --workspace --all-targets
 cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked --workspace --all-targets             # 142 tests
+cargo test --locked --workspace --all-targets             # 149 tests
 RUSTDOCFLAGS='-D warnings' cargo doc --locked --workspace --no-deps
 cargo test --locked --workspace --doc                     # 2 doctests
 ./scripts/check-ownership.sh
@@ -112,4 +129,8 @@ present alongside the RV0 wire, fallibility, ownership, budget, and stress
 contracts. RV1 adds frozen atom and exhaustive node/subtag byte-and-digest wire
 vectors plus hostile structural-identity, insertion-permutation, binder,
 deep-DAG, cross-store, exact-capacity, accounting, budget, and decoder tests.
-Benchmark timing remains observational rather than a correctness gate.
+B2/B3/C1 add million-transient epoch stress, 20,000-deep substitution,
+sharing/query, exact-path, capture-refusal, provenance-validation, identity
+neutrality, concurrent sidecar-read, hostile batch-budget, and repeated
+late-failure atomicity coverage. Benchmark timing remains observational rather
+than a correctness gate.

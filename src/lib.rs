@@ -40,6 +40,7 @@ mod expr;
 pub mod interval;
 pub mod ladder;
 pub mod metrics;
+mod origin;
 pub mod polymat;
 pub mod ratmat;
 pub mod real;
@@ -58,6 +59,7 @@ pub use exact::{ExactField, ExactRing, Rational, RingOps};
 pub use expr::Expr;
 pub use interval::{AtomicInterval, Interval};
 pub use ladder::certify;
+pub use origin::{ByteSpan, OriginBudget, OriginError, OriginKind, OriginMap, OriginRecord};
 pub use polymat::PolyMat;
 pub use ratmat::Mat;
 pub use real::{Formula, Real};
@@ -72,7 +74,8 @@ pub use sqrt_ext::SqrtExt;
 pub use term::{
     Atom, BinderKind, BooleanOperator, CollectionKind, ExactDecimal, PiecewiseCase, PrecisionReal,
     RelationOperator, RuleKind, StoreMetrics, SymbolId, SymbolName, SymbolicConstant, TermBudget,
-    TermDigest, TermError, TermId, TermNode, TermStore, decode_canonical_term,
+    TermDigest, TermError, TermId, TermNode, TermPath, TermStats, TermStore, VariableAnalysis,
+    decode_canonical_term,
 };
 pub use uncertain::{Sign, UBool, UOrd, USign, Uncertain};
 
