@@ -29,24 +29,50 @@
 //! contract; see the per-operation behavior below.
 //!
 //! [`TermAlgebraOperation::Simplify`] never refuses: it recurses through
-//! `Relation`, `Boolean`, `Condition`, and `Piecewise` wrapper nodes,
-//! canonicalizing every maximal scalar-eligible subtree it finds and leaving
-//! everything else (including any construct outside the contract) exactly as
-//! it was. This is what "preserve comparisons/conditions/piecewise
-//! structurally" means for `Simplify` (RV1-C2).
+//! `Relation`, `Boolean`, `Condition`, `Piecewise`, `Collection`,
+//! `OrderedMap`, `Index`, `Slice`, and `Rule` wrapper nodes, canonicalizing
+//! every maximal scalar-eligible subtree it finds and leaving everything else
+//! (including any construct outside the contract) exactly as it was. This is
+//! what "preserve comparisons/conditions/piecewise/collections/... structurally"
+//! means for `Simplify` (RV1-C2, extended by GX-F6). Two node kinds stay
+//! deliberately opaque rather than recursing:
+//!
+//! - `OrderedMap` simplifies each entry's *value*, never its *key*: keys are
+//!   retained-syntax identity (`TermStore` enforces structural key
+//!   uniqueness), and simplifying a key could collapse two distinct keys
+//!   into a structural duplicate that no longer decodes;
+//! - `Held` and `Binder` are never recursed into: `Held` exists precisely to
+//!   suppress evaluation of its contents, and a `Binder` body uses de Bruijn
+//!   indices whose scope this narrow scalar round trip does not model, so
+//!   both are preserved byte-for-byte.
 //!
 //! [`TermAlgebraOperation::Differentiate`] refuses (does not silently zero)
 //! any construct outside the contract, with the stable
-//! [`TermAlgebraRefusal::code`] `ALGEBRA_OUTSIDE_OPERATION`. The one
-//! exception is `Piecewise`: a piecewise value differentiates branchwise when
-//! every case's condition is free of the differentiation variable (checked
-//! structurally via [`TermStore::free_symbols`]); a variable-dependent
-//! condition refuses instead of silently moving the branch point.
+//! [`TermAlgebraRefusal::code`] `ALGEBRA_OUTSIDE_OPERATION`. Two exceptions
+//! differentiate structurally instead of refusing:
+//!
+//! - `Piecewise` differentiates branchwise when every case's condition is
+//!   free of the differentiation variable (checked structurally via
+//!   [`TermStore::free_symbols`]); a variable-dependent condition refuses
+//!   instead of silently moving the branch point;
+//! - `Collection` differentiates elementwise when every element is itself
+//!   scalar-eligible (or another `Collection` of scalar-eligible elements),
+//!   which is what a vector-valued case binding such as `[0, 0, 0]` or
+//!   `[sin(x), 0]` needs. An element outside the scalar contract refuses
+//!   with *that element's* construct label, not a generic `"Collection"`
+//!   label.
+//!
+//! `OrderedMap`, `Index`, `Slice`, and `Rule` have no well-defined
+//! elementwise derivative in this narrow contract (an ordered map's keys and
+//! an index/slice's positions are not differentiable quantities), so
+//! `Differentiate` refuses them with their own construct label, unlike
+//! `Simplify`.
 //!
 //! [`TermAlgebraOperation::Substitute`] does not go through [`Expr`] at all:
 //! it resolves each binding's symbol to its (hash-consed) atom [`TermId`]
 //! and delegates to the existing binder-safe [`TermStore::substitute_closed`]
-//! (RV1-B3), which already preserves every node kind structurally.
+//! (RV1-B3), which already preserves every node kind — including
+//! `Collection`, `OrderedMap`, `Index`, `Slice`, and `Rule` — structurally.
 //!
 //! ## Literal spelling is normalized, value is not
 //!
@@ -58,6 +84,22 @@
 //! literal's original spelling does not survive `Simplify`/`Differentiate`:
 //! an input decimal `5.0` may come back as the atom `5` (rational `5/1`).
 //! `Substitute` never does this, since it does not go through [`Expr`].
+//!
+//! ## `Pow` of an exact literal base folds
+//!
+//! [`Expr::canonicalize`] (RV0, shared by `Simplify` and by the trailing
+//! canonicalization `Differentiate` performs on every derivative) folds
+//! `Pow` of an exact literal base and a nonzero, non-unit integer exponent to
+//! an exact literal: `5^2` simplifies to the atom `25`, and `(1/2)^-1` to
+//! `2`. `0^0` folds to `1` (matching the existing convention in
+//! [`Expr::evaluate`]); `0` raised to a negative exponent is a genuine
+//! division by exact zero and the operation fails with
+//! [`AlgebraError::DivisionByZero`] rather than silently producing a value.
+//! The fold is charged against `AlgebraBudget::max_coefficient_bits` so an
+//! adversarial exponent cannot force unbounded exact-integer growth. A `Pow`
+//! whose base is not itself an exact literal (a symbol, a compound
+//! expression, or a function call) is left as a structural `Pow` node,
+//! unchanged from before.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -66,8 +108,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AlgebraWork;
 use crate::{
-    AlgebraBudget, AlgebraError, Atom, Expr, PiecewiseCase, SymbolName, TermBudget, TermDigest,
-    TermError, TermId, TermNode, TermStats, TermStore,
+    AlgebraBudget, AlgebraError, Atom, CollectionKind, Expr, PiecewiseCase, SymbolName, TermBudget,
+    TermDigest, TermError, TermId, TermNode, TermStats, TermStore,
 };
 
 /// Reserved namespace for the arithmetic/function operator symbols this
@@ -688,16 +730,92 @@ fn simplify_structural(
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(store.intern(TermNode::Apply { head, arguments }, term_budget)?)
         }
-        // Every other node kind, and every non-scalar atom, is preserved
-        // structurally unchanged: general collections, indexing/slicing,
-        // rules, binders, and held syntax are outside this narrow surface.
+        TermNode::Collection { kind, elements } => {
+            let elements = elements
+                .into_iter()
+                .map(|element| simplify_term(store, element, term_budget, algebra_budget, work))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(store.intern(TermNode::Collection { kind, elements }, term_budget)?)
+        }
+        TermNode::OrderedMap { entries } => {
+            // Keys are retained-syntax identity (structurally unique); only
+            // values are simplified. See the module documentation.
+            let entries = entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = simplify_term(store, value, term_budget, algebra_budget, work)?;
+                    Ok((key, value))
+                })
+                .collect::<Result<Vec<_>, TermAlgebraError>>()?;
+            Ok(store.intern(TermNode::OrderedMap { entries }, term_budget)?)
+        }
+        TermNode::Index { target, indices } => {
+            let target = simplify_term(store, target, term_budget, algebra_budget, work)?;
+            let indices = indices
+                .into_iter()
+                .map(|index| simplify_term(store, index, term_budget, algebra_budget, work))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(store.intern(TermNode::Index { target, indices }, term_budget)?)
+        }
+        TermNode::Slice {
+            target,
+            start,
+            end,
+            step,
+        } => {
+            let target = simplify_term(store, target, term_budget, algebra_budget, work)?;
+            let start = start
+                .map(|value| simplify_term(store, value, term_budget, algebra_budget, work))
+                .transpose()?;
+            let end = end
+                .map(|value| simplify_term(store, value, term_budget, algebra_budget, work))
+                .transpose()?;
+            let step = step
+                .map(|value| simplify_term(store, value, term_budget, algebra_budget, work))
+                .transpose()?;
+            Ok(store.intern(
+                TermNode::Slice {
+                    target,
+                    start,
+                    end,
+                    step,
+                },
+                term_budget,
+            )?)
+        }
+        TermNode::Rule {
+            kind,
+            pattern,
+            replacement,
+            condition,
+        } => {
+            let pattern = simplify_term(store, pattern, term_budget, algebra_budget, work)?;
+            let replacement = simplify_term(store, replacement, term_budget, algebra_budget, work)?;
+            let condition = condition
+                .map(|value| simplify_term(store, value, term_budget, algebra_budget, work))
+                .transpose()?;
+            Ok(store.intern(
+                TermNode::Rule {
+                    kind,
+                    pattern,
+                    replacement,
+                    condition,
+                },
+                term_budget,
+            )?)
+        }
+        // `Held` and `Binder` stay opaque: `Held` exists to suppress
+        // evaluation of its contents, and a `Binder` body's de Bruijn scope
+        // is not modeled by this narrow scalar round trip. Both, and every
+        // other non-scalar atom, are preserved structurally unchanged.
         _ => Ok(term),
     }
 }
 
 /// [`TermAlgebraOperation::Differentiate`]: refuses (does not zero) any
 /// construct outside the contract, except `Piecewise` with
-/// variable-independent conditions, which differentiates branchwise.
+/// variable-independent conditions (differentiates branchwise) and
+/// `Collection` of scalar-eligible elements (differentiates elementwise).
 fn differentiate_term(
     store: &mut TermStore,
     term: TermId,
@@ -725,8 +843,8 @@ fn differentiate_term(
         Err(ScalarProbe::Failed(error)) => Err(error),
         Err(ScalarProbe::NotScalar(construct)) => {
             let node = store.node(term)?;
-            if let TermNode::Piecewise { cases, otherwise } = node {
-                differentiate_piecewise(
+            match node {
+                TermNode::Piecewise { cases, otherwise } => differentiate_piecewise(
                     store,
                     cases,
                     otherwise,
@@ -735,14 +853,56 @@ fn differentiate_term(
                     algebra_budget,
                     work,
                     assumptions,
-                )
-            } else {
-                Err(TermAlgebraError::Refused(
+                ),
+                TermNode::Collection { kind, elements } => differentiate_collection(
+                    store,
+                    kind,
+                    elements,
+                    variable,
+                    term_budget,
+                    algebra_budget,
+                    work,
+                    assumptions,
+                ),
+                _ => Err(TermAlgebraError::Refused(
                     TermAlgebraRefusal::OutsideOperation { construct },
-                ))
+                )),
             }
         }
     }
+}
+
+/// `Collection` differentiates elementwise when every element is itself
+/// scalar-eligible (or another `Collection` of scalar-eligible elements,
+/// via recursion): this is what a vector-valued case binding such as
+/// `[0, 0, 0]` or `[sin(x), 0]` needs. An element outside the scalar
+/// contract refuses with that element's own construct label.
+#[allow(clippy::too_many_arguments)]
+fn differentiate_collection(
+    store: &mut TermStore,
+    kind: CollectionKind,
+    elements: Vec<TermId>,
+    variable: &SymbolName,
+    term_budget: TermBudget,
+    algebra_budget: AlgebraBudget,
+    work: &mut AlgebraWork,
+    assumptions: &mut Vec<String>,
+) -> Result<TermId, TermAlgebraError> {
+    let elements = elements
+        .into_iter()
+        .map(|element| {
+            differentiate_term(
+                store,
+                element,
+                variable,
+                term_budget,
+                algebra_budget,
+                work,
+                assumptions,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(store.intern(TermNode::Collection { kind, elements }, term_budget)?)
 }
 
 #[allow(clippy::too_many_arguments)]

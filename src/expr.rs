@@ -39,7 +39,7 @@ impl Expr {
     }
     pub fn canonicalize(&self, budget: AlgebraBudget) -> Result<Self, AlgebraError> {
         let mut visited = 0;
-        canonicalize(self, budget.max_expression_nodes, &mut visited)
+        canonicalize(self, budget, &mut visited)
     }
     pub fn differentiate(
         &self,
@@ -92,7 +92,12 @@ fn spend(visited: &mut usize, limit: usize, operation: &'static str) -> Result<(
     }
 }
 
-fn canonicalize(expr: &Expr, limit: usize, visited: &mut usize) -> Result<Expr, AlgebraError> {
+fn canonicalize(
+    expr: &Expr,
+    budget: AlgebraBudget,
+    visited: &mut usize,
+) -> Result<Expr, AlgebraError> {
+    let limit = budget.max_expression_nodes;
     spend(visited, limit, "canonicalizing expression")?;
     Ok(match expr {
         Expr::Rational(_) | Expr::Symbol(_) => expr.clone(),
@@ -100,7 +105,7 @@ fn canonicalize(expr: &Expr, limit: usize, visited: &mut usize) -> Result<Expr, 
             let mut flat = Vec::new();
             let mut constant = Rational::zero();
             for term in terms {
-                match canonicalize(term, limit, visited)? {
+                match canonicalize(term, budget, visited)? {
                     Expr::Add(nested) => {
                         for value in nested {
                             if let Expr::Rational(value) = value {
@@ -128,7 +133,7 @@ fn canonicalize(expr: &Expr, limit: usize, visited: &mut usize) -> Result<Expr, 
             let mut flat = Vec::new();
             let mut constant = Rational::one();
             for factor in factors {
-                match canonicalize(factor, limit, visited)? {
+                match canonicalize(factor, budget, visited)? {
                     Expr::Mul(nested) => {
                         for value in nested {
                             if let Expr::Rational(value) = value {
@@ -157,24 +162,74 @@ fn canonicalize(expr: &Expr, limit: usize, visited: &mut usize) -> Result<Expr, 
             }
         }
         Expr::Pow { base, exponent } => {
-            let base = canonicalize(base, limit, visited)?;
+            let base = canonicalize(base, budget, visited)?;
             match exponent {
                 0 => Expr::integer(1),
                 1 => base,
-                _ => Expr::Pow {
-                    base: Box::new(base),
-                    exponent: *exponent,
-                },
+                _ => fold_literal_power(base, *exponent, budget)?,
             }
         }
         Expr::Function { name, args } => Expr::Function {
             name: name.clone(),
             args: args
                 .iter()
-                .map(|arg| canonicalize(arg, limit, visited))
+                .map(|arg| canonicalize(arg, budget, visited))
                 .collect::<Result<_, _>>()?,
         },
     })
+}
+
+/// Folds `Pow` of an exact literal base with a nonzero, non-unit integer
+/// exponent (`exponent == 0` and `exponent == 1` are handled by the caller)
+/// down to an exact literal, for example `5^2` to `25` and `(1/2)^-1` to `2`.
+///
+/// Any other base — a symbol, a compound expression, or a function call — is
+/// left as a structural `Pow` node: only *exact literal* bases fold.
+///
+/// `0^0` folds to the literal `1`, matching the existing convention in
+/// [`Expr::evaluate`] (`Rational::checked_pow` already treats a zero exponent
+/// as the empty product). A zero base raised to a negative exponent is a
+/// genuine division by exact zero and refuses with
+/// [`AlgebraError::DivisionByZero`], the same error `evaluate` reports for
+/// the identical construct.
+///
+/// The resulting magnitude is charged against `budget.max_coefficient_bits`:
+/// a conservative pre-check (exact exponentiation can only shrink a
+/// rational's bit size via reduction, never grow it beyond
+/// `|exponent| * base.bit_size()`) rejects runaway exponents before doing the
+/// expensive exact exponentiation, and a post-check catches any remaining
+/// case.
+fn fold_literal_power(
+    base: Expr,
+    exponent: i32,
+    budget: AlgebraBudget,
+) -> Result<Expr, AlgebraError> {
+    let Expr::Rational(value) = &base else {
+        return Ok(Expr::Pow {
+            base: Box::new(base),
+            exponent,
+        });
+    };
+    let estimated_bits = value
+        .bit_size()
+        .saturating_mul(u64::from(exponent.unsigned_abs()));
+    if estimated_bits > budget.max_coefficient_bits {
+        return Err(AlgebraError::CoefficientBits {
+            actual: estimated_bits,
+            limit: budget.max_coefficient_bits,
+        });
+    }
+    let folded = value
+        .checked_pow(exponent)
+        .ok_or(AlgebraError::DivisionByZero)?;
+    let actual_bits = folded.bit_size();
+    if actual_bits > budget.max_coefficient_bits {
+        return Err(AlgebraError::CoefficientBits {
+            actual: actual_bits,
+            limit: budget.max_coefficient_bits,
+        });
+    }
+    Ok(Expr::Rational(folded))
 }
 
 fn canonical_key(expr: &Expr) -> String {
