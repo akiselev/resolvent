@@ -44,7 +44,7 @@ impl<'de> Deserialize<'de> for AlgebraReceipt {
     }
 }
 
-fn valid_digest(digest: &str) -> bool {
+pub(crate) fn valid_digest(digest: &str) -> bool {
     digest.len() == 64
         && digest
             .bytes()

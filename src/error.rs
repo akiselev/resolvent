@@ -58,6 +58,11 @@ impl AlgebraWork {
         }
         Ok(())
     }
+
+    /// Total amount charged so far, for budget-report accounting.
+    pub(crate) fn used(&self) -> usize {
+        self.used
+    }
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]

@@ -103,8 +103,22 @@ pub struct ExactDecimal {
 }
 
 impl ExactDecimal {
+    /// Parse a decimal lexeme such as `"0.1"` or `"-1.230e2"` into its exact
+    /// canonical `coefficient * 10^-scale` form. Never rounds through `f64`.
     pub fn parse(text: &str) -> Result<Self, TermError> {
         parse_decimal(text).map(|(coefficient, scale)| Self { coefficient, scale })
+    }
+
+    /// Exact decimal `mantissa * 10^exponent`, canonicalized the same way as
+    /// [`ExactDecimal::parse`]. Never rounds through `f64`.
+    pub fn from_parts(mantissa: i128, exponent: i16) -> Result<Self, TermError> {
+        let negative = mantissa < 0;
+        let digits = mantissa.unsigned_abs().to_string();
+        let scale = i64::from(exponent)
+            .checked_neg()
+            .ok_or(TermError::InvalidAtom("exact decimal scale overflow"))?;
+        let (coefficient, scale) = normalize_exact_decimal(negative, digits, scale)?;
+        Ok(Self { coefficient, scale })
     }
 
     pub fn coefficient(&self) -> &str {
@@ -113,6 +127,20 @@ impl ExactDecimal {
 
     pub fn scale(&self) -> i64 {
         self.scale
+    }
+
+    /// The exact rational value `coefficient * 10^-scale`. Always exact:
+    /// exact decimals never carry rounding error, unlike [`PrecisionReal`].
+    pub fn to_rational(&self) -> Rational {
+        let coefficient = IBig::from_str(&self.coefficient)
+            .expect("ExactDecimal coefficient is validated canonical on construction");
+        if self.scale >= 0 {
+            let denominator = UBig::from(10u32).pow(self.scale as usize);
+            Rational::from(RBig::from_parts(coefficient, denominator))
+        } else {
+            let factor = IBig::from(10).pow((-self.scale) as usize);
+            Rational::from(RBig::from_parts(coefficient * factor, UBig::ONE))
+        }
     }
 }
 
@@ -181,8 +209,71 @@ pub enum Atom {
 }
 
 impl Atom {
+    /// Exact big integer from a canonical decimal lexeme (arbitrary precision).
     pub fn integer(text: &str) -> Result<Self, TermError> {
         Ok(Self::Integer(canonical_integer(text)?))
+    }
+
+    /// Exact integer atom from a host `i128`. Infallible: every `i128` value
+    /// has a canonical decimal spelling.
+    pub fn from_i128(value: i128) -> Self {
+        Self::Integer(value.to_string())
+    }
+
+    /// Exact rational atom. `Rational` is always already canonical (dashu's
+    /// `RBig` reduces to lowest terms), so this never fails.
+    pub fn from_rational(value: Rational) -> Self {
+        Self::Rational(value)
+    }
+
+    /// Exact decimal atom `mantissa * 10^exponent`. Never rounds through
+    /// `f64`; see [`ExactDecimal::from_parts`].
+    pub fn exact_decimal_from_parts(mantissa: i128, exponent: i16) -> Result<Self, TermError> {
+        Ok(Self::ExactDecimal(ExactDecimal::from_parts(
+            mantissa, exponent,
+        )?))
+    }
+
+    /// Exact decimal atom parsed from a lexeme such as `"0.1"`. Fails closed
+    /// on malformed input and never rounds through `f64`; a lexeme with
+    /// trailing fractional zeros (`"0.10"`) canonicalizes identically to its
+    /// stripped form (`"0.1"`), so both produce the same atom.
+    pub fn exact_decimal_from_lexeme(text: &str) -> Result<Self, TermError> {
+        Ok(Self::ExactDecimal(ExactDecimal::parse(text)?))
+    }
+
+    /// The exact rational value of this atom, or `None` when the atom has no
+    /// exact rational meaning (approximate, textual, or structural atoms).
+    ///
+    /// `Integer`, `Rational`, and `ExactDecimal` are the three *exact
+    /// literal* atom classes (RV1-C3): each converts losslessly to a
+    /// [`Rational`]. They remain **lexically distinct** Term atoms — an
+    /// integer `5`, a rational `5/1`, and a decimal `5.0` hash-cons to three
+    /// different [`TermId`]s and canonical byte encodings — while being
+    /// **mathematically equal**: this method returns the identical
+    /// `Rational` value `5` for all three. Every other atom kind
+    /// (`ExactIeee754Bits`, `MachineFloatBits`, `PrecisionReal`, `String`,
+    /// `Bytes`, `Symbol`, `Boolean`, `Constant`, `BoundVariable`) returns
+    /// `None`: those atoms are either approximate, non-numeric, or structural
+    /// and have no exact rational value.
+    pub fn exact_rational_value(&self) -> Option<Rational> {
+        match self {
+            Self::Integer(text) => {
+                let value = IBig::from_str(text).ok()?;
+                Some(Rational::from(RBig::from_parts(value, UBig::ONE)))
+            }
+            Self::Rational(value) => Some(value.clone()),
+            Self::ExactDecimal(value) => Some(value.to_rational()),
+            Self::ExactIeee754Bits(_)
+            | Self::MachineFloatBits(_)
+            | Self::PrecisionReal(_)
+            | Self::String(_)
+            | Self::Bytes(_)
+            | Self::Symbol(_)
+            | Self::Boolean(_)
+            | Self::Constant(_)
+            | Self::BoundVariable(_) => None,
+        }
     }
 }
 
@@ -506,6 +597,64 @@ impl TermStore {
 
     pub fn atom(&mut self, atom: Atom, budget: TermBudget) -> Result<TermId, TermError> {
         self.intern(TermNode::Atom(atom), budget)
+    }
+
+    /// Exact integer term from a host `i128` (RV1-C3 exact literal ingress).
+    pub fn exact_integer(&mut self, value: i128, budget: TermBudget) -> Result<TermId, TermError> {
+        self.atom(Atom::from_i128(value), budget)
+    }
+
+    /// Exact big-integer term from a canonical decimal lexeme, for magnitudes
+    /// beyond `i128` (RV1-C3 exact literal ingress).
+    pub fn exact_big_integer(
+        &mut self,
+        text: &str,
+        budget: TermBudget,
+    ) -> Result<TermId, TermError> {
+        self.atom(Atom::integer(text)?, budget)
+    }
+
+    /// Exact rational term (RV1-C3 exact literal ingress). `Rational` is
+    /// always already canonical.
+    pub fn exact_rational(
+        &mut self,
+        value: Rational,
+        budget: TermBudget,
+    ) -> Result<TermId, TermError> {
+        self.atom(Atom::from_rational(value), budget)
+    }
+
+    /// Exact decimal term `mantissa * 10^exponent` (RV1-C3 exact literal
+    /// ingress). Never rounds through `f64`.
+    pub fn exact_decimal(
+        &mut self,
+        mantissa: i128,
+        exponent: i16,
+        budget: TermBudget,
+    ) -> Result<TermId, TermError> {
+        self.atom(Atom::exact_decimal_from_parts(mantissa, exponent)?, budget)
+    }
+
+    /// Exact decimal term parsed from a lexeme such as `"0.1"` (RV1-C3 exact
+    /// literal ingress). Fails closed on malformed input; `"0.1"` becomes
+    /// exactly `1/10`, never the binary rational nearest to `0.1_f64`.
+    pub fn exact_decimal_lexeme(
+        &mut self,
+        text: &str,
+        budget: TermBudget,
+    ) -> Result<TermId, TermError> {
+        self.atom(Atom::exact_decimal_from_lexeme(text)?, budget)
+    }
+
+    /// The exact rational value of a term, when it is one of the exact
+    /// literal atom classes (RV1-C3 reverse query). `None` for every
+    /// non-atom node and every atom without exact rational meaning; see
+    /// [`Atom::exact_rational_value`].
+    pub fn exact_rational_value(&self, id: TermId) -> Result<Option<Rational>, TermError> {
+        Ok(match self.node(id)? {
+            TermNode::Atom(atom) => atom.exact_rational_value(),
+            _ => None,
+        })
     }
 
     pub fn node(&self, id: TermId) -> Result<TermNode, TermError> {
@@ -1341,11 +1490,23 @@ fn parse_decimal(text: &str) -> Result<(String, i64), TermError> {
     {
         return Err(TermError::InvalidAtom("invalid exact decimal"));
     }
-    let mut digits = format!("{whole}{fraction}");
-    let mut scale = i64::try_from(fraction.len())
+    let digits = format!("{whole}{fraction}");
+    let scale = i64::try_from(fraction.len())
         .map_err(|_| TermError::InvalidAtom("exact decimal scale overflow"))?
         .checked_sub(exponent)
         .ok_or(TermError::InvalidAtom("exact decimal scale overflow"))?;
+    normalize_exact_decimal(negative, digits, scale)
+}
+
+/// Strip trailing-zero digits (adjusting `scale` to compensate) and leading
+/// zeros, producing the canonical `(coefficient, scale)` pair shared by
+/// [`parse_decimal`] and [`ExactDecimal::from_parts`]. Trailing-zero decimal
+/// lexemes such as `"0.10"` and `"0.1"` normalize to the identical pair.
+fn normalize_exact_decimal(
+    negative: bool,
+    mut digits: String,
+    mut scale: i64,
+) -> Result<(String, i64), TermError> {
     while digits.len() > 1 && digits.ends_with('0') {
         digits.pop();
         scale = scale

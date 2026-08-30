@@ -65,6 +65,18 @@ impl Rational {
         (den != 0).then(|| Rational(RBig::from(num) / RBig::from(den)))
     }
 
+    /// From a wide integer (RV1-C3 exact literal ingress).
+    pub fn from_i128(i: i128) -> Rational {
+        Rational(RBig::from(IBig::from(i)))
+    }
+
+    /// From a wide numerator/denominator pair, or `None` when `den == 0`
+    /// (RV1-C3 exact literal ingress). Always exact and always canonical:
+    /// `RBig` division reduces to lowest terms.
+    pub fn try_from_ratio_i128(num: i128, den: i128) -> Option<Rational> {
+        (den != 0).then(|| Rational(RBig::from(IBig::from(num)) / RBig::from(IBig::from(den))))
+    }
+
     /// Borrow the underlying dashu value.
     pub fn as_rbig(&self) -> &RBig {
         &self.0

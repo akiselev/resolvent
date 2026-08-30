@@ -30,6 +30,7 @@
 
 #![forbid(unsafe_code)]
 
+mod algebra_term;
 pub mod bernstein;
 mod dual;
 pub mod eft;
@@ -52,6 +53,10 @@ pub mod sqrt_ext;
 mod term;
 pub mod uncertain;
 
+pub use algebra_term::{
+    OPERATOR_NAMESPACE, TermAlgebraBudgetReport, TermAlgebraError, TermAlgebraOperation,
+    TermAlgebraOutcome, TermAlgebraReceipt, TermAlgebraReceiptOperation, TermAlgebraRefusal,
+};
 pub use bernstein::Bernstein;
 pub use dual::Dual;
 pub use error::{AlgebraBudget, AlgebraError};
