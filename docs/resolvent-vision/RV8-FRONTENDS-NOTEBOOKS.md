@@ -176,7 +176,7 @@ Define structured display values independent of Jupyter MIME specifics:
 - domain/coercion inspector data;
 - plan/receipt/certificate inspector data.
 
-Resolvent owns the generic rich-display envelope. CADabra/Astoria/other extensions own domain-specific scene semantics rather than moving geometry/world models into the CAS core.
+Resolvent owns the generic rich-display envelope. Domain-specific extensions own their scene semantics rather than moving geometry/world models into the CAS core.
 
 ### RV8-E - Jupyter kernel
 
