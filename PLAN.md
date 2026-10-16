@@ -180,6 +180,11 @@ RV1, RV2, RV3, and RV4 have real dependencies but are not one monolithic serial 
 
 CADabra continues R2-R7 against the landed exact substrate while Resolvent hardening/term/domain work proceeds. Geometry/topology semantics never move down into Resolvent. Algebra requested by CADabra follows the minimum-prerequisite rule in the cross-roadmap contract.
 
+CADabra `PLAN.md` 2.0 (2026-10-15) requests, in order:
+- **R6Q (landed 2026-10-16):** `Rational::square_class` divides by the primes up to 1000 with word divisors and drops a perfect-square cofactor (`e77a705`); `two_prod` uses Dekker's split when built without FMA (`d974007`).
+- **R6F-1 (the CADabra decision layer):** `RunningError` (a running f64 error bound), `DdBound` (double-double with `RingOps` and `sign`), a stack-allocated expansion type, `adaptive_sign(PolyPredicate)` that escalates f64 + bound → double-double → exact expansion → rational, and overflow/underflow guards that escalate beyond 1e290/1e140 or below 2^-969. These are consumer-neutral numeric rungs; the geometric predicates, roles and ledger stay in CADabra.
+- **Later:** reconcile the double-double with the ported Parasolid `ALG_*` double-double (CADabra packet P2) once that packet lands.
+
 ### Scientia and Sinbad
 
 Scientia retains its canonical scientific semantic arena. Resolvent is an algebra service over projected mathematical subproblems, not the owner of Scientia's full expression identity. Sinbad's SV programs consume scientific artifacts through Scientia and do not wait for unrelated RV capability exits.

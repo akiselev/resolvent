@@ -108,6 +108,17 @@ the replaced crates and the stale unification experiment were deleted without
 an adapter, compatibility facade, or parallel backend. Geometry policy remains
 in CADabra and scientific meaning remains in Scientia.
 
+## CADabra R6 requests
+
+Landed for CADabra R6Q (2026-10-16): `square_class` over primes <= 1000 with
+word divisors and a square-cofactor drop (`e77a705`; a 209-bit f64-derived
+radicand takes 0.071 ms instead of 30.2 ms; its tag is not canonical, so
+consumers compare square classes by exact ratio), and the Dekker `two_prod`
+without FMA (`d974007`). Requested, not yet landed: the R6F-1 rungs
+(`RunningError`, `DdBound`, stack expansions, `adaptive_sign`, overflow
+guards) and the later `ALG_*` double-double reconciliation; see `PLAN.md`,
+"CADabra".
+
 ## Validation
 
 Passed locally on 2026-08-21 after the RV1-B2/B3/C1 slice:
