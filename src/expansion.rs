@@ -84,7 +84,11 @@ fn two_prod_dekker(a: f64, b: f64) -> Option<(f64, f64)> {
     if p.abs() >= SPLIT_MAX / 2.0 {
         // Rounded-up high halves could overflow `xh·yh`: compute the product
         // 2²⁸ smaller and scale both components back, exactly.
-        let (a, b) = if a.abs() >= b.abs() { (a * DOWN, b) } else { (a, b * DOWN) };
+        let (a, b) = if a.abs() >= b.abs() {
+            (a * DOWN, b)
+        } else {
+            (a, b * DOWN)
+        };
         let (p, e) = two_prod_dekker(a, b)?;
         return Some((p * UP, e * UP));
     }
@@ -236,8 +240,8 @@ mod tests {
     }
 
     fn exact_product_identity(a: f64, b: f64, p: f64, e: f64) -> bool {
-        use crate::exact::Rational;
         use crate::RingOps;
+        use crate::exact::Rational;
         let r = |x: f64| Rational::from_f64(x).expect("finite");
         r(a).mul(&r(b)) == r(p).add(&r(e)) && p == a * b
     }

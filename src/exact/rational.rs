@@ -378,7 +378,10 @@ mod tests {
     use core::cmp::Ordering;
 
     fn int(s: &str) -> Rational {
-        Rational(RBig::from_parts(s.parse().expect("integer"), dashu::integer::UBig::ONE))
+        Rational(RBig::from_parts(
+            s.parse().expect("integer"),
+            dashu::integer::UBig::ONE,
+        ))
     }
 
     /// The returned class always satisfies `self / s ∈ (ℚ*)²` and keeps the
@@ -399,11 +402,20 @@ mod tests {
         }
         assert_eq!(Rational::from_ratio(8, 3).square_class(), int("6"));
         assert_eq!(Rational::zero().square_class(), Rational::zero());
-        for x in [0.1f64, -1.0e-300, std::f64::consts::PI, 1.0e300, 2.0f64.sqrt()] {
+        for x in [
+            0.1f64,
+            -1.0e-300,
+            std::f64::consts::PI,
+            1.0e300,
+            2.0f64.sqrt(),
+        ] {
             let r = Rational::from_f64(x).expect("finite");
             let s = r.square_class();
             assert_eq!(s.sign(), r.sign(), "{x}");
-            assert!(r.div(&s).sqrt_exact().is_some(), "{x}: self/s is not a square");
+            assert!(
+                r.div(&s).sqrt_exact().is_some(),
+                "{x}: self/s is not a square"
+            );
         }
     }
 
