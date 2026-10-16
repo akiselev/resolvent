@@ -114,9 +114,21 @@ Landed for CADabra R6Q (2026-10-16): `square_class` over primes <= 1000 with
 word divisors and a square-cofactor drop (`e77a705`; a 209-bit f64-derived
 radicand takes 0.071 ms instead of 30.2 ms; its tag is not canonical, so
 consumers compare square classes by exact ratio), and the Dekker `two_prod`
-without FMA (`d974007`). Requested, not yet landed: the R6F-1 rungs
-(`RunningError`, `DdBound`, stack expansions, `adaptive_sign`, overflow
-guards) and the later `ALG_*` double-double reconciliation; see `PLAN.md`,
+without FMA (`d974007`).
+
+Landed for CADabra R6F-1a (2026-10-16, `2e46df7`, bench `81a332c`): the `rungs`
+module. `RunningError` (f64 plus a rigorous running bound that stays zero when
+every operation is exact), `DdBound` (double-double plus bound, `RingOps`,
+`sign`), `StackExpansion<N>` (exact, inline capacity, flags `must_escalate`
+instead of allocating), the `PolyPredicate` trait, and
+`adaptive_sign`/`adaptive_sign_from`/`eval_rung` returning
+`AdaptiveSign { sign, rung, margin }` over rungs 1 (bound), 2 (double-double),
+3 (expansion), 4 (`Rational`). Guards: values beyond 1e290, product operands
+beyond 1e140 and nonzero products below 2^-969 poison the inexact rungs. Only
+the Dekker product is used, so results are independent of the `fma` target
+feature. Soundness is property-tested against exact rational evaluation
+(`tests/adaptive_rungs.rs`); `benches/rungs.rs` reports per-rung cost. Still
+requested: the later `ALG_*` double-double reconciliation; see `PLAN.md`,
 "CADabra".
 
 ## Validation
