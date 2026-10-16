@@ -26,7 +26,7 @@ use crate::uncertain::Sign;
 ///
 /// With the `fma` target feature the error term is one hardware FMA. Without
 /// it, `mul_add` is a libm call, so the error term comes from Dekker's
-/// product over Veltkamp splits instead ([`two_prod_dekker`]); both give the
+/// product over Veltkamp splits instead (`two_prod_dekker`); both give the
 /// same `(p, e)` wherever this returns `Some`.
 #[inline]
 pub fn two_prod(a: f64, b: f64) -> Option<(f64, f64)> {
@@ -65,7 +65,7 @@ pub fn two_prod(a: f64, b: f64) -> Option<(f64, f64)> {
 /// multiple of `ulp(a)·ulp(b)`, which the `TWO_PROD_MIN` guard keeps at or
 /// above the smallest subnormal, so no partial product underflows.
 #[inline]
-fn two_prod_dekker(a: f64, b: f64) -> Option<(f64, f64)> {
+pub(crate) fn two_prod_dekker(a: f64, b: f64) -> Option<(f64, f64)> {
     const SPLIT_MAX: f64 = 6.696_928_794_914_171e299; // 2^996
     const DOWN: f64 = 3.725_290_298_461_914e-9; // 2^-28
     const UP: f64 = 268_435_456.0; // 2^28
