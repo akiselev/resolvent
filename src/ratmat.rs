@@ -226,6 +226,54 @@ impl Mat {
         Ok(m)
     }
 
+    /// The unique positive multiple whose entries are coprime integers; the
+    /// zero matrix is returned unchanged.
+    ///
+    /// Two matrices that differ by a positive rational factor give equal
+    /// results, so this is the canonical representative of a form up to
+    /// positive scale: it leaves every zero set, inertia and root order
+    /// unchanged while cutting coefficient bit size.
+    pub fn primitive_integer(&self) -> Mat {
+        use dashu::base::Gcd;
+        use dashu::integer::{IBig, UBig};
+        use dashu::rational::RBig;
+        let mut lcm = UBig::ONE;
+        for x in &self.a {
+            let d = x.as_rbig().denominator();
+            let g = (&lcm).gcd(d);
+            lcm = &lcm / &g * d;
+        }
+        let lcm = IBig::from(lcm);
+        let ints: Vec<IBig> = self
+            .a
+            .iter()
+            .map(|x| {
+                let r = x.as_rbig();
+                r.numerator() * &lcm / IBig::from(r.denominator().clone())
+            })
+            .collect();
+        let mut content = UBig::ZERO;
+        for x in &ints {
+            let magnitude = x.clone().into_parts().1;
+            if magnitude != UBig::ZERO {
+                content = (&content).gcd(&magnitude);
+            }
+        }
+        if content == UBig::ZERO {
+            return self.clone();
+        }
+        let content = IBig::from(content);
+        let a = ints
+            .iter()
+            .map(|x| Rational::from(RBig::from(x / &content)))
+            .collect();
+        Mat {
+            rows: self.rows,
+            cols: self.cols,
+            a,
+        }
+    }
+
     /// Scalar multiple.
     pub fn scale(&self, s: &Rational) -> Mat {
         let mut m = self.clone();
@@ -738,6 +786,18 @@ mod tests {
 
     fn r(i: i64) -> Rational {
         Rational::from_i64(i)
+    }
+
+    #[test]
+    fn primitive_integer_is_the_positive_scale_canonical_form() {
+        let m = Mat::from_rows(&[
+            vec![Rational::from_ratio(2, 3), r(0)],
+            vec![r(-4), Rational::from_ratio(10, 9)],
+        ]);
+        let p = m.primitive_integer();
+        assert_eq!(p, Mat::from_rows(&[vec![r(3), r(0)], vec![r(-18), r(5)]]));
+        assert_eq!(m.scale(&Rational::from_ratio(7, 13)).primitive_integer(), p);
+        assert_eq!(Mat::zeros(2, 2).primitive_integer(), Mat::zeros(2, 2));
     }
 
     #[test]
