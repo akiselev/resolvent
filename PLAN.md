@@ -183,7 +183,7 @@ CADabra continues R2-R7 against the landed exact substrate while Resolvent harde
 CADabra `PLAN.md` 2.0 (2026-10-15) requests, in order:
 - **R6Q (landed 2026-10-16):** `Rational::square_class` divides by the primes up to 1000 with word divisors and drops a perfect-square cofactor (`e77a705`); `two_prod` uses Dekker's split when built without FMA (`d974007`).
 - **R6F-1a (landed 2026-10-16, `2e46df7`):** `RunningError` (a running f64 error bound), `DdBound` (double-double with `RingOps` and `sign`), a stack-allocated expansion type, `adaptive_sign(PolyPredicate)` that escalates f64 + bound → double-double → exact expansion → rational, and overflow/underflow guards that escalate beyond 1e290/1e140 or below 2^-969, in `src/rungs/`. These are consumer-neutral numeric rungs; the geometric predicates, roles and ledger (R6F-1b) stay in CADabra.
-- **Later:** reconcile the double-double with the ported Parasolid `ALG_*` double-double (CADabra packet P2) once that packet lands.
+- **Reconciled 2026-10-16 with Parasolid's `ALG_quad`** (parasolid-re `77cedf8`, P1 item d). `ALG_quad` is FMA-free double-double with a Veltkamp split (S = 2^27+1). Its two_prod is bit-identical to `DdBound`'s Dekker product after renormalisation (0/20000 mismatches). Its dd×dd is QD sloppy mul, with no lo·lo term, which differs in the last bit about 6.7% of the time (max relative error 2^-104.3). `DdBound` stays as it is, because its rigorous bound covers either arithmetic. A CADabra port that must reproduce Parasolid's dd results bit for bit transliterates `ALG_quad` in its own `ported/` tree, so nothing changes here.
 
 ### Scientia and Sinbad
 

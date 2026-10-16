@@ -127,9 +127,9 @@ instead of allocating), the `PolyPredicate` trait, and
 beyond 1e140 and nonzero products below 2^-969 poison the inexact rungs. Only
 the Dekker product is used, so results are independent of the `fma` target
 feature. Soundness is property-tested against exact rational evaluation
-(`tests/adaptive_rungs.rs`); `benches/rungs.rs` reports per-rung cost. Still
-requested: the later `ALG_*` double-double reconciliation; see `PLAN.md`,
-"CADabra".
+(`tests/adaptive_rungs.rs`); `benches/rungs.rs` reports per-rung cost. The
+`ALG_*` double-double reconciliation is done and needs no code change (see
+`PLAN.md`, "CADabra").
 
 ## Validation
 
