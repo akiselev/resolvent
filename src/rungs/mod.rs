@@ -123,12 +123,18 @@ fn round_up_bound(sum: f64, may_underflow: bool) -> f64 {
     }
 }
 
-/// A rung of the decision ladder. Rung 0 (structural) is a consumer's: it is
-/// read from a definition, not computed, so no driver here ever produces it
-/// and [`eval_rung`] reports it as inconclusive.
+/// A rung of the decision ladder, cheapest first.
+///
+/// Rungs 1-4 evaluate the predicate at increasing precision. Rung 0
+/// ([`Rung::Structural`]) is the slot for a sign the consumer settles *before*
+/// evaluation: a proof from how the inputs were built, or a cached or hinted
+/// earlier decision. The drivers here never produce it, and [`eval_rung`]
+/// reports it as inconclusive; it exists so a consumer's ledger can record
+/// every decision on one ladder.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Rung {
-    /// Read from the consumer's definition: shared datums, shared frames.
+    /// Settled by the consumer without evaluating the predicate (structure,
+    /// cache or hint).
     Structural = 0,
     /// `f64` plus a running error bound.
     Bound = 1,
