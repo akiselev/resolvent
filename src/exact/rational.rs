@@ -112,15 +112,21 @@ impl Rational {
         Some(Rational(RBig::from_parts(IBig::from(sn), sd)))
     }
 
-    /// The **square class** of a nonzero rational: the squarefree integer `s`
-    /// with `self = s·q²` for some `q ∈ ℚ`. This is the `δ` that names the
+    /// The **square class** of a nonzero rational: an integer `s` with
+    /// `self = s·q²` for some `q ∈ ℚ`. This is the `δ` that names the
     /// quadratic extension `ℚ(√self) = ℚ(√δ)`.
     ///
-    /// Factoring is by trial division and is **capped**: an unfactored cofactor
-    /// is carried into `s` unchanged, so the returned `s` always satisfies
-    /// `self/s ∈ (ℚ*)²` but need not be squarefree when the cofactor has two
-    /// equal large prime factors. Zero maps to zero.
+    /// Factoring is by trial division with the primes up to 1000, after
+    /// which a cofactor that is itself a perfect square is dropped. Any other
+    /// cofactor is carried into `s` unchanged, so `s` always satisfies
+    /// `self/s ∈ (ℚ*)²` and keeps the sign of `self`, but it is squarefree
+    /// (and so canonical) only when the cofactor has no repeated prime
+    /// factor. **Two values in the same class can therefore get different
+    /// `s`**: decide whether `ℚ(√a) = ℚ(√b)` by `a/b` being a square
+    /// ([`Rational::sqrt_exact`]), never by comparing square classes. Zero
+    /// maps to zero.
     pub fn square_class(&self) -> Rational {
+        use dashu::base::SquareRootRem;
         use dashu::integer::{IBig, UBig};
         if self.sign() == Sign::Zero {
             return Rational::zero();
@@ -130,20 +136,23 @@ impl Rational {
         let neg = prod.sign() == DSign::Negative;
         let mut m: UBig = UBig::try_from(if neg { -prod } else { prod }).unwrap_or(UBig::ONE);
         let mut out = UBig::ONE;
-        let mut p = UBig::from(2u8);
-        let cap = UBig::from(100_000u32);
-        while &p * &p <= m && p <= cap {
-            let mut e = 0u32;
-            while (&m % &p) == UBig::ZERO {
-                m /= &p;
-                e += 1;
+        for &p in square_class_primes() {
+            if UBig::from(p * p) > m {
+                break;
             }
-            if e % 2 == 1 {
-                out *= &p;
+            let mut odd = false;
+            while (&m % p) == 0 {
+                m /= p;
+                odd = !odd;
             }
-            p += UBig::ONE;
+            if odd {
+                out *= p;
+            }
         }
-        out *= m;
+        let (root, rem) = m.sqrt_rem();
+        if rem != UBig::ZERO || root == UBig::ZERO {
+            out *= m;
+        }
         let i = IBig::from(out);
         Rational(RBig::from_parts(if neg { -i } else { i }, UBig::ONE))
     }
@@ -255,6 +264,31 @@ impl From<RBig> for Rational {
     }
 }
 
+/// Largest trial divisor of [`Rational::square_class`]. Trial division by
+/// every integer up to 100 000 with bignum divisors was about half of all
+/// quadric-pencil time on f64-derived input (cadabra3
+/// `docs/plan/rethink-2026-10/fastpath.md`); primes up to 1000 with word
+/// divisors cost about 0.04 ms per call there.
+const SQUARE_CLASS_TRIAL_BOUND: u64 = 1000;
+
+fn square_class_primes() -> &'static [u64] {
+    static PRIMES: std::sync::OnceLock<Vec<u64>> = std::sync::OnceLock::new();
+    PRIMES.get_or_init(|| {
+        let n = SQUARE_CLASS_TRIAL_BOUND as usize;
+        let mut composite = vec![false; n + 1];
+        let mut primes = Vec::new();
+        for i in 2..=n {
+            if !composite[i] {
+                primes.push(i as u64);
+                for j in (i * i..=n).step_by(i) {
+                    composite[j] = true;
+                }
+            }
+        }
+        primes
+    })
+}
+
 impl RingOps for Rational {
     fn zero() -> Self {
         Rational(RBig::ZERO)
@@ -342,6 +376,46 @@ mod tests {
     use super::*;
     use crate::uncertain::Uncertain;
     use core::cmp::Ordering;
+
+    fn int(s: &str) -> Rational {
+        Rational(RBig::from_parts(s.parse().expect("integer"), dashu::integer::UBig::ONE))
+    }
+
+    /// The returned class always satisfies `self / s ∈ (ℚ*)²` and keeps the
+    /// sign; for inputs whose prime factors all lie inside the trial range it
+    /// is the canonical squarefree integer.
+    #[test]
+    fn square_class_contract() {
+        let cases: &[(&str, &str)] = &[
+            ("8", "2"),
+            ("-12", "-3"),
+            ("1", "1"),
+            ("36", "1"),
+            ("720", "5"),
+            ("3", "3"),
+        ];
+        for (x, s) in cases {
+            assert_eq!(int(x).square_class(), int(s), "{x}");
+        }
+        assert_eq!(Rational::from_ratio(8, 3).square_class(), int("6"));
+        assert_eq!(Rational::zero().square_class(), Rational::zero());
+        for x in [0.1f64, -1.0e-300, std::f64::consts::PI, 1.0e300, 2.0f64.sqrt()] {
+            let r = Rational::from_f64(x).expect("finite");
+            let s = r.square_class();
+            assert_eq!(s.sign(), r.sign(), "{x}");
+            assert!(r.div(&s).sqrt_exact().is_some(), "{x}: self/s is not a square");
+        }
+    }
+
+    /// A cofactor left after trial division that is itself a perfect square
+    /// is stripped, so a large repeated prime does not end up in the class.
+    #[test]
+    fn square_class_strips_square_cofactor() {
+        // 100003 is prime and above every trial-division bound.
+        assert_eq!(int("30001800027").square_class(), int("3")); // 3·100003²
+        assert_eq!(int("1018081").square_class(), int("1")); // 1009²
+        assert_eq!(int("-2036162").square_class(), int("-2")); // -2·1009²
+    }
 
     #[test]
     fn from_f64_rejects_nonfinite() {
