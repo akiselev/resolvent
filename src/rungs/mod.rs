@@ -123,9 +123,13 @@ fn round_up_bound(sum: f64, may_underflow: bool) -> f64 {
     }
 }
 
-/// A rung of the adaptive ladder. Rung 0 (structural) is the consumer's.
+/// A rung of the decision ladder. Rung 0 (structural) is a consumer's: it is
+/// read from a definition, not computed, so no driver here ever produces it
+/// and [`eval_rung`] reports it as inconclusive.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Rung {
+    /// Read from the consumer's definition: shared datums, shared frames.
+    Structural = 0,
     /// `f64` plus a running error bound.
     Bound = 1,
     /// Double-double plus a bound.
@@ -257,6 +261,7 @@ pub fn eval_rung<P: PolyPredicate>(
 ) -> Result<Option<AdaptiveSign>, AdaptiveError> {
     validate(p, inputs)?;
     Ok(match rung {
+        Rung::Structural => None,
         Rung::Bound => {
             let v = p.eval(&lifted::<RunningError>(inputs));
             match v.sign() {
