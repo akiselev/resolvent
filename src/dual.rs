@@ -84,7 +84,7 @@
 //! `design → geometry → mesh → field → QoI → gradient`. That is the larger
 //! follow-on; forward-mode [`Dual`] here is the bounded first rung.
 
-use crate::{ApproxScalar, Scalar};
+use crate::{ApproxScalar, RingOps, Scalar};
 use core::cmp::Ordering;
 use core::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -96,20 +96,24 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 /// this module's documentation for the design (comparison on the standard part, the
 /// O(#params) boundary, and the reverse-mode follow-on).
 #[derive(Clone, Debug)]
-pub struct Dual<S: Scalar> {
+pub struct Dual<S> {
     /// The value (the *standard part*).
     pub value: S,
     /// The first-order derivative (the *tangent*) carried alongside the value.
     pub deriv: S,
 }
 
-impl<S: Scalar> Dual<S> {
-    /// A dual number with an explicit value and derivative.
+impl<S> Dual<S> {
+    /// A dual number with an explicit value and derivative. Needs no bound on
+    /// `S`, so it also builds duals over scalars that implement only
+    /// [`RingOps`](crate::RingOps).
     #[inline]
     pub fn new(value: S, deriv: S) -> Self {
         Dual { value, deriv }
     }
+}
 
+impl<S: Scalar> Dual<S> {
     /// A **constant** input: value `v`, derivative `0`. Use for every input the
     /// output is *not* being differentiated with respect to.
     #[inline]
@@ -212,6 +216,64 @@ impl<S: Scalar> Neg for Dual<S> {
         Dual {
             value: -self.value,
             deriv: -self.deriv,
+        }
+    }
+}
+
+/// The ring surface of a dual number, for any `S` that has one.
+///
+/// This is the whole of what a generic ring formula (a vector algebra, an
+/// evaluator written against [`RingOps`]) needs, so it carries derivatives
+/// through scalars that are not a full [`Scalar`] (for example an exact
+/// rational whose division is fallible). Sum, difference and negation act
+/// componentwise; the product is `(a, a')·(b, b') = (ab, ab' + a'b)`. Nesting
+/// works: `Dual<Dual<S>>` carries a second-order derivative.
+impl<S: RingOps> RingOps for Dual<S> {
+    #[inline]
+    fn zero() -> Self {
+        Dual {
+            value: S::zero(),
+            deriv: S::zero(),
+        }
+    }
+
+    #[inline]
+    fn from_i32(i: i32) -> Self {
+        Dual {
+            value: S::from_i32(i),
+            deriv: S::zero(),
+        }
+    }
+
+    #[inline]
+    fn add(&self, rhs: &Self) -> Self {
+        Dual {
+            value: self.value.add(&rhs.value),
+            deriv: self.deriv.add(&rhs.deriv),
+        }
+    }
+
+    #[inline]
+    fn sub(&self, rhs: &Self) -> Self {
+        Dual {
+            value: self.value.sub(&rhs.value),
+            deriv: self.deriv.sub(&rhs.deriv),
+        }
+    }
+
+    #[inline]
+    fn mul(&self, rhs: &Self) -> Self {
+        Dual {
+            value: self.value.mul(&rhs.value),
+            deriv: self.value.mul(&rhs.deriv).add(&self.deriv.mul(&rhs.value)),
+        }
+    }
+
+    #[inline]
+    fn neg(&self) -> Self {
+        Dual {
+            value: self.value.neg(),
+            deriv: self.deriv.neg(),
         }
     }
 }
@@ -356,7 +418,7 @@ mod tests {
     fn quotient_rule() {
         // f(x) = (2x) / (x + 1); f'(x) = 2 / (x+1)^2. At x = 3 → 2/16 = 0.125
         let x = D::variable(3.0);
-        let num = D::from_i32(2) * x.clone();
+        let num = <D as Scalar>::from_i32(2) * x.clone();
         let den = x + D::one();
         let f = num / den;
         assert!((f.value() - 6.0 / 4.0).abs() < 1e-12);
@@ -421,5 +483,80 @@ mod tests {
         let y = poly(D::variable(2.0));
         assert_eq!(y.value(), 6.0); // 8 - 2
         assert_eq!(y.deriv(), 11.0); // 3·4 - 1
+    }
+
+    /// `p(x, y) = x*x*y - 3*x + y*y`, written against `RingOps` only.
+    fn ring_poly<R: RingOps>(x: &R, y: &R) -> R {
+        let xx = RingOps::mul(x, x);
+        let t = RingOps::mul(&xx, y);
+        let u = RingOps::mul(&R::from_i32(3), x);
+        let w = RingOps::mul(y, y);
+        RingOps::add(&RingOps::sub(&t, &u), &w)
+    }
+
+    #[test]
+    fn ringops_identities() {
+        let a = Dual::new(2.0_f64, 5.0);
+        let b = Dual::new(-3.0_f64, 7.0);
+        let z = <D as RingOps>::zero();
+        assert_eq!(RingOps::add(&a, &z).deriv, a.deriv);
+        let one = <D as RingOps>::from_i32(1);
+        let m = RingOps::mul(&a, &one);
+        assert_eq!((m.value, m.deriv), (2.0, 5.0));
+        // product rule: (ab)' = a'b + ab'
+        let p = RingOps::mul(&a, &b);
+        assert_eq!((p.value, p.deriv), (-6.0, 5.0 * -3.0 + 2.0 * 7.0));
+        let d = RingOps::sub(&a, &a);
+        assert_eq!((d.value, d.deriv), (0.0, 0.0));
+        let n = RingOps::add(&a, &RingOps::neg(&a));
+        assert_eq!((n.value, n.deriv), (0.0, 0.0));
+        let ba = RingOps::mul(&b, &a);
+        assert_eq!((p.value, p.deriv), (ba.value, ba.deriv));
+        let c = Dual::new(0.5_f64, -1.0);
+        let l = RingOps::mul(&a, &RingOps::add(&b, &c));
+        let r = RingOps::add(&RingOps::mul(&a, &b), &RingOps::mul(&a, &c));
+        assert_eq!((l.value, l.deriv), (r.value, r.deriv));
+    }
+
+    #[test]
+    fn ringops_exact_over_rational() {
+        use crate::Rational;
+        let x = Dual::new(Rational::from_ratio(3, 2), Rational::from_i32(1));
+        let y = Dual::new(Rational::from_ratio(-1, 3), Rational::from_i32(0));
+        let p = ring_poly(&x, &y);
+        // p = x^2 y - 3x + y^2, so dp/dx = 2xy - 3.
+        let want_v = Rational::from_ratio(9, 4)
+            .mul(&Rational::from_ratio(-1, 3))
+            .sub(&Rational::from_ratio(9, 2))
+            .add(&Rational::from_ratio(1, 9));
+        let want_d = Rational::from_i32(2)
+            .mul(&Rational::from_ratio(3, 2))
+            .mul(&Rational::from_ratio(-1, 3))
+            .sub(&Rational::from_i32(3));
+        assert_eq!(p.value, want_v);
+        assert_eq!(p.deriv, want_d);
+    }
+
+    #[test]
+    fn ringops_nested_dual_second_derivative() {
+        // f(x) = x^3 at x = 2: f' = 12, f'' = 12.
+        type DD = Dual<Dual<f64>>;
+        let x: DD = Dual::new(Dual::new(2.0, 1.0), Dual::new(1.0, 0.0));
+        let x3 = RingOps::mul(&RingOps::mul(&x, &x), &x);
+        assert_eq!(x3.value.value, 8.0);
+        assert_eq!(x3.value.deriv, 12.0);
+        assert_eq!(x3.deriv.value, 12.0);
+        assert_eq!(x3.deriv.deriv, 12.0);
+    }
+
+    #[test]
+    fn ringops_agrees_with_scalar_arithmetic() {
+        let x = D::new(1.25, 1.0);
+        let y = D::new(-0.75, 0.0);
+        let by_ring = ring_poly(&x, &y);
+        let by_ops = x.clone() * x.clone() * y.clone() - <D as Scalar>::from_i32(3) * x.clone()
+            + y.clone() * y;
+        assert_eq!(by_ring.value, by_ops.value);
+        assert_eq!(by_ring.deriv, by_ops.deriv);
     }
 }
